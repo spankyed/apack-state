@@ -5,3 +5,7 @@ dist/
 .temp/
 reports/
 .stryker-tmp/
+
+# What vitest writes when a check fails in a window: never kept
+checks/__screenshots__/
+.vitest-attachments/

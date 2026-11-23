@@ -42,7 +42,8 @@ export default defineConfig({
           // One file at a time: files run side by side share one page's thread, and what the Vue checks count is what
           // renders between its turns.
           fileParallelism: false,
-          browser: { enabled: true, provider: playwright(), headless: true, instances: [{ browser: 'chromium' }] },
+          // A check that fails says why in what it throws; a picture of a page the checks draw nothing on says nothing.
+          browser: { enabled: true, provider: playwright(), headless: true, screenshotFailures: false, instances: [{ browser: 'chromium' }] },
         },
       },
     ],
