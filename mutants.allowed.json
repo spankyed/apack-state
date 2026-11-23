@@ -1,522 +1,697 @@
 [
   {
     "key": "src/draft.ts | BooleanLiteral | if (typeof value !== 'object' || value === null) return false | true",
+    "original": "false",
     "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
   },
   {
     "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
+    "original": "typeof value !== 'object' || value === null",
+    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
+  },
+  {
+    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
+    "original": "typeof value !== 'object'",
+    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
+  },
+  {
+    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
+    "original": "value === null",
     "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
   },
   {
     "key": "src/draft.ts | LogicalOperator | if (typeof value !== 'object' || value === null) return false | typeof value !== 'object' && value === null",
+    "original": "typeof value !== 'object' || value === null",
     "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
   },
   {
     "key": "src/draft.ts | ArrayDeclaration | return new Proxy(isArray ? [] : {}, { | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "The proxy's target is never read: every trap answers from the node, and an array target is only there so that Array.isArray and the length's descriptor hold. An element on it is seen by nothing"
   },
   {
     "key": "src/draft.ts | ConditionalExpression | if (typeof key === 'symbol' || typeof value !== 'object' || value === null) return value | false",
+    "original": "typeof key === 'symbol'",
     "why": "State data is plain and has no symbol keys, so nothing a state reads is an object under a symbol: whether a draft hands one out as itself or as a draft is seen by nothing"
   },
   {
     "key": "src/draft.ts | StringLiteral | if (typeof key === 'symbol' || typeof value !== 'object' || value === null) return value | \"\"",
+    "original": "'symbol'",
     "why": "State data is plain and has no symbol keys, so nothing a state reads is an object under a symbol: whether a draft hands one out as itself or as a draft is seen by nothing"
   },
   {
     "key": "src/draft.ts | ConditionalExpression | if (held && held.node.base === value) return held.proxy | true",
+    "original": "held.node.base === value",
     "why": "A held draft whose base is no longer what its parent holds happens only after the parent was itself placed elsewhere in the same edit, which settles it into one object shared by both places. Handing out the old draft then differs only in which of two aliases a later edit reaches, which no state can rely on either way"
   },
   {
     "key": "src/schedule.ts | ObjectLiteral | breaks: (label, error) => new Promise((_, reject) => { into({ label }, { what: label, run: () => reject(error) }) }), | {}",
+    "original": "{ label }",
     "why": "A lane is told apart from others by being its own object; only a lane given to later is ever asked its label. The label of a lane made by does, work or breaks is read by nothing"
   },
   {
     "key": "src/schedule.ts | ObjectLiteral | does: (label, ...steps) => { const lane: Lane = { label }; for (const [what, run] of steps) into(lane, { what: `${label}: ${what}`, run }) }, | {}",
+    "original": "{ label }",
     "why": "A lane is told apart from others by being its own object; only a lane given to later is ever asked its label. The label of a lane made by does, work or breaks is read by nothing"
   },
   {
     "key": "src/schedule.ts | ObjectLiteral | work: (label, value) => new Promise((resolve) => { into({ label }, { what: label, run: () => resolve(value) }) }), | {}",
+    "original": "{ label }",
     "why": "A lane is told apart from others by being its own object; only a lane given to later is ever asked its label. The label of a lane made by does, work or breaks is read by nothing"
   },
   {
     "key": "src/schedule.ts | OptionalChaining | turn.port1.on('message', () => { const resolve = onTurn; onTurn = undefined; resolve?.() }) | resolve()",
+    "original": "resolve?.()",
     "why": "One message is posted for each wait, after the wait has set what it resolves, and runs do not overlap; so the handler always finds something to call, and the optional call never skips"
   },
   {
     "key": "src/schedule.ts | EqualityOperator | if (made.taken.length >= RUNAWAY) throw new Error(`Still going after ${RUNAWAY} things: something never comes to rest`) | made.taken.length > RUNAWAY",
+    "original": "made.taken.length >= RUNAWAY",
     "why": "Where exactly the runaway limit falls, at ten thousand things run or one more: a spec can hold that a run that never comes to rest is stopped and says so, not the count it was stopped at"
   },
   {
     "key": "src/schedule.ts | BlockStatement | } catch (error) { made.error = error } finally { turn.port1.unref() } | {}",
+    "original": "{ turn.port1.unref() }",
     "why": "Unref after a run only lets the process exit without waiting on the channel; the specs' runner ends its workers itself, so whether the channel keeps one alive is seen by nothing a spec can check"
   },
   {
     "key": "src/schedule.ts | ConditionalExpression | while (last >= 0 && made.choices[last]! + 1 >= made.counts[last]!) last-- | true",
+    "original": "last >= 0",
     "why": "The guard on last is not needed: at last = -1 the choice and count read are undefined, so the comparison is false and the loop stops there anyway"
   },
   {
     "key": "src/schedule.ts | ArithmeticOperator | const random = (): number => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } | state - 0x6d2b79f5",
+    "original": "state + 0x6d2b79f5",
     "why": "Which orderings a seed names is the generator's own: a spec can hold that one seed names the same orderings every time and another seed others, and the changed generator does both"
   },
   {
     "key": "src/schedule.ts | ArithmeticOperator | const random = (): number => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } | t - Math.imul(t ^ t >>> 7, t | 61)",
+    "original": "t + Math.imul(t ^ (t >>> 7), t | 61)",
     "why": "Which orderings a seed names is the generator's own: a spec can hold that one seed names the same orderings every time and another seed others, and the changed generator does both"
   },
   {
     "key": "src/types.ts | BooleanLiteral | export function answered<V, X>(answer: V, next: X): Answered<V, X> { return { [ANSWERED]: true, answer, next } } | false",
+    "original": "true",
     "why": "The kernel tells an answer that changes something by whether the mark is there (ANSWERED in made), never by its value, so true and false mark it alike"
   },
   {
     "key": "src/vue.ts | ConditionalExpression | if (getCurrentScope()) onScopeDispose(() => { if (held) all.release(held); held = undefined }) | true",
+    "original": "getCurrentScope()",
+    "why": "Two mutants. useState is called in a component's setup, where there is always a scope; with none, Vue's onScopeDispose only warns in development, which is all calling it anyway would change. And Vue runs a scope's dispose callbacks once, while held is still set, so the guard inside is never false"
+  },
+  {
+    "key": "src/vue.ts | ConditionalExpression | if (getCurrentScope()) onScopeDispose(() => { if (held) all.release(held); held = undefined }) | true",
+    "original": "held",
     "why": "Two mutants. useState is called in a component's setup, where there is always a scope; with none, Vue's onScopeDispose only warns in development, which is all calling it anyway would change. And Vue runs a scope's dispose callbacks once, while held is still set, so the guard inside is never false"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (typeof now === 'boolean') { if (into[name] !== now) into[name] = now; continue } | true",
+    "original": "into[name] !== now",
     "why": "A reactive write of the value already there triggers nothing in Vue, so writing it when it is unchanged is seen by no reader"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | for (const key of Object.keys(now)) if (!keys[key]) keys[key] = true | true",
+    "original": "!keys[key]",
     "why": "A reactive write of the value already there triggers nothing in Vue, so writing it when it is unchanged is seen by no reader"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.moved) into.whole.at = latest.at | true",
+    "original": "changes[ref]?.moved",
     "why": "Writing where the state is when it did not move writes the value already there, which triggers nothing in Vue"
   },
   {
     "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.making && into.making && latest.making) follow(into.making, latest.making) | changes[ref]?.making && into.making || latest.making",
+    "original": "changes[ref]?.making && into.making && latest.making",
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.making && into.making && latest.making) follow(into.making, latest.making) | true",
+    "original": "changes[ref]?.making && into.making",
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
   },
   {
     "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.making && into.making && latest.making) follow(into.making, latest.making) | changes[ref]?.making || into.making",
+    "original": "changes[ref]?.making && into.making",
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
   },
   {
     "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "With no fields replaced, the loop is over a field that is not in the data, so it deletes a key the mirror does not have, which writes nothing"
   },
   {
     "key": "src/mirror.ts | ObjectLiteral | shared = { ref, box: shallowReactive<{ now: Shown | undefined }>({ now: undefined }), readers: 0 } | {}",
+    "original": "{ now: undefined }",
     "why": "A shallowReactive object tracks a key read before it exists, and triggers when it is first written, so the box starting without now is read the same"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (--shared.readers > 0 || byRef.get(shared.ref) !== shared) return | false",
+    "original": "byRef.get(shared.ref) !== shared",
     "why": "Each reader is let go once (a mirror's stop and useState's dispose each forget what they held), so a release never finds its ref held by another mirror; the second half of the guard is never what decides"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | false",
+    "original": "!byRef.size",
     "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
   },
   {
     "key": "src/mirror.ts | BlockStatement | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | {}",
+    "original": "{ unsubscribe?.(); unsubscribe = undefined }",
     "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
   },
   {
     "key": "src/mirror.ts | OptionalChaining | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | unsubscribe()",
+    "original": "unsubscribe?.()",
     "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | kept = index < names.length - 1 && kept?.inside?.name === name ? kept.inside : undefined | kept?.inside.name",
+    "original": "kept?.inside?.name",
     "why": "Every state with states inside it has a start, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | while (shared < names.length - 1 && kept.inside?.name === names[shared]) { kept = kept.inside!; shared++ } | kept.inside.name",
+    "original": "kept.inside?.name",
     "why": "Every state with states inside it has a start, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
   },
   {
     "key": "src/kernel.ts | StringLiteral | path = `${path}.${def.start}` | ``",
+    "original": "`${path}.${def.start}`",
     "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | def = def.states?.[def.start] ?? {} | def.states[def.start]",
+    "original": "def.states?.[def.start]",
     "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (problem) return problem | false",
+    "original": "problem",
     "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (kept.inside) exit(kept.inside) | true",
+    "original": "kept.inside",
     "why": "The last state a move keeps always has one inside it, since it has states (the path goes on below it) and so a start: there is always something to leave, and the guard is never false"
   },
   {
     "key": "src/kernel.ts | ObjectLiteral | const frames: Lane = { label: `${called}'s frame` } | {}",
+    "original": "{ label: `${called}'s frame` }",
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
     "key": "src/kernel.ts | StringLiteral | const frames: Lane = { label: `${called}'s frame` } | ``",
+    "original": "`${called}'s frame`",
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
     "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
+    "original": "`${called} to its backend`",
+    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
+    "original": "`the backend to ${called}`",
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const send of toWindows.splice(0, count)) safely('what is sent to a window', send) | \"\"",
+    "original": "'what is sent to a window'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const each of gathered.splice(0)) if (!each.signal?.aborted) safely('what hears progress', () => each.hears(each.updates)) | \"\"",
+    "original": "'what hears progress'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release) | ``",
+    "original": "`a release of ${active.top.ref}`",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const item of waiting.splice(0)) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why))) | \"\"",
+    "original": "'answering an ask that will not be taken'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) if (leave.lost) safely('what leaves at the commit', leave.lost) | \"\"",
+    "original": "'what leaves at the commit'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves as it stops', leave) | \"\"",
+    "original": "'what leaves as it stops'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
+    "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) }) | \"\"",
+    "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves at the commit', leave) | \"\"",
+    "original": "'what leaves at the commit'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (!mine) { trace(`nothing to tell ${ref}: not connected`); return } | ``",
+    "original": "`nothing to tell ${ref}: not connected`",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (!starter) { trace(`${ref} was started by nothing, so it has nobody to report ${event.type} to`); return } | ``",
+    "original": "`${ref} was started by nothing, so it has nobody to report ${event.type} to`",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (path) trace(`${top.ref} entered ${path}`) | true",
+    "original": "path",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (path) trace(`${top.ref} entered ${path}`) | false",
+    "original": "path",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (path) trace(`${top.ref} entered ${path}`) | ``",
+    "original": "`${top.ref} entered ${path}`",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (active.path) trace(`${active.top.ref} left ${active.path}`) | true",
+    "original": "active.path",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (active.path) trace(`${active.top.ref} left ${active.path}`) | false",
+    "original": "active.path",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (active.path) trace(`${active.top.ref} left ${active.path}`) | ``",
+    "original": "`${active.top.ref} left ${active.path}`",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key)) | \"\"",
+    "original": "'follow'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => declared.args(key)) | \"\"",
+    "original": "'await'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
     "key": "src/kernel.ts | StringLiteral | return () => gone.abort(new Error('Whoever asked has gone')) | \"\"",
+    "original": "'Whoever asked has gone'",
     "why": "The reason a handler's signal is aborted with when its asker goes: what is said is that it was aborted, which it is either way; the reason's words are wording"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | end(outcome: AnyOutcome): void { if (!this.settled) { this.settled = true; this.settle(outcome) } } | true",
+    "original": "!this.settled",
     "why": "A question is ended by resolving a promise, here or across a link to one; a second end resolves it again, which a promise ignores, so whether the guard holds is seen by nothing"
   },
   {
     "key": "src/kernel.ts | BooleanLiteral | end(outcome: AnyOutcome): void { if (!this.settled) { this.settled = true; this.settle(outcome) } } | false",
+    "original": "true",
     "why": "A question is ended by resolving a promise, here or across a link to one; a second end resolves it again, which a promise ignores, so whether the guard holds is seen by nothing"
   },
   {
     "key": "src/kernel.ts | EqualityOperator | if (cut < 0) making[id] = true; else (making[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true | cut <= 0",
+    "original": "cut < 0",
     "why": "An id that a make is kept under starts with the ask's declared name, which is never empty, so a slash is never its first character"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const isSurface = (to: unknown): to is { surface: string } => typeof to === 'object' && to !== null && 'surface' in to | true",
+    "original": "to !== null",
     "why": "What is told is a name, a handle or a surface, never null (the types say so), so the null test never decides"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
+    "original": "!signal?.aborted",
     "why": "When the asker's signal is aborted the ask has already been rejected with Left (the abort listener runs first), so resolving it after does nothing"
   },
   {
     "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', left, { once: true }) | {}",
+    "original": "{ once: true }",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
     "key": "src/kernel.ts | BooleanLiteral | signal?.addEventListener('abort', left, { once: true }) | false",
+    "original": "true",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
     "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', gone, { once: true }) | {}",
+    "original": "{ once: true }",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
     "key": "src/kernel.ts | BooleanLiteral | signal?.addEventListener('abort', gone, { once: true }) | false",
+    "original": "true",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | if (signal?.aborted) { mine.waiting.delete(question); return } | signal.aborted",
+    "original": "signal?.aborted",
     "why": "An ask crosses a link only when a state's scope names a backend system, and a scope always has a signal; System.ask takes a handle, which is never across. So the signal is never missing where it is read"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | signal?.addEventListener('abort', gone, { once: true }) | signal.addEventListener",
+    "original": "signal?.addEventListener",
     "why": "An ask crosses a link only when a state's scope names a backend system, and a scope always has a signal; System.ask takes a handle, which is never across. So the signal is never missing where it is read"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (active.around) active.around.inside = undefined | false",
+    "original": "active.around",
     "why": "A state that is left is always followed by another entered in its place, which sets inside again (go enters at least the last name of its path), and a top's root has nothing around it"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering) | active.def.states[name]",
+    "original": "active.def.states?.[name]",
     "why": "A move's path is checked before it is made (cannotGo), and a start names one of the states beside it, so the states a step enters are always there to read"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | while (active.def.start !== undefined) active = enter(active.top, active.def.states?.[active.def.start] ?? {}, active.def.start, active, entering) | active.def.states[active.def.start]",
+    "original": "active.def.states?.[active.def.start]",
     "why": "A move's path is checked before it is made (cannotGo), and a start names one of the states beside it, so the states a step enters are always there to read"
   },
   {
     "key": "src/kernel.ts | StringLiteral | one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }), | \"\"",
+    "original": "'one'",
     "why": "A make declared one at a time is told from one for each key only by being each or not, so the name of its kind is never read"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!found) { | true",
+    "original": "!found",
     "why": "Declarations read afresh each time are the same ones, made by the same functions from the same definition: only what it costs differs"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | const frames = error instanceof Error && error.stack ? error.stack.split('\\n').slice(1) : [] | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
     "key": "src/kernel.ts | MethodExpression | const frames = error instanceof Error && error.stack ? error.stack.split('\\n').slice(1) : [] | error.stack.split('\\n')",
+    "original": "error.stack.split('\\n').slice(1)",
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
     "key": "src/kernel.ts | Regex | const frame = frames.find((line) => !/[/\\\\](kernel|draft|types|port)\\.[cm]?[jt]s\\b/.test(line) && /\\.[cm]?[jt]s/.test(line)) | /[/\\\\](kernel|draft|types|port)\\.[^cm]?[jt]s\\b/",
+    "original": "/[/\\\\](kernel|draft|types|port)\\.[cm]?[jt]s\\b/",
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
     "key": "src/kernel.ts | Regex | const frame = frames.find((line) => !/[/\\\\](kernel|draft|types|port)\\.[cm]?[jt]s\\b/.test(line) && /\\.[cm]?[jt]s/.test(line)) | /\\.[cm][jt]s/",
+    "original": "/\\.[cm]?[jt]s/",
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
     "key": "src/kernel.ts | Regex | const found = frame?.match(/([^/\\\\(\\s]+\\.[cm]?[jt]s):(\\d+)/) | /([^/\\\\(\\s]+\\.[cm][jt]s):(\\d+)/",
+    "original": "/([^/\\\\(\\s]+\\.[cm]?[jt]s):(\\d+)/",
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return | true",
+    "original": "now.seen.length === seen.length",
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | stop = linked.port.view(feature, view, args, (update) => carry(linked.link, 'down', () => { if (!stopped) heard(update) })) | true",
+    "original": "!stopped",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key)) | []",
+    "original": "[key]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | const from = declared.from ?? [] | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!from.some(looks) && at.following.has(name)) continue | false",
+    "original": "!from.some(looks) && at.following.has(name)",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => declared.args(key)) | []",
+    "original": "[key]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!from.some(looks) && at.awaiting.has(name)) continue | false",
+    "original": "!from.some(looks) && at.awaiting.has(name)",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!what) return () => {} | false",
+    "original": "!what",
     "why": "settle is told there is nothing to ask for whenever the args are falsy, and then never calls this, so the guard inside is never reached with nothing"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
+    "original": "at.awaiting.get(id) === live && !signal.aborted",
+    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
+    "original": "at.awaiting.get(id) === live",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | at.awaiting.get(id) === live || !signal.aborted",
+    "original": "at.awaiting.get(id) === live && !signal.aborted",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.heard && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progressed', made: false, of: at, name, id, key, live, updates }) }) | true",
+    "original": "mine()",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'ended', made: false, of: at, name, id, key, live, outcome }) }, () => {}) | true",
+    "original": "mine()",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.making.get(id) === live && !signal.aborted | true",
+    "original": "at.making.get(id) === live && !signal.aborted",
+    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.making.get(id) === live && !signal.aborted | true",
+    "original": "at.making.get(id) === live",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.making.get(id) === live && !signal.aborted | at.making.get(id) === live || !signal.aborted",
+    "original": "at.making.get(id) === live && !signal.aborted",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.heard && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progressed', made: true, of: at, name, id, key, live, updates }) }) | true",
+    "original": "mine()",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'ended', made: true, of: at, name, id, key, live, outcome }) }, () => {}) | true",
+    "original": "mine()",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
+    "original": "!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live",
+    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
+    "original": "!declared || item.of.controller.signal.aborted",
+    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
+    "original": "live.get(item.id) !== item.live",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | (!declared || item.of.controller.signal.aborted) && live.get(item.id) !== item.live",
+    "original": "!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | !declared && item.of.controller.signal.aborted",
+    "original": "!declared || item.of.controller.signal.aborted",
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const field of fields.get(top.ref) ?? []) large(top, field) | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "With no field edited the loop is over a name that is not a field, whose value is undefined and so is never a list to report"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!(field in top.data)) continue | false",
+    "original": "!(field in top.data)",
     "why": "A field that is not there yet is entered by the move with the value given; written first as well, it is the same value, told as changed once either way"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (error instanceof Refusal) return refusal(error.kind, error.message, error.data) | true",
+    "original": "error instanceof Refusal",
     "why": "apply throws nothing that is not a refusal: an edit's error is caught and reported inside it, so the refusal test is always true when reached"
   },
   {
     "key": "src/kernel.ts | BlockStatement | try { within(() => { if (!take(item)) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | {}",
+    "original": "{ if (error !== UNDONE) throw error }",
     "why": "take throws nothing but UNDONE: a handler's throw is caught inside it, and a unit nested in the step's is kept only with it, so it does not fail alone"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | try { within(() => { if (!take(item)) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | false",
+    "original": "error !== UNDONE",
     "why": "take throws nothing but UNDONE: a handler's throw is caught inside it, and a unit nested in the step's is kept only with it, so it does not fail alone"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!followed || item.of.controller.signal.aborted) return MADE | false",
+    "original": "!followed || item.of.controller.signal.aborted",
     "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (!followed || item.of.controller.signal.aborted) return MADE | !followed && item.of.controller.signal.aborted",
+    "original": "!followed || item.of.controller.signal.aborted",
     "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.of.following.get(item.id)?.because ?? new Set() } | item.of.following.get(item.id).because",
+    "original": "item.of.following.get(item.id)?.because",
     "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | try { return apply(item.of, followed.heard(item.update, item.key === undefined ? scope : { ...scope, key: item.key })) } catch (error) { | false",
+    "original": "item.key === undefined",
     "why": "Only whether the handler's scope has a key property at all differs, holding undefined, which no handler can tell from not having one"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const given = item.key === undefined ? scope : { ...scope, key: item.key } | false",
+    "original": "item.key === undefined",
     "why": "Only whether the handler's scope has a key property at all differs, holding undefined, which no handler can tell from not having one"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!of || of.controller.signal.aborted) return MADE | false",
+    "original": "!of || of.controller.signal.aborted",
     "why": "A make taken for a state already left is made with that state's aborted signal, which ends the ask with Left before it is sent, kept on a record no value reads; and a make is only ever said for a name the state declares (types), so the state is always found"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (!of || of.controller.signal.aborted) return MADE | !of && of.controller.signal.aborted",
+    "original": "!of || of.controller.signal.aborted",
     "why": "A make taken for a state already left is made with that state's aborted signal, which ends the ask with Left before it is sent, kept on a record no value reads; and a make is only ever said for a name the state declares (types), so the state is always found"
   },
   {
     "key": "src/kernel.ts | BooleanLiteral | const apply = (active: Active, next: unknown, mayRefuse = false): boolean => { | true",
+    "original": "false",
     "why": "A refusal can only be thrown in an ask's handler, which already calls apply with mayRefuse; an event handler or a work's result never has one to throw, so the default is never what decides"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (error instanceof Left) return refusal('abandoned', error.message) | \"\"",
+    "original": "'abandoned'",
     "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (error instanceof Left) return refusal('abandoned', error.message) | false",
+    "original": "error instanceof Left",
     "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (signal.aborted) { trace(`${item.ref} stopped answering ${name}, as whoever asked had gone: ${message}`); return refusal('abandoned', message) } | \"\"",
+    "original": "'abandoned'",
     "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
   },
   {
     "key": "src/kernel.ts | EqualityOperator | if (count < RUNAWAY) { handle(item); continue } | count <= RUNAWAY",
+    "original": "count < RUNAWAY",
     "why": "Where exactly the runaway limit falls, at ten thousand things in a step or one more: a spec holds that a step that never ends is cut short and says so, not the count"
   },
   {
     "key": "src/kernel.ts | StringLiteral | arrive({ kind: 'ask', ref, name, args, question: new Question((outcome) => toAWindow(() => settle(outcome))), heard: (update) => toAWindow(() => heard(update)), gone: gone.signal }) | \"\"",
+    "original": "'ask'",
     "why": "take tells an ask from the other kinds by its being none of them, so the name of its kind is never read"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | idle: () => pending === 0 && !due && !stepping && outside.length === 0, | true",
+    "original": "outside.length === 0",
     "why": "outside is empty whenever no step is running: pump takes from it until it is, and a step that takes nothing more turns it away"
   },
   {
     "key": "src/kernel.ts | BlockStatement | ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } } | {}",
+    "original": "{ down.delete(window) }",
     "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (host.limit !== undefined && ++steps > host.limit) { | true",
+    "original": "host.limit !== undefined",
     "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | (typeof value !== 'object' || value === null) && Object.isFrozen(value)",
+    "original": "typeof value !== 'object' || value === null || Object.isFrozen(value)",
     "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
+    "original": "typeof value !== 'object' || value === null",
+    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
+    "original": "typeof value !== 'object'",
+    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
+    "original": "value === null",
     "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | typeof value !== 'object' && value === null",
+    "original": "typeof value !== 'object' || value === null",
     "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const frames = error instanceof Error && error.stack ? error.stack.split('\\n').slice(1) : [] | error instanceof Error || error.stack",
+    "original": "error instanceof Error && error.stack",
     "why": "Only a thrown object that is not an Error but has a stack, or an Error with none, is read differently; what a handler throws is an Error, which has one, or a value with no stack at all, which both read as having no frames"
   },
   {
     "key": "src/kernel.ts | ArrowFunction | if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({})); continue } | () => undefined",
+    "original": "() => ({})",
     "why": "What a state started as it is is given: nothing, as an empty object or as undefined, which begin takes as an empty object either way"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | } else if (made !== undefined) inside.push({ kind: 'result', of: active, value: made }) | true",
+    "original": "made !== undefined",
     "why": "Work that returns nothing pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
   },
   {
     "key": "src/kernel.ts | StringLiteral | turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed') | \"\"",
+    "original": "'It has taken every step it is allowed'",
     "why": "What is waiting inside a system is all taken within the step it was sent in, so at the start of a step past the limit there is never anything inside to turn away, and its message is never given"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (stepping) handleOf = begin(ref, made.def as LooseDef) | false",
+    "original": "stepping",
     "why": "Only a start made inside a step reaches this, which is a start from a subscriber or something else that leaves at a commit. There the state begins in the step that is leaving, whose commit has passed, and is read from the next; the mutant takes a nested step instead. Neither is a behaviour a spec holds: what a start from a subscriber should do is not decided (see the PR)"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended)) } | \"\"",
-    "why": "Which lane a view's stop goes up in: the backend takes a stop whenever it comes, and the window stopped hearing that view when it gave it up, so its place among what else goes up changes nothing either side sees"
-  },
-  {
     "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
+    "original": "[]",
     "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a make is said, not compared, and never reads it"
   }
 ]

@@ -222,6 +222,12 @@ await run([
     ok(backend.idle() && window.idle())
   }],
 ], async (tally) => {
+  await tally.every('a window that stops while what it follows comes and goes stops following, under every ordering', () => explore((schedule) => {
+    const store = memory((go) => schedule.later({ label: 'the views are told' }, go))
+    const { window, handle, defects } = made(store, true, schedule.later)
+    schedule.does('the user', ['asks for a', () => { void window.ask(handle, 'ADD', { id: 'a' }) }], ['closes the window', () => { window.stop() }])
+    return () => { deepStrictEqual(defects(), []) }
+  }))
   for (const how of ['one after the other', 'both at once'] as const) {
     await tally.every(`${how}: under every ordering, a window is answered and told after its view shows the thread`, () => explore(scenario(true, how)))
     await tally.check(`${how}: without the hold there is an ordering in which it is told first, so the hold is what the rule rests on`, async () => {

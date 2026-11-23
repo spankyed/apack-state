@@ -8,7 +8,7 @@ on:
   push:
     branches: [master]
   pull_request:
-    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'mutants.allowed.json', 'scripts/mutants.mjs', '.github/workflows/mutants.yml', 'package-lock.json']
+    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', '.github/workflows/mutants.yml', 'package-lock.json']
   workflow_dispatch:
 
 concurrency:
@@ -58,7 +58,8 @@ jobs:
   listed:
     name: every listed mutant still survives
     needs: mutate
-    if: always()
+    # After the jobs, whatever they did, unless the run was called off: the run that called it off says it instead.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

@@ -9,8 +9,9 @@ export default {
   vitest: { configFile: 'vitest.config.mts' },
   mutate: (process.env.MUTATE ?? 'src/**/*.ts').split(','),
   coverageAnalysis: 'perTest',
-  // A type is not code: there is nothing in it to change that a spec could notice running.
-  ignoreStatic: true,
+  // A mutant of what runs as a module loads (a constant, a pattern) is run against every spec, not only the ones it
+  // reaches: it costs a full run each, and there are few. Types are not mutated whatever this says.
+  ignoreStatic: false,
   reporters: ['progress', 'clear-text', 'json'],
   jsonReporter: { fileName: 'reports/mutation/mutation.json' },
   timeoutMS: 60_000,
