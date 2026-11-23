@@ -2,7 +2,7 @@
 // handler that throws changes nothing. And none of it stops the kernel, which goes on taking what comes next.
 //
 //   npx vitest run failure
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
 import { given, reaching } from '../src/index.ts'
@@ -240,6 +240,16 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.stop()
   }],
 
+  ['a definition whose declarations throw fails where it is started, and the system goes on as it was', async () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    // What the types would not let through: its `starts` throws as it is read.
+    const declaredBadly = { def: { data: { n: 0 }, starts: () => { throw new Error('declared badly') } } }
+    throws(() => sys.start('bad', declaredBadly as never), /declared badly/)
+    const fine = sys.start('fine', brokenAtOnce)
+    strictEqual(sys.read(fine).data.n, 0)
+    deepStrictEqual(defects.filter((line) => !line.includes('nowhere to go')), [])
+  }],
   // ── what code a state declares throws, and what is thrown that is not an Error ──────────────────────────────────
 
   ['an edit that throws what is not an Error is reported with what it threw, and changes nothing', async () => {
