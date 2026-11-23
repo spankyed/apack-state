@@ -1,8 +1,9 @@
 name: mutants
 
 # Mutation testing of src/ on CI's runners: each job changes one part of it a mutant at a time and runs the specs,
-# and fails on a mutant that survived and is not listed in mutants.allowed.json with why. It runs on a pull request
-# that touches what is mutated or what holds it, on master, and by hand.
+# and fails on a mutant that survived and is not listed in mutants.allowed.json with why; one more job, given every
+# report, fails on a listed mutant that survived in none. It runs on a pull request that touches what is mutated or
+# what holds it, on master, and by hand.
 on:
   push:
     branches: [master]
@@ -51,3 +52,24 @@ jobs:
           name: mutants-${{ strategy.job-index }}
           path: reports/mutation/mutation.json
           if-no-files-found: ignore
+
+  # A listed mutant that survived in no job is taken off the list. Only all the reports together can say so: a job
+  # mutates part of a file, and the same line as written can be in another job's part.
+  listed:
+    name: every listed mutant still survives
+    needs: mutate
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutants-*
+          path: reports
+      - name: Listed, and still surviving
+        run: |
+          test "$(ls reports/*/mutation.json | wc -l)" -eq 5 || { echo 'A job left no report, so the list cannot be checked'; exit 1; }
+          node scripts/mutants.mjs --all "$GITHUB_STEP_SUMMARY" reports/*/mutation.json

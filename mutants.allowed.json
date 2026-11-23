@@ -514,5 +514,9 @@
   {
     "key": "src/kernel.ts | StringLiteral | if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended)) } | \"\"",
     "why": "Which lane a view's stop goes up in: the backend takes a stop whenever it comes, and the window stopped hearing that view when it gave it up, so its place among what else goes up changes nothing either side sees"
+  },
+  {
+    "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
+    "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a make is said, not compared, and never reads it"
   }
 ]
