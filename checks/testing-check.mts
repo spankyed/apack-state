@@ -199,6 +199,15 @@ await run([
     }).then(() => undefined, (thrown: unknown) => thrown as Error)
     ok(error?.message.endsWith('not held, time 1'), error?.message)
   }],
+  ['a run that fails as it is set up, before anything is sent, says it sent nothing', async () => {
+    await rejects(fromEvents({
+      state: counter,
+      events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'RESET' }) },
+      around: () => { throw new Error('could not set up') },
+      always: () => {},
+      steps: 2, runs: 1, seed: 1,
+    }), /failed after sending nothing:\ncould not set up/)
+  }],
   ['a maker that picks from nothing is told so', async () => {
     await rejects(fromEvents({ state: counter, events: { ADD: (random) => ({ type: 'ADD', by: random.pick<number>([]) }), RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 5, runs: 1, seed: 1 }), /There is nothing to pick from/)
   }],
