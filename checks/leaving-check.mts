@@ -11,6 +11,8 @@ type SlowAsks = {
   /** Work that is passed `signal`, and throws what it aborted with, as `fetch` and a stream do. */
   FETCH: { args: { turns: number }; answer: string }
   RELAY: { args: { turns: number }; answer: string }
+  /** Says something before it answers. */
+  TALK: { args: {}; answer: string; progress: string }
 }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
 export const state = reaching<App>()
@@ -22,6 +24,7 @@ const backendSaw: string[] = []
 const slow = state<{}, never, SlowAsks>()({
   asks: {
     WAIT: async ({ turns: count }, { signal }) => {
+      backendSaw.push('WAIT began')
       signal.addEventListener('abort', () => backendSaw.push('WAIT told its asker had gone'))
       await turns(count)
       return 'done'
@@ -35,10 +38,11 @@ const slow = state<{}, never, SlowAsks>()({
       try { const inner = await ask('slow', 'WAIT', { turns: count }); return inner.ok ? inner.value : 'failed' }
       finally { backendSaw.push('RELAY unwound') }
     },
+    TALK: (_, { progress }) => { progress('one'); return 'done' },
   },
 })
 
-type How = 'await' | 'all' | 'floating' | 'relay' | 'fetch'
+type How = 'await' | 'all' | 'floating' | 'relay' | 'fetch' | 'answered' | 'late' | 'unheard' | 'tell'
 export type PanelEvent = { type: 'START'; how: How } | { type: 'LEAVE' }
 export type Panel = { states: { idle: {}; working: { data: { how: How } } } }
 
@@ -52,7 +56,7 @@ const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEven
     idle: {},
     working: {
       data: { how: given },
-      async run({ data, ask }) {
+      async run({ data, ask, tell }) {
         lock.held = true
         try {
           if (data.how === 'await') await ask('slow', 'WAIT', { turns: 30 })
@@ -60,6 +64,12 @@ const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEven
           if (data.how === 'fetch') await ask('slow', 'FETCH', { turns: 30 })
           if (data.how === 'all') await Promise.all([ask('slow', 'WAIT', { turns: 30 }), turns(2)])
           if (data.how === 'floating') { void ask('slow', 'WAIT', { turns: 30 }); await turns(40) }
+          if (data.how === 'answered') { const outcome = await ask('slow', 'WAIT', { turns: 2 }); saw.push(outcome.ok ? 'answered' : `${outcome.failure.kind}: ${outcome.failure.message}`) }
+          // Asked after a wait of its own, outside the step the state was entered in.
+          if (data.how === 'late') { await turns(4); await ask('slow', 'WAIT', { turns: 2 }) }
+          // Asked with nothing to hear what it says before it answers.
+          if (data.how === 'unheard') await ask('slow', 'TALK', {})
+          if (data.how === 'tell') tell('slow', { type: 'NOTE' } as never)
           saw.push('ran on after the ask')
         } catch (error) {
           saw.push(error instanceof Left ? 'unwound with Left' : `unwound with ${String(error)}`)
@@ -76,7 +86,7 @@ const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEven
   },
 })
 
-const wired = () => {
+const wired = (connected = true) => {
   const saw: string[] = []
   const lock = { held: false }
   const traced: string[] = []
@@ -84,8 +94,8 @@ const wired = () => {
   const backendTraced: string[] = []
   const backend = system({ side: 'backend', trace: (line) => { if (/answering/.test(line)) backendTraced.push(line) } })
   backend.start('slow', slow)
-  const window = system({ side: 'window', trace: (line) => { if (/left unanswered|failed/.test(line)) traced.push(line) } })
-  window.connect(backend)
+  const window = system({ side: 'window', trace: (line) => { if (/left unanswered|failed|DEFECT/.test(line)) traced.push(line) } })
+  if (connected) window.connect(backend)
   const handle = window.start('panel', panel(saw, lock))
   return { saw, lock, traced, backendTraced, send: (event: PanelEvent): void => window.send(handle, event), at: (): string => window.read(handle).at, stop: (): void => { window.stop(); backend.stop() } }
 }
@@ -159,6 +169,51 @@ const checks: Array<[string, () => Promise<void>]> = [
     await rest()
     deepStrictEqual(it.saw, ['ran on after the ask', 'finally ran'])
     strictEqual(it.at(), 'idle')
+    it.stop()
+  }],
+  ['an ask made after a wait, outside the step its state was entered in, crosses and is answered', async () => {
+    const it = wired()
+    it.send({ type: 'START', how: 'late' })
+    await rest()
+    deepStrictEqual(it.saw, ['ran on after the ask', 'finally ran'])
+    it.stop()
+  }],
+  ['an ask made after its state was left ends with Left at once, and is never sent', async () => {
+    const it = wired()
+    it.send({ type: 'START', how: 'late' })
+    it.send({ type: 'LEAVE' })
+    await rest()
+    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    strictEqual(backendSaw.includes('WAIT began'), false)
+    it.stop()
+  }],
+  ['an ask whose asker left before it crossed is never begun', async () => {
+    const it = wired()
+    it.send({ type: 'START', how: 'await' })
+    it.send({ type: 'LEAVE' })
+    await rest()
+    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    deepStrictEqual(backendSaw, [])
+    it.stop()
+  }],
+  ['what is said before an answer, to an asker with nothing to hear it, is dropped and nothing breaks', async () => {
+    const it = wired()
+    it.send({ type: 'START', how: 'unheard' })
+    await rest()
+    deepStrictEqual(it.saw, ['ran on after the ask', 'finally ran'])
+    deepStrictEqual(it.traced.filter((line) => line.startsWith('DEFECT')), [])
+    it.stop()
+  }],
+  ['a window with no backend is told so when it asks, and what it tells goes nowhere, which is not a defect', async () => {
+    const it = wired(false)
+    it.send({ type: 'START', how: 'answered' })
+    await rest()
+    strictEqual(it.saw.length, 3)
+    ok(/^disconnected: .*not connected/i.test(it.saw[0]!), it.saw[0])
+    it.send({ type: 'LEAVE' })
+    it.send({ type: 'START', how: 'tell' })
+    await rest()
+    deepStrictEqual(it.traced.filter((line) => line.startsWith('DEFECT')), [])
     it.stop()
   }],
 ]
