@@ -1,0 +1,217 @@
+{
+  "measurement": "frozen-cost.mts",
+  "conditions": {
+    "date": "2026-11-23T04:28:25.289Z",
+    "commit": "bbc5b47e99aaf044e685e9b4ed5715089444f7dc",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 8.16,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz"
+  },
+  "readings": [
+    {
+      "name": "100 rows, spread, unfrozen",
+      "value": 45.5105,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, spread, frozen",
+      "value": 43.802,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, slice, unfrozen",
+      "value": 48.17725,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, slice, frozen",
+      "value": 2793.84375,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, toSpliced, unfrozen",
+      "value": 57.875,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, toSpliced, frozen",
+      "value": 2523.25,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, with, unfrozen",
+      "value": 55.2395,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, with, frozen",
+      "value": 2561.896,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, filter, unfrozen",
+      "value": 757.58325,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, filter, frozen",
+      "value": 3251.427,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, map, unfrozen",
+      "value": 706.04175,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, map, frozen",
+      "value": 702.40625,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, find, last, unfrozen",
+      "value": 1466.59375,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, find, last, frozen",
+      "value": 3338.46875,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, for of, unfrozen",
+      "value": 763.96875,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, for of, frozen",
+      "value": 708.48975,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, by index, unfrozen",
+      "value": 615.14575,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, by index, frozen",
+      "value": 593.0835,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, spread, sort, unfrozen",
+      "value": 4852.271,
+      "unit": "ns"
+    },
+    {
+      "name": "100 rows, spread, sort, frozen",
+      "value": 4925.2085,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, spread, unfrozen",
+      "value": 814.0625,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, spread, frozen",
+      "value": 794.2625,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, slice, unfrozen",
+      "value": 741.675,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, slice, frozen",
+      "value": 133119.275,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, toSpliced, unfrozen",
+      "value": 738.025,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, toSpliced, frozen",
+      "value": 122994.2625,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, with, unfrozen",
+      "value": 710.4125,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, with, frozen",
+      "value": 124427.075,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, filter, unfrozen",
+      "value": 41128.125,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, filter, frozen",
+      "value": 163376.05,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, map, unfrozen",
+      "value": 35666.6625,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, map, frozen",
+      "value": 35893.75,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, find, last, unfrozen",
+      "value": 72641.15,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, find, last, frozen",
+      "value": 169431.775,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, for of, unfrozen",
+      "value": 35717.1875,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, for of, frozen",
+      "value": 34486.975,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, by index, unfrozen",
+      "value": 31420.825,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, by index, frozen",
+      "value": 29762.5,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, spread, sort, unfrozen",
+      "value": 336681.7625,
+      "unit": "ns"
+    },
+    {
+      "name": "5000 rows, spread, sort, frozen",
+      "value": 335249.475,
+      "unit": "ns"
+    }
+  ]
+}

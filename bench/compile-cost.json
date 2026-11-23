@@ -1,0 +1,77 @@
+{
+  "measurement": "compile-cost.mts",
+  "conditions": {
+    "date": "2026-11-23T04:28:12.789Z",
+    "commit": "bbc5b47e99aaf044e685e9b4ed5715089444f7dc",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 8.74,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz"
+  },
+  "readings": [
+    {
+      "name": "checking N states: 10 states: check time",
+      "value": 360,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 10 states: wall time",
+      "value": 596.757209,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 10 states: types",
+      "value": 13805,
+      "unit": "types"
+    },
+    {
+      "name": "checking N states: 10 states: memory",
+      "value": 93.810546875,
+      "unit": "MB"
+    },
+    {
+      "name": "checking N states: 100 states: check time",
+      "value": 1350,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 100 states: wall time",
+      "value": 1672.544417,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 100 states: types",
+      "value": 84275,
+      "unit": "types"
+    },
+    {
+      "name": "checking N states: 100 states: memory",
+      "value": 179.375,
+      "unit": "MB"
+    },
+    {
+      "name": "checking N states: 300 states: check time",
+      "value": 3420,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 300 states: wall time",
+      "value": 3834.553834,
+      "unit": "ms"
+    },
+    {
+      "name": "checking N states: 300 states: types",
+      "value": 240875,
+      "unit": "types"
+    },
+    {
+      "name": "checking N states: 300 states: memory",
+      "value": 476.845703125,
+      "unit": "MB"
+    }
+  ]
+}

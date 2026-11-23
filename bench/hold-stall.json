@@ -1,0 +1,57 @@
+{
+  "measurement": "hold-stall.mts",
+  "conditions": {
+    "date": "2026-11-23T04:28:30.822Z",
+    "commit": "bbc5b47e99aaf044e685e9b4ed5715089444f7dc",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 18.3,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz"
+  },
+  "readings": [
+    {
+      "name": "every watch settled: median",
+      "value": 29.41175,
+      "unit": "ms"
+    },
+    {
+      "name": "every watch settled: 90th",
+      "value": 37.970292,
+      "unit": "ms"
+    },
+    {
+      "name": "every watch settled: most",
+      "value": 46.696542,
+      "unit": "ms"
+    },
+    {
+      "name": "every watch settled: not answered in 10 s",
+      "value": 0,
+      "unit": "asks"
+    },
+    {
+      "name": "each view caught up: median",
+      "value": 1.394917,
+      "unit": "ms"
+    },
+    {
+      "name": "each view caught up: 90th",
+      "value": 4.403708,
+      "unit": "ms"
+    },
+    {
+      "name": "each view caught up: most",
+      "value": 11.998667,
+      "unit": "ms"
+    },
+    {
+      "name": "each view caught up: not answered in 10 s",
+      "value": 0,
+      "unit": "asks"
+    }
+  ]
+}
