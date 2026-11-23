@@ -12,6 +12,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `.github/workflows/packages.yml` | Packs each `master` commit whose CI passed and publishes it as the prerelease `pkg-<commit>` |
 | `scripts/package-smoke.mjs` | Installs the packed package into a project of its own, imports each entry and runs a state from it |
 | `scripts/workflows-check.mjs` | Fails a workflow or package script that could publish to npm or hold a token for it |
+| `scripts/deps.mjs` | The siblings' packages this repository installs, and where each comes from: `deps:pin`, `deps:local`, `deps:released`, `deps:check` |
 | `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
 | `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
 | `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |
