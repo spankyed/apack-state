@@ -23,6 +23,9 @@ export default defineConfig({
         extends: true,
         // A window has no `node:assert`; the checks are given the package that is the same for browsers.
         resolve: { alias: { 'node:assert': 'assert' } },
+        // Found before the run, not part-way through it: Vite reloads a page whose dependencies it optimizes as it
+        // finds them, and a component would then read from another copy of Vue's reactivity than the kernel writes to.
+        optimizeDeps: { include: ['@vue/runtime-core', '@vue/reactivity', '@vue/compiler-dom', 'assert'] },
         define: { 'process.env.NODE_DEBUG': 'false' },
         test: {
           name: 'browser',
