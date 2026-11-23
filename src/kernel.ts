@@ -246,15 +246,22 @@ export function system(host: {
     askedAfter = toWindows.length
     const round = { count, waiting: new Set(forWindows) }
     rounds.push(round)
-    for (const viewing of round.waiting) {
-      pending++
-      // Something is blocked on it: an asker, or a window to be told.
-      viewing.caughtUp!(() => {
-        // Not if it stopped first, which counted it caught up already, nor a second time.
-        if (!round.waiting.delete(viewing)) return
-        pending--
-        letGo()
-      }, true)
+    // Counted as the round is made: a view taken out of it before it is asked, stopped by another's call, is counted
+    // out as it was counted in.
+    pending += round.waiting.size
+    /** The view is caught up for this round: once, whether it says so, stops, or cannot be asked. */
+    const caught = (viewing: Viewing): void => {
+      if (!round.waiting.delete(viewing)) return
+      pending--
+      letGo()
+    }
+    for (const viewing of [...round.waiting]) {
+      // Something is blocked on it: an asker, or a window to be told. A view that throws when asked cannot say, and
+      // is not waited on.
+      try { viewing.caughtUp!(() => { caught(viewing) }, true) } catch (error) {
+        trace(`DEFECT: a view threw when asked whether it had caught up: ${said(error)}`)
+        caught(viewing)
+      }
     }
     letGo()
   }
@@ -603,7 +610,8 @@ export function system(host: {
         return () => {
           stopped = true
           const ended = stop
-          if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended)) }
+          // It stays among what the link's closing ends until it has crossed: closed first, it is ended then, once.
+          if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }))
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
@@ -1007,9 +1015,11 @@ export function system(host: {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
+      // What a window asked is answered on its way to the window, which waits for nothing now.
+      release()
       return
     }
-    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); return }
+    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); release(); return }
     stepping = true
     // Whether everything was handled. A throw before that is the kernel's own; one after is the database not keeping it.
     let handled = false
@@ -1073,7 +1083,8 @@ export function system(host: {
       return () => {
         forWindows.delete(viewing)
         for (const round of rounds) if (round.waiting.delete(viewing)) pending--
-        viewing.stop()
+        // Whatever stopping it does, what waited on it is let go.
+        safely('stopping a view', () => viewing.stop())
         letGo()
       }
     },

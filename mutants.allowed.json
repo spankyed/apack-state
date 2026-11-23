@@ -681,14 +681,22 @@
   },
   {
     "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
+    "original": "`${called} to its backend`",
+    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
+    "original": "`the backend to ${called}`",
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | idle: () => pending === 0 && !due && !stepping && outside.length === 0, | true",
+    "original": "outside.length === 0",
     "why": "outside is empty whenever no step is running: pump takes from it until it is, and a step that takes nothing more turns it away"
   },
   {
     "key": "src/kernel.ts | BlockStatement | ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } } | {}",
+    "original": "{ down.delete(window) }",
     "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
   }
 ]

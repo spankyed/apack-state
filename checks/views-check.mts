@@ -119,7 +119,91 @@ const scenario = (held: boolean, how: 'one after the other' | 'both at once') =>
   }
 }
 
+/** Whether a promise settles within a few turns: a check that would otherwise wait for good fails instead. */
+const settlesSoon = async <T,>(made: Promise<T>): Promise<{ value: T } | undefined> => {
+  let settled: { value: T } | undefined
+  void made.then((value) => { settled = { value } })
+  for (let turns = 0; turns < 50 && !settled; turns++) await new Promise<void>((resolve) => { setImmediate(resolve) })
+  return settled
+}
+/** Views that say they have caught up, and do what is given when stopped or asked. */
+const viewsDoing = (store: Rows, does: { stop?: () => void; caughtUp?: (then: () => void) => void }): ViewHost => (feature, view, args, heard) => {
+  const running = viewsOf(store)(feature, view, args, heard) as Required<Exclude<ReturnType<ViewHost>, () => void>>
+  return { stop: () => { running.stop(); does.stop?.() }, caughtUp: (then, soon) => { if (does.caughtUp) does.caughtUp(then); else running.caughtUp(then, soon) } }
+}
+
 await run([
+  ...(['could not keep a step', 'has taken every step it may'] as const).map((how) => [`a backend that ${how} answers what a window asks after, and it reaches the window`, async () => {
+    const store = memory()
+    const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), trace: () => {}, ...(how === 'has taken every step it may' ? { limit: 6 } : {}) })
+    backend.start('threads', threads(store))
+    const window = system({ side: 'window', trace: () => {} })
+    window.connect(backend)
+    const handle = window.start('panel', panel)
+    await rest()
+    if (how === 'could not keep a step') {
+      store.failNext('the disk is full')
+      await settlesSoon(window.ask(handle, 'ADD', { id: 'lost' }))
+    } else {
+      for (let made = 0; made < 6; made++) await settlesSoon(window.ask(handle, 'ADD', { id: `made ${made}` }))
+    }
+    // Asked now, it is turned away: the window is told so, and is not left waiting.
+    const told = await settlesSoon(window.ask(handle, 'ADD', { id: 'after' }))
+    ok(told !== undefined, 'the window was never answered')
+    ok(told.value.ok && told.value.value === false)
+  }] as [string, () => Promise<void>]),
+  ['a view that throws when asked whether it has caught up is not waited on, and is reported', async () => {
+    const store = memory()
+    const traced: string[] = []
+    const backend = system({ side: 'backend', transact: store.transact, views: viewsDoing(store, { caughtUp: () => { throw new Error('it cannot say') } }), trace: (line) => { traced.push(line) } })
+    backend.start('threads', threads(store))
+    const window = system({ side: 'window' })
+    window.connect(backend)
+    const handle = window.start('panel', panel)
+    await rest()
+    const told = await settlesSoon(window.ask(handle, 'ADD', { id: 'a' }))
+    ok(told?.value.ok && told.value.value === true, 'the answer waited on a view that threw')
+    ok(traced.some((line) => line.startsWith('DEFECT') && line.includes('it cannot say')), JSON.stringify(traced))
+    await rest()
+  }],
+  ['a view that throws when stopped still lets go of what waited on it', async () => {
+    const store = memory()
+    // The first window's view never says it has caught up, and throws when stopped.
+    let made = 0
+    const backend = system({ side: 'backend', transact: store.transact, trace: () => {}, views: (feature, view, args, heard) => {
+      const first = made++ === 0
+      return viewsDoing(store, first ? { caughtUp: () => {}, stop: () => { throw new Error('it would not stop') } } : {})(feature, view, args, heard)
+    } })
+    backend.start('threads', threads(store))
+    const closing = system({ side: 'window', name: 'the window that closes' })
+    const link = closing.connect(backend)
+    closing.start('panel', panel)
+    await rest()
+    const staying = system({ side: 'window', name: 'the window that stays' })
+    staying.connect(backend)
+    const stayed = staying.start('panel', panel)
+    await rest()
+    const asked = staying.ask(stayed, 'ADD', { id: 'a' })
+    for (let turns = 0; turns < 20; turns++) await new Promise<void>((resolve) => { setImmediate(resolve) })
+    link.close()
+    closing.stop()
+    const told = await settlesSoon(asked)
+    ok(told?.value.ok, 'what waited on the view that threw was never let go')
+  }],
+  ['a window that stops following and closes in one turn stops what it followed on the backend', async () => {
+    const store = memory()
+    let stopped = 0
+    const backend = system({ side: 'backend', transact: store.transact, views: viewsDoing(store, { stop: () => { stopped++ } }) })
+    backend.start('threads', threads(store))
+    const window = system({ side: 'window' })
+    const link = window.connect(backend)
+    window.start('panel', panel)
+    await rest()
+    window.stop()
+    link.close()
+    await rest()
+    strictEqual(stopped, 1)
+  }],
   ['the views are asked whether they have caught up for a step that sends a window something, and never for one that sends nothing', async () => {
     const store = memory()
     // What each asking says: that something is blocked on the answer.
