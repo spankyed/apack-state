@@ -17,7 +17,8 @@ const RULES = [
   [/\b(npm|pnpm|yarn|bun)\b.*\b(publish|unpublish|dist-tag|deprecate|adduser|login|owner|access|token)\b/i, "an npm client's registry-writing command"],
   [/\b(semantic-release|lerna\s+publish|changeset\s+publish|changesets\/action|npm-publish|release-it)\b/i, 'a tool that publishes to npm'],
   [/\b(NPM_TOKEN|NODE_AUTH_TOKEN|NPM_CONFIG_\w*AUTH\w*)\b|_authToken|\bregistry-url\b/i, 'an npm token, or the setup that reads one'],
-  [/\bsecrets\.(?!GITHUB_TOKEN\b)\w+|\bsecrets\s*\[|\btoJSON\(\s*secrets\s*\)|\bsecrets:\s*inherit\b/, 'a secret other than the GITHUB_TOKEN'],
+  // A workflow's expressions read `secrets`, `SECRETS` and `toJson(Secrets)` alike, and so does this.
+  [/\bsecrets\.(?!GITHUB_TOKEN\b)\w+|\bsecrets\s*\[|\btoJSON\(\s*secrets\s*\)|\bsecrets:\s*inherit\b/i, 'a secret other than the GITHUB_TOKEN'],
 ]
 
 const files = fs.readdirSync(WORKFLOWS).filter((name) => /\.ya?ml$/.test(name)).map((name) => path.join(WORKFLOWS, name))

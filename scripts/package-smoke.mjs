@@ -8,8 +8,10 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const run = (args, cwd) => execFileSync(npm, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32' })
+// npm's own script, run by this Node: no shell, which on Windows would split a path at its spaces and read `^` as an
+// escape, and nothing that could. `npm_execpath` is it when this runs under npm; beside Node is where npm installs it.
+const npmCli = process.env.npm_execpath?.endsWith('.js') ? process.env.npm_execpath : path.join(path.dirname(process.execPath), process.platform === 'win32' ? '' : '..', process.platform === 'win32' ? '' : 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+const run = (args, cwd) => execFileSync(process.execPath, [npmCli, ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 const consumer = fs.mkdtempSync(path.join(os.tmpdir(), 'apack-state-consumer-'))
 try {
   let tarball = process.argv[2] && path.resolve(process.argv[2])
@@ -18,8 +20,9 @@ try {
     tarball = path.join(consumer, packed.filename)
   }
   if (!fs.existsSync(tarball)) throw new Error(`No tarball at ${tarball}`)
-  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }))
-  run(['install', '--no-audit', '--no-fund', '--no-package-lock', tarball, '@vue/reactivity@^3.5.0', '@vue/runtime-core@^3.5.0'], consumer)
+  // The peers `./vue` names are the consumer's own, as one that uses it has them.
+  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module', dependencies: { '@vue/reactivity': '^3.5.0', '@vue/runtime-core': '^3.5.0' } }))
+  run(['install', '--no-audit', '--no-fund', '--no-package-lock', tarball], consumer)
   const load = [
     "const index = await import('@apackdev/state')",
     "for (const name of ['system', 'reaching', 'given', 'answered', 'within', 'Left', 'windowFrame']) if (!(name in index)) throw new Error(`@apackdev/state has no ${name}`)",
