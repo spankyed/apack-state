@@ -396,7 +396,7 @@ const nested = () => {
 }
 
 /** A state with no states inside it. */
-const flat = state<{ data: { n: number } }, { type: 'GO' }>()({ data: { n: 0 }, on: { GO: () => ({ at: 'away' }) as never } })
+const flat = state<{ data: { n: number } }, { type: 'GO' } | { type: 'BUMP' }>()({ data: { n: 0 }, on: { GO: () => ({ at: 'away' }) as never, BUMP: (_, { data }) => ({ data: { n: data.n + 1 } }) } })
 
 const moves: Array<[string, () => void]> = [
   ['a move by a state with no states inside it is refused, saying there is no such state', () => {
@@ -479,6 +479,19 @@ const moves: Array<[string, () => void]> = [
     it.send({ type: 'GO_NOWHERE' })
     strictEqual(it.now().at, 'thread.idle')
     deepStrictEqual(it.defects, ['DEFECT: s has no state thread.nope to go to'])
+  }],
+  ['a subscriber that unsubscribes is told no more, and the others go on being told, however often it does', () => {
+    const sys = system({ side: 'backend' })
+    const handle = sys.start('f', flat)
+    const told: string[] = []
+    const first = sys.subscribe(() => { told.push('first') })
+    const second = sys.subscribe(() => { told.push('second') })
+    sys.subscribe(() => { told.push('third') })
+    first()
+    second()
+    second()
+    sys.send(handle, { type: 'BUMP' })
+    deepStrictEqual(told, ['third'])
   }],
   ['a subscriber is told a state moved, and the fields it gained, lost or changed, and no others', () => {
     const it = nested()

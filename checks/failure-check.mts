@@ -226,6 +226,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     for (let sent = 0; sent < 20; sent++) sys.send(it, { type: 'COUNT' })
     // Starting it was a step, so four of the twenty were taken.
     strictEqual(sys.read(it).data.count, 4)
+    // An ask after it is not left waiting: it is told why it will not be taken.
+    const asked = await sys.ask(it as never, 'ANYTHING', {}) as { ok: false; failure: { kind: string; message: string } }
+    ok(asked.failure.kind === 'unavailable' && /every step it is allowed/.test(asked.failure.message), JSON.stringify(asked))
     deepStrictEqual(traced, ['DEFECT: backend took 5 steps and takes no more: something leads to something else without end'])
   }],
   ['a release that throws does not keep the others from running', async () => {

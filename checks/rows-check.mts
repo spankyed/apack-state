@@ -197,6 +197,9 @@ const stores: readonly Kept[] = [['in memory', memory], ['in elmdb', elmdb]]
 /** The store of the scenario before this one, closed as the next is made. */
 let before: Rows | undefined
 
+/** A state that says when it ends. */
+const noting = (name: string, ended: string[]) => state<{}>()({ run({ use }) { use(() => { ended.push(name) }) } })
+
 const made = (open: () => Rows, later?: Schedule['later'], read?: (path: string) => Promise<string>) => {
   before?.close()
   const store = before = open()
@@ -330,14 +333,22 @@ const checks = ([kept, open]: Kept): Array<readonly [string, () => void | Promis
   }],
   ['rows that cannot be kept: whoever asked is told it failed, nobody is told of the change, and the system stops with every state ended', async () => {
     const { store, sys, handle, defects } = made(open)
+    // Two more states, each saying when it ends.
+    const ended: string[] = []
+    for (const name of ['first', 'second']) sys.start(name, noting(name, ended))
     const told: Array<{ count: number | undefined }> = []
-    sys.subscribe(() => { told.push({ count: sys.read(handle)?.data.count }) })
+    const changed: string[] = []
+    sys.subscribe((refs) => { told.push({ count: sys.read(handle)?.data.count }); changed.push(...refs) })
     store.failNext('the disk is full')
     const outcome = await sys.ask(handle, 'CREATE', { id: 'a', topic: 'lost' })
-    ok(!outcome.ok && outcome.failure.kind === 'failed')
+    ok(!outcome.ok && outcome.failure.kind === 'failed' && /could not be kept/.test(outcome.failure.message), JSON.stringify(outcome))
     strictEqual(store.get('thread', 'a'), undefined)
-    // What subscribers hear is that the state is gone, and never the count the lost step had made.
+    // What subscribers hear is that the states are gone, and never the count the lost step had made.
     deepStrictEqual(told, [{ count: undefined }])
+    deepStrictEqual(changed.sort(), ['first', 'second', 'threads'])
+    // The last started ended first.
+    deepStrictEqual(ended, ['second', 'first'])
+    deepStrictEqual(defects().length, 1)
     ok(defects().some((line) => line.includes('the disk is full')))
     sys.send(handle, { type: 'TOUCH' })
     strictEqual(sys.read(handle), undefined)
@@ -360,9 +371,21 @@ const checks = ([kept, open]: Kept): Array<readonly [string, () => void | Promis
     await rest()
     strictEqual(store.get('thread', 'a'), undefined)
     const after = await sys.ask(handle, 'CREATE', { id: 'c', topic: 'after' })
-    ok(!after.ok && after.failure.kind === 'unavailable')
+    ok(!after.ok && after.failure.kind === 'unavailable' && /stopped/.test(after.failure.message), JSON.stringify(after))
+    // Nor does it start anything more.
+    sys.start('later', noting('later', []))
+    strictEqual('later' in sys.snapshot(), false)
     strictEqual(store.get('thread', 'c'), undefined)
     strictEqual(store.writing, false)
+  }],
+  ['rows that cannot be kept in a step that said something before its answer: none of it is heard, and the one defect is the rows', async () => {
+    const { store, sys, handle, defects } = made(open, undefined, () => new Promise(() => {}))
+    store.failNext('the disk is full')
+    const heard: unknown[] = []
+    const importing = await sys.ask(handle, 'IMPORT', { id: 'a', path: 'a.md' }, (updates) => { heard.push(...updates) })
+    ok(!importing.ok, JSON.stringify(importing))
+    deepStrictEqual(heard, [])
+    strictEqual(defects().length, 1)
   }],
   ['a command that is a unit of its own joins the step: two of them and the count are kept in one keeping', async () => {
     const { store, sys, handle } = made(open)
