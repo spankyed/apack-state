@@ -120,6 +120,60 @@ const scenario = (held: boolean, how: 'one after the other' | 'both at once') =>
 }
 
 await run([
+  ['the views are asked whether they have caught up for a step that sends a window something, and never for one that sends nothing', async () => {
+    const store = memory()
+    // What each asking says: that something is blocked on the answer.
+    const asked: boolean[] = []
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard) as Required<Exclude<ReturnType<ViewHost>, () => void>>
+      return { stop: () => running.stop(), caughtUp: (then, soon) => { asked.push(soon); running.caughtUp(then, soon) } }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
+    backend.start('threads', threads(store))
+    const maker = backend.start('maker', state<{}, { type: 'MAKE'; id: string }>()({ on: { MAKE: ({ id }) => { store.put('thread', id, { topic: 'made' }) } } }))
+    const window = system({ side: 'window' })
+    window.connect(backend)
+    const handle = window.start('panel', panel)
+    await settledAndRest(store)
+    asked.length = 0
+    // A thread made on the backend alone: its view changes, and nothing is sent to a window to hold.
+    backend.send(maker, { type: 'MAKE', id: 'a' })
+    await settledAndRest(store)
+    deepStrictEqual(asked, [])
+    strictEqual(window.read(handle).data.count, 1)
+    // A window asks: its answer, and what is told every window, wait on the view, and someone is blocked on them.
+    ok((await window.ask(handle, 'ADD', { id: 'b' })).ok)
+    await settledAndRest(store)
+    ok(asked.length > 0 && asked.every((soon) => soon), `asked ${JSON.stringify(asked)}`)
+  }],
+  ['views that cannot say they have caught up are not waited on: a window is answered and told', async () => {
+    const store = memory()
+    const { window, handle, defects } = made(store, false)
+    await settledAndRest(store)
+    ok((await window.ask(handle, 'ADD', { id: 'a' })).ok)
+    await settledAndRest(store)
+    deepStrictEqual([window.read(handle).data.atAnswer.length, window.read(handle).data.atEvent.length], [1, 1])
+    deepStrictEqual(defects(), [])
+  }],
+  ...(['a function that stops it', 'a view that can say it has caught up'] as const).map((given) => [`a backend state that follows a view stops it when it ends, given ${given}`, async () => {
+    const store = memory()
+    let stopped = 0
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard) as Required<Exclude<ReturnType<ViewHost>, () => void>>
+      const stop = (): void => { stopped++; running.stop() }
+      return given === 'a function that stops it' ? stop : { stop, caughtUp: (then, soon) => running.caughtUp(then, soon) }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
+    backend.start('counter', state<{ data: { count: number } }, never>()({
+      data: { count: 0 },
+      follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+    }))
+    await settledAndRest(store)
+    strictEqual(stopped, 0)
+    backend.stop()
+    await rest()
+    strictEqual(stopped, 1)
+  }] as const),
   ['in elmdb: a thread made is in the window\'s view by the time the window is answered and by the time it is told', async () => {
     const store = elmdb()
     try {

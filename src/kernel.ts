@@ -248,12 +248,9 @@ export function system(host: {
     rounds.push(round)
     for (const viewing of round.waiting) {
       pending++
-      let called = false
       // Something is blocked on it: an asker, or a window to be told.
       viewing.caughtUp!(() => {
-        if (called) return
-        called = true
-        // Not if it stopped first: that counted it caught up already.
+        // Not if it stopped first, which counted it caught up already, nor a second time.
         if (!round.waiting.delete(viewing)) return
         pending--
         letGo()
@@ -1075,10 +1072,9 @@ export function system(host: {
       if (viewing.caughtUp) forWindows.add(viewing)
       return () => {
         forWindows.delete(viewing)
-        let any = false
-        for (const round of rounds) if (round.waiting.delete(viewing)) { any = true; pending-- }
+        for (const round of rounds) if (round.waiting.delete(viewing)) pending--
         viewing.stop()
-        if (any) letGo()
+        letGo()
       }
     },
   }
