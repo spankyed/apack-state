@@ -40,6 +40,8 @@ jobs:
       - run: npm run api:check
       # Each example's graph, read from its types, is what etc/graphs/ says it is
       - run: npm run graph:check
+      # What a compile error means, as docs/errors.md says it, is what the compiler says of each type test
+      - run: npm run errors:check
       - run: npm run build
       - run: npm test
       # The package as a consumer gets it: packed, installed into a project of its own, each entry imported

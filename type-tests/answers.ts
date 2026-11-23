@@ -2,7 +2,7 @@
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import { given } from '../src/index.ts'
+import { answered, given } from '../src/index.ts'
 import type * as from from '../checks/answer-check.mts'
 declare const state: typeof from.state
 type Counter = from.Counter

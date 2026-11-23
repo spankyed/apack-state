@@ -16,6 +16,7 @@ and API are the prototype's, not yet a package's: files are `.mts`, and checks a
 - [docs/plan.md](docs/plan.md): the longer record. Why, every rule, rows and the database, each decision and what
   it replaced, what is proven, what is not built, and the order of work.
 - [docs/files.md](docs/files.md): what each file is.
+- [docs/errors.md](docs/errors.md): what a compile error means, and what to write instead.
 
 ## Layout
 

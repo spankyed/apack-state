@@ -54,7 +54,9 @@
     "bench": "node scripts/bench.mjs",
     "bench:record": "node scripts/bench.mjs --record",
     "graph:update": "tsx tools/graph.mts --write",
-    "graph:check": "tsx tools/graph.mts --check"
+    "graph:check": "tsx tools/graph.mts --check",
+    "errors:update": "node scripts/errors.mjs --write",
+    "errors:check": "node scripts/errors.mjs"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
