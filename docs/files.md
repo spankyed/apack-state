@@ -58,6 +58,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/graph-check.mts` | The graph tool (`tools/graph.mts`) run on states that are hard to read, in `checks/graphs/`: a state entered at one inside it before itself, and what is written short; and its command line |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
+| `scripts/pre-push.mjs` | What runs before a push: lint, typecheck, API reports, specs, and mutants in the files under `src/` the branch changed |
+| `scripts/hooks-install.mjs` | Has git run it before each push from this checkout, if asked to: `npm run hooks:install` |
 | `scripts/bench.mjs` | Runs every measurement, prints each reading beside the recorded one, and records them with their conditions (`--record`) |
 | `bench/*.json` | The recorded readings: each measurement's, with the date, commit, machine, load, Node and elmdb they were read under |
 | `measure/hold-stall.mts` | What the hold costs a window under a steady stream of writes, twelve views each touched in turn, for the hold as it was and as it is. A measurement: it prints, and refuses nothing |

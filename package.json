@@ -56,7 +56,9 @@
     "graph:update": "tsx tools/graph.mts --write",
     "graph:check": "tsx tools/graph.mts --check",
     "errors:update": "node scripts/errors.mjs --write",
-    "errors:check": "node scripts/errors.mjs"
+    "errors:check": "node scripts/errors.mjs",
+    "pre-push": "node scripts/pre-push.mjs",
+    "hooks:install": "node scripts/hooks-install.mjs"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
