@@ -6,6 +6,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 
 | File | What it is |
 |---|---|
+| `docs/deferred/` | What is left out of the plan on purpose, each with what it is, what it would take, and what would make it worth starting |
 | `src/index.ts` | The door: every export of the package, by name |
 | `etc/*.api.md` | What each entry offers, as API Extractor reads it: `npm run api:check` holds the source to them, `npm run api:update` writes them |
 | `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
