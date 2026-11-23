@@ -13,6 +13,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `scripts/package-smoke.mjs` | Installs the packed package into a project of its own, imports each entry and runs a state from it |
 | `scripts/workflows-check.mjs` | Fails a workflow or package script that could publish to npm or hold a token for it |
 | `scripts/deps.mjs` | The siblings' packages this repository installs, and where each comes from: `deps:pin`, `deps:local`, `deps:released`, `deps:check` |
+| `scripts/package-lint.mjs` | Packs the package and runs publint and attw (`esm-only`) over the tarball |
+| `.oxlintrc.json` | oxlint's rules: its defaults, less those whose findings here are deliberate |
 | `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
 | `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
 | `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |

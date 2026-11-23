@@ -59,7 +59,7 @@ for (const file of files) {
         // repository.xCommands.method(...)  or  xCommands.method(...)
         const owner = callee.expression
         const ownerName = ts.isPropertyAccessExpression(owner) ? owner.name.text : ts.isIdentifier(owner) ? owner.text : ''
-        if (/Commands$/.test(ownerName)) { commands++; if (insideTransact) inTransact++; commandMethods.set(`${ownerName}.${callee.name.text}`, (commandMethods.get(`${ownerName}.${callee.name.text}`) ?? 0) + 1) }
+        if (ownerName.endsWith('Commands')) { commands++; if (insideTransact) inTransact++; commandMethods.set(`${ownerName}.${callee.name.text}`, (commandMethods.get(`${ownerName}.${callee.name.text}`) ?? 0) + 1) }
       }
     }
     ts.forEachChild(node, (child: any) => visit(child, inside))

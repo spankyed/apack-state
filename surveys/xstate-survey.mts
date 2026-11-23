@@ -16,7 +16,7 @@ function walk(dir: string, out: string[]): string[] {
     const full = join(dir, name)
     const st = statSync(full)
     if (st.isDirectory()) walk(full, out)
-    else if (/\.(ts|tsx|mts|vue)$/.test(name) && !/\.d\.ts$/.test(name)) out.push(full)
+    else if (/\.(ts|tsx|mts|vue)$/.test(name) && !name.endsWith('.d.ts')) out.push(full)
   }
   return out
 }

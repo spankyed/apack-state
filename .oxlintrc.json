@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "unicorn/no-useless-spread": "off"
+  },
+  "overrides": [
+    {
+      "files": ["checks/*.mts"],
+      "rules": {
+        "unicorn/no-unnecessary-await": "off",
+        "no-self-assign": "off"
+      }
+    },
+    {
+      "files": ["type-tests/*.ts"],
+      "rules": {
+        "no-constant-condition": "off"
+      }
+    }
+  ]
+}

@@ -54,7 +54,7 @@ state<Board, BoardEvent, BoardAsks>()({
   }),
   states: {
     // @ts-expect-error the helper has to be given its title, so it cannot be named bare
-    open: { starts: (start) => ({ helper: helper([]) }) },
+    open: { starts: (_start) => ({ helper: helper([]) }) },
     closed: {},
   },
 })

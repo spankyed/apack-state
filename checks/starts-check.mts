@@ -4,7 +4,7 @@
 //   npx vitest run starts
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { explore, type Schedule } from '../src/schedule.ts'
-import { rest, run, system } from './checks.mts'
+import { run, system } from './checks.mts'
 import { answered, given, reaching, type Each } from '../src/index.ts'
 
 export const state = reaching()

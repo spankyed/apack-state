@@ -47,7 +47,9 @@
     "deps:pin": "node scripts/deps.mjs pin",
     "deps:local": "node scripts/deps.mjs local",
     "deps:released": "node scripts/deps.mjs released",
-    "deps:check": "node scripts/deps.mjs check"
+    "deps:check": "node scripts/deps.mjs check",
+    "lint": "oxlint --deny-warnings src checks examples measure surveys tools scripts type-tests stryker.config.mjs vitest.config.mts",
+    "package:lint": "node scripts/package-lint.mjs"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
@@ -62,6 +64,7 @@
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-ears-0.1.0.tgz",
     "@microsoft/api-extractor": "^7.60.1",
     "@stryker-mutator/core": "^9.6.1",
@@ -71,6 +74,8 @@
     "@vue/reactivity": "^3.5.0",
     "@vue/runtime-core": "^3.5.0",
     "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-0.1.0.tgz",
+    "oxlint": "^1.94.0",
+    "publint": "^0.3.25",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
     "typescript-5.7": "npm:typescript@~5.7.3",
