@@ -4,7 +4,7 @@
 //   npx tsx tools/graph.mts examples/search.mts    prints one file's graphs
 //   npm run graph:update                           writes each example's to etc/graphs/<example>.txt
 //   npm run graph:check                            fails when one of those is not what the source says
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, join as joinPath, resolve } from 'node:path'
 
@@ -13,10 +13,20 @@ const ts = createRequire(joinPath(root, 'package.json'))('typescript')
 /** The examples a graph is recorded for: each that is not a stand-in. */
 const EXAMPLES = readdirSync(joinPath(root, 'examples')).filter((name) => name.endsWith('.mts')).sort().map((name) => joinPath(root, 'examples', name))
 const files = process.argv.slice(2).filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg))
-const program = ts.createProgram(files.length ? files : EXAMPLES, {
-  strict: true, noEmit: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, skipLibCheck: true, types: ['node'],
-})
+const writing = process.argv.includes('--write')
+const checking = process.argv.includes('--check')
+if (!writing && !checking && files.length === 0) {
+  console.error('Name a file to print its graphs, or give --write or --check for every example\'s.')
+  process.exit(1)
+}
+const missing = files.filter((file) => !existsSync(file))
+if (missing.length) {
+  console.error(`No such file: ${missing.join(', ')}`)
+  process.exit(1)
+}
+// The types are read as the repository's compiler reads them: its own tsconfig.json.
+const config = ts.getParsedCommandLineOfConfigFile(joinPath(root, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })
+const program = ts.createProgram(writing || checking ? EXAMPLES : files, { ...config.options, noEmit: true })
 const checker = program.getTypeChecker()
 /** What is said of the file being read, a line at a time. */
 let out: string[] = []
@@ -104,12 +114,15 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
         const [first, second, options] = entry.initializer.arguments
         if (!first || !second || !options || !ts.isObjectLiteralExpression(options)) continue
         const option = (key: string): any => options.properties.find((each: any) => each.name?.getText() === key)
-        const each = option('each')
-        const from = option('from')
+        // `{ each }` and `{ from }` say their value by their name.
+        const valueOf = (property: any): any => property && (property.initializer ?? property.name)
+        const each = valueOf(option('each'))
+        const from = valueOf(option('from'))
         // An ask that is made is made when a handler says so: with `each` for one of many keys, with `one` for one at a time.
         const depends = name === 'makes' ? (entry.initializer.expression.getText() === 'each' ? 'for each key it is told' : 'one at a time')
-          : each ? `one for each key of ${text(each.initializer)}`
-          : from && ts.isArrayLiteralExpression(from.initializer) && from.initializer.elements.length ? `from ${from.initializer.elements.map(text).join(', ')}` : 'from nothing: once'
+          : each ? `one for each key of ${text(each)}`
+          : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
+          : from ? `from what ${text(from)} names` : 'from nothing: once'
         ;(name === 'follows' ? follows : name === 'awaits' ? awaits : makes).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
         for (const hears of name === 'follows' ? ['heard'] : ['ended', 'heard']) {
           const handler = option(hears)
@@ -121,10 +134,17 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
   }
   declarations(literal, '')
 
-  /** Entering a state also enters the one it starts at, and so on down. */
+  /**
+   * Entering a state also enters the one it starts at, and so on down, and every state it is inside. A state entered
+   * only as one of these, on the way to one inside it, has not been entered itself: what it starts at is gone into
+   * when a move enters it.
+   */
+  const gone = new Set<string>()
   const enter = (path: string): void => {
     for (let at = path; ; ) {
-      if (at) { if (entered.has(at)) break; entered.add(at); for (let cut = at.lastIndexOf('.'); cut > 0; cut = at.lastIndexOf('.', cut - 1)) entered.add(at.slice(0, cut)) }
+      if (gone.has(at)) break
+      gone.add(at)
+      if (at) { entered.add(at); for (let cut = at.lastIndexOf('.'); cut > 0; cut = at.lastIndexOf('.', cut - 1)) entered.add(at.slice(0, cut)) }
       const next = starts.get(at)
       if (next === undefined) break
       at = join(at, next)
@@ -176,7 +196,7 @@ const visit = (node: any): void => {
     const scan = (inner: any): void => {
       if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && VERBS.has(inner.expression.text) && inner.arguments[0]) {
         const target = inner.arguments[0]
-        reaches.add(`${inner.expression.text} ${ts.isCallExpression(target) ? `its ${target.arguments[0].getText()}` : target.getText()}`)
+        reaches.add(`${inner.expression.text} ${ts.isCallExpression(target) && target.arguments[0] ? `its ${target.arguments[0].getText()}` : target.getText()}`)
       }
       ts.forEachChild(inner, scan)
     }
@@ -189,25 +209,33 @@ const visit = (node: any): void => {
 const graphsOf = (file: string): string => {
   out = []
   visit(program.getSourceFile(file)!)
-  return `${out.join('\n').trim()}\n`
+  // What is said quotes the source, whatever line endings a checkout gave it.
+  return `${out.join('\n').trim()}\n`.replaceAll('\r\n', '\n')
 }
 
 const recorded = (file: string): string => joinPath(root, 'etc', 'graphs', `${basename(file, '.mts')}.txt`)
 const HEADER = '# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.\n\n'
-if (process.argv.includes('--write') || process.argv.includes('--check')) {
+if (writing || checking) {
   const stale: string[] = []
-  mkdirSync(joinPath(root, 'etc', 'graphs'), { recursive: true })
+  const dir = joinPath(root, 'etc', 'graphs')
+  if (writing) mkdirSync(dir, { recursive: true })
   for (const file of EXAMPLES) {
     const text = HEADER + graphsOf(file)
     const at = recorded(file)
-    if (process.argv.includes('--write')) writeFileSync(at, text)
+    if (writing) writeFileSync(at, text)
     else if (readFileOr(at) !== text) stale.push(basename(at))
+  }
+  // A graph recorded for an example that is gone is not what any source says.
+  const kept = new Set(EXAMPLES.map((file) => basename(recorded(file))))
+  for (const name of existsSync(dir) ? readdirSync(dir).filter((one) => one.endsWith('.txt') && !kept.has(one)) : []) {
+    if (writing) rmSync(joinPath(dir, name))
+    else stale.push(`${name} (no example)`)
   }
   if (stale.length) {
     console.error(`Not what the source says: ${stale.join(', ')}. Run npm run graph:update and commit it.`)
     process.exit(1)
   }
-  console.log(`${EXAMPLES.length} examples' graphs ${process.argv.includes('--write') ? 'written to etc/graphs/' : 'as the source says'}`)
+  console.log(`${EXAMPLES.length} examples' graphs ${writing ? 'written to etc/graphs/' : 'as the source says'}`)
 } else {
   for (const file of files) process.stdout.write(graphsOf(file))
 }
