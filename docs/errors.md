@@ -153,5 +153,5 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | What was written | What TypeScript says | Why |
 |---|---|---|
 | `void value.data.threadId` | TS2339: Property 'threadId' does not exist on type '{ readonly titles: { readonly [x: string]: string; }; readonly unseen: readonly string[]; readonly problem: string \| null; } \| { read… | a thread's id exists only somewhere inside `thread` |
-| `within(value, 'board')` | TS2345: Argument of type '"board"' is not assignable to parameter of type '"list" \| "thread" \| "creating" \| "thread.idle" \| "thread.sending"'. | there is no such state to be inside |
+| `within(value, 'board')` | TS2345: Argument of type '"board"' is not assignable to parameter of type '"list" \| "thread" \| "thread.idle" \| "creating" \| "thread.sending"'. | there is no such state to be inside |
 | `if (within(value, 'thread')) void value.data.documentId` | TS2339: Property 'documentId' does not exist on type '{ readonly titles: { readonly [x: string]: string; }; readonly unseen: readonly string[]; readonly problem: string \| null; readonly… | inside `thread` is not enough to know it is sending |
