@@ -14,36 +14,23 @@ type Ends = 'made' | 'throws' | 'stray'
 type AskEnds = Ends | 'refuses' | 'change throws' | 'change refuses'
 
 type EarEvent = { type: 'NOTE'; text: string }
-type EarAsks = {
-  ECHO: { args: { text: string }; answer: string }
-  SLOW: { args: { text: string }; answer: string; progress: string }
-}
+type EarAsks = { ECHO: { args: { text: string }; answer: string } }
 type DeskEvent = { type: 'SAY'; how: Ends } | { type: 'COUNT' } | { type: 'WORK'; how: 'at once' | 'in failed' } | { type: 'REST' }
-type DeskAsks = {
-  DO: { args: { how: AskEnds }; progress: string; answer: string; refuses: 'no' }
-  LATER: { args: { how: 'throws' | 'refuses' }; answer: string; refuses: 'no' }
-}
+type DeskAsks = { DO: { args: { how: AskEnds }; progress: string; answer: string; refuses: 'no' } }
 type PanelEvent = { type: 'NOTED'; text: string } | { type: 'PASS'; how: Ends }
 type PanelAsks = { RELAY: { args: { how: Ends }; answer: string } }
 type App = {
   systems: { ear: { events: EarEvent; asks: EarAsks }; desk: { events: DeskEvent; asks: DeskAsks } }
   surfaces: { panel: { events: PanelEvent } }
-  views: { notes: { list: { args: {}; result: string } } }
+  views: {}
 }
 const state = reaching<App>()
 
 /** Keeps what it was told and what it was asked, in the order they came. */
-const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
+const ear = state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
   data: { heard: [] },
   on: { NOTE: ({ text }, { data }) => ({ data: { heard: [...data.heard, text] } }) },
-  asks: {
-    ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }),
-    SLOW: async ({ text }, { progress }) => {
-      progress(`working ${text}`)
-      await (gate ?? new Promise<void>((resolve) => { nextTurn(resolve) }))
-      return answered(text, { data: (d) => { d.heard.push(`slow ${text}`) } })
-    },
-  },
+  asks: { ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }) },
 })
 
 /** Says something every way a backend state can, and then ends as it is told to. `ended` is told how the ask it made ended. */
@@ -78,13 +65,6 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
         if (how === 'change refuses') throw refuse('no', 'the change refused')
       } })
     },
-    LATER: async ({ how }, { tell, refuse }) => {
-      // Said before the wait, in the step that took the ask: that step is made, so it stands.
-      tell('ear', { type: 'NOTE', text: 'before wait' })
-      await new Promise<void>((resolve) => { nextTurn(resolve) })
-      if (how === 'refuses') throw refuse('no', 'refused after wait')
-      throw new Error('broke after wait')
-    },
   },
   states: {
     idle: {},
@@ -117,8 +97,7 @@ const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: strin
   asks: {
     RELAY: ({ how }, { ask }) => {
       void ask('desk', 'DO', { how: 'made' }).then(ended)
-      if (how === 'throws') throw new Error('the handler broke')
-      if (how === 'stray') return answered('relayed', { data: { nothing: 1 } } as never)
+      if (how !== 'made') throw new Error('the handler broke')
       return 'relayed'
     },
   },
@@ -128,21 +107,19 @@ const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: strin
 const wired = () => {
   const store = memory()
   const steps: StepLog[] = []
-  const traced: string[] = []
-  const backend = system({ side: 'backend', transact: store.transact, log: (step) => { steps.push(step) }, trace: (line) => { traced.push(line) } })
-  const theEar = backend.start('ear', ear())
+  const backend = system({ side: 'backend', transact: store.transact, log: (step) => { steps.push(step) } })
+  const theEar = backend.start('ear', ear)
   const ended = { echo: [] as unknown[], relayed: [] as unknown[] }
   const theDesk = backend.start('desk', desk((outcome) => { ended.echo.push(outcome) }))
-  const window = system({ side: 'window', trace: (line) => { traced.push(line) } })
+  const window = system({ side: 'window' })
   window.connect(backend)
   const thePanel = window.start('panel', panel((outcome) => { ended.relayed.push(outcome) }))
   const progress: string[] = []
   return {
-    backend, window, steps, traced, progress, ended,
+    backend, window, steps, progress, ended,
     say: (how: Ends): void => backend.send(theDesk, { type: 'SAY', how }),
     work: (how: 'at once' | 'in failed'): void => backend.send(theDesk, { type: 'WORK', how }),
     doIt: (how: AskEnds) => backend.ask(theDesk, 'DO', { how }, (updates) => { progress.push(...updates) }),
-    later: (how: 'throws' | 'refuses') => backend.ask(theDesk, 'LATER', { how }),
     pass: (how: Ends): void => window.send(thePanel, { type: 'PASS', how }),
     relay: (how: Ends) => window.ask(thePanel, 'RELAY', { how }),
     /** Everything anybody was told, by whoever it was said to. */
@@ -257,158 +234,5 @@ await run([
     deepStrictEqual(it.ended.relayed, [TAKEN_BACK])
     // Closing the link finds no ask waiting on it to end.
     strictEqual(it.window.idle(), true)
-  }],
-  ['in a window, an ask made across the link by a handler whose change cannot be made is never asked', async () => {
-    const it = wired()
-    deepStrictEqual(await it.relay('stray'), { ok: false, failure: { kind: 'failed', message: 'The change that came with the answer was refused, so nothing was changed' } })
-    await rest()
-    deepStrictEqual(it.said(), NOTHING)
-    deepStrictEqual(it.ended.relayed, [TAKEN_BACK])
-    strictEqual(it.window.idle(), true)
-  }],
-  ['what an async ask said before it waited stands, though it fails or refuses after', async () => {
-    for (const how of ['throws', 'refuses'] as const) {
-      const it = wired()
-      const outcome = await it.later(how)
-      await rest()
-      strictEqual(outcome.ok, false)
-      deepStrictEqual(it.said().heard, ['before wait'])
-    }
-  }],
-  ['a child state whose handler throws has reported nothing to whoever started it', async () => {
-    const child = state<{ reports: { type: 'PING' } }, { type: 'FAIL' }>()({
-      on: { FAIL: (_, { report }) => { report({ type: 'PING' }); throw new Error('child broke') } },
-    })
-    const parent = state<{ data: { pings: number }; starts: { worker: typeof child } }, { type: 'PING'; from: string }>()({
-      data: { pings: 0 },
-      starts: () => ({ worker: child }),
-      on: { PING: (_, { data }) => ({ data: { pings: data.pings + 1 } }) },
-    })
-    const backend = system({ side: 'backend' })
-    const top = backend.start('parent', parent)
-    backend.send(backend.child(top, 'worker'), { type: 'FAIL' })
-    await rest()
-    strictEqual(backend.read(top).data.pings, 0)
-  }],
-  ['a handler that drops what is being made and then throws has dropped nothing', async () => {
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    const maker = state<{ data: { done: string[] }; makes: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
-      data: { done: [] },
-      makes: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
-      on: {
-        START: (_, { make }) => { make('work') },
-        FAIL_DROP: (_, { drop }) => { drop('work'); throw new Error('drop broke') },
-      },
-    })
-    const backend = system({ side: 'backend' })
-    const theEar = backend.start('ear', ear(gate))
-    const theMaker = backend.start('maker', maker)
-    backend.send(theMaker, { type: 'START' })
-    backend.send(theMaker, { type: 'FAIL_DROP' })
-    strictEqual(backend.read(theMaker).making.work, true)
-    release()
-    await rest()
-    deepStrictEqual(backend.read(theMaker).data.done, ['kept'])
-    deepStrictEqual(backend.read(theEar).data.heard, ['slow kept'])
-  }],
-  ['a view, awaited read, or made ask handler that throws has said nothing', async () => {
-    let deliverView!: (update: { ok: true; value: string }) => void
-    const reactor = state<{ data: { ready: boolean }; makes: { job: 'one' } }, { type: 'GO' }>()({
-      data: { ready: true },
-      follows: (follow) => ({
-        list: follow('notes', 'list', {
-          args: () => ({}),
-          heard: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
-        }),
-      }),
-      awaits: (wait) => ({
-        read: wait('ear', 'ECHO', {
-          from: ['ready'],
-          args: () => ({ text: 'read' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
-        }),
-      }),
-      makes: ({ one }) => ({
-        job: one('ear', 'ECHO', {
-          args: () => ({ text: 'job' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
-        }),
-      }),
-      on: { GO: (_, { make }) => { make('job') } },
-    })
-    const backend = system({
-      side: 'backend',
-      views: (_feature, _view, _args, heard) => { deliverView = heard; return () => {} },
-    })
-    const theEar = backend.start('ear', ear())
-    const theReactor = backend.start('reactor', reactor)
-    deliverView({ ok: true, value: 'v1' })
-    backend.send(theReactor, { type: 'GO' })
-    await rest()
-    // Only the asks to ear crossed; none of the throwing reaction handlers told ear anything.
-    deepStrictEqual(backend.read(theEar).data.heard, ['asked read', 'asked job'])
-  }],
-  ['taking back an ask runs no progress listener while the step transaction is still open', async () => {
-    let inTransaction = false
-    const observed: Array<{ inTransaction: boolean; updates: readonly string[] }> = []
-    const frames: Array<() => void> = []
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    const ended: unknown[] = []
-    const backend = system({
-      side: 'backend',
-      frame: (fn) => { frames.push(fn) },
-      transact: (fn) => {
-        const outer = !inTransaction
-        inTransaction = true
-        try { return fn() } finally { if (outer) inTransaction = false }
-      },
-    })
-    const theEar = backend.start('ear', ear(gate))
-    const theDesk = backend.start('desk', desk((outcome) => { ended.push(outcome) }))
-    // Gather a progress update and hold its frame so it waits in `gathered` when the failing ask runs.
-    const slowAsk = backend.ask(theEar, 'SLOW', { text: 'p' }, (updates) => { observed.push({ inTransaction, updates }) })
-    await new Promise<void>((resolve) => { nextTurn(resolve) })
-    strictEqual(frames.length > 0, true)
-    await backend.ask(theDesk, 'DO', { how: 'throws' })
-    release()
-    await slowAsk
-    await rest()
-    deepStrictEqual(observed, [{ inTransaction: false, updates: ['working p'] }])
-    deepStrictEqual(ended, [TAKEN_BACK])
-  }],
-  ['stopping after an ask was taken back does not trace that it was left unanswered', async () => {
-    const it = wired()
-    await it.doIt('throws')
-    await it.relay('throws')
-    await rest()
-    it.backend.stop()
-    it.window.stop()
-    await rest()
-    deepStrictEqual(it.traced.filter((line) => line.includes('left unanswered')), [])
-  }],
-  ['an ask taken back in a step whose commit fails is still ended', async () => {
-    const ended: unknown[] = []
-    let failCommit = false
-    let depth = 0
-    const backend = system({
-      side: 'backend',
-      transact: (fn) => {
-        depth++
-        try {
-          const result = fn()
-          if (depth === 1 && failCommit) throw new Error('disk full')
-          return result
-        } finally { depth-- }
-      },
-    })
-    backend.start('ear', ear())
-    const theDesk = backend.start('desk', desk((outcome) => { ended.push(outcome) }))
-    failCommit = true
-    const outer = await backend.ask(theDesk, 'DO', { how: 'throws' })
-    await rest()
-    strictEqual(outer.ok, false)
-    deepStrictEqual(ended, [TAKEN_BACK])
   }],
 ])

@@ -267,11 +267,6 @@ export function system(host: {
   const TAKEN_BACK = 'What made this ask was not made, so it was never asked'
   /** Where what has been said in this step stands: what is waiting to be handled in it, and what is waiting to leave. */
   const sayings = (): { readonly inside: number; readonly leaving: number } => ({ inside: inside.length, leaving: leaving.length })
-  /** Ends an ask whose handler was not made, once the step ends: nothing runs while a transaction is open. */
-  const abandon = (question: Question): void => {
-    const done = (): void => { question.end(refusal('abandoned', TAKEN_BACK)) }
-    leaving.push(Object.assign(done, { lost: done }))
-  }
   /**
    * Takes back everything said since: what a handler sent, told, asked, had made or dropped, broadcast and reported
    * as progress. What it says is its own until it is made, as its rows are, so one that threw, refused, or returned a
@@ -279,9 +274,8 @@ export function system(host: {
    * kernel's own word stays: whoever asked is still told that it failed.
    */
   const unsay = (since: { readonly inside: number; readonly leaving: number }): void => {
-    const cut = leaving.splice(since.leaving)
-    for (const item of inside.splice(since.inside)) if (item.kind === 'ask') abandon(item.question)
-    for (const leave of cut) { if (leave.anyway) leaving.push(leave); else leave.unsaid?.() }
+    for (const item of inside.splice(since.inside)) if (item.kind === 'ask') item.question.end(refusal('abandoned', TAKEN_BACK))
+    for (const leave of leaving.splice(since.leaving)) { if (leave.anyway) leaving.push(leave); else leave.unsaid?.() }
   }
   /** The views this backend runs for its windows that can say when they have caught up: what the hold asks. */
   const forWindows = new Set<Viewing>()
@@ -457,12 +451,12 @@ export function system(host: {
   const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, hears: ((updates: unknown[]) => void) | undefined): Promise<never> => asked(new Promise((resolve, reject) => {
     const ref = refOf(to)
     const heard = hears && gather(hears, signal)
-    // Whoever asked has gone: the ask ends where it is awaited, with `Left`, so the code that asked unwinds.
-    const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Left(name)) }
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
-    const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
+    const question = new Question((outcome) => { handOver(); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
     // Which ask it is, for what is logged of how it ends: here or across the link, it may end without being taken.
     askedOf.set(question, { ref, name })
+    // Whoever asked has gone: the ask ends where it is awaited, with `Left`, so the code that asked unwinds.
+    const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Left(name)) }
     if (signal?.aborted) { left(); return }
     signal?.addEventListener('abort', left, { once: true })
     // In the same system the asker's own signal tells the answerer; across a link, the port does.
@@ -482,7 +476,7 @@ export function system(host: {
       leave = mine.port.ask(ref, name, args,
         (update) => carry(mine.link, 'down', () => heard?.(update)),
         (outcome) => carry(mine.link, 'down', () => { mine.waiting.delete(question); mine.gone.delete(gone); question.end(outcome) }))
-    }), { kind: 'ask', to: ref, name }, () => { mine.waiting.delete(question); abandon(question) })
+    }), { kind: 'ask', to: ref, name }, () => { mine.waiting.delete(question); question.end(refusal('abandoned', TAKEN_BACK)) })
   }))
 
   const scopeOf = (mine: Active, signal: AbortSignal = mine.controller.signal) => {
