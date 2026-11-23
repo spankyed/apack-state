@@ -32,6 +32,7 @@ type Event =
   | { type: 'WRITES_THROUGH_A_HELPER' }
   | { type: 'WRITES_FURTHER_IN'; id: string }
   | { type: 'THROWS_ITS_OWN' }
+  | { type: 'THROWS_FROM'; stack: string }
   | { type: 'REMOVES_A_FIELD' }
   | { type: 'ONE_BAD_WRITE' }
   | { type: 'GIVES_A_STRAY_FIELD' }
@@ -70,6 +71,8 @@ const made = state<Shape, Event>()({
     // A list inside what a field holds is typed as it was declared, so this compiles. It is frozen all the same.
     WRITES_FURTHER_IN: ({ id }, { data }) => { data.messages[id]?.push('written in place') },
     THROWS_ITS_OWN:    () => { throw new TypeError('not a write at all') },
+    // An edit that throws what was thrown somewhere with this stack.
+    THROWS_FROM:       ({ stack }) => ({ data: () => { throw Object.assign(new Error('thrown in an edit'), { stack }) } }),
     REMOVES_A_FIELD:   () => ({ data: (d) => { delete (d as Partial<Shape['data']>).count } }),
     // A good write, then a bad one: neither is made.
     ONE_BAD_WRITE:     () => ({ data: (d) => { d.count = 5; (d as Record<string, unknown>).extra = 1 } }),
@@ -152,6 +155,16 @@ const checks: Array<[string, () => void]> = [
     const line = typeof window === 'undefined' ? String(source.split('\n').findIndex((each) => each.includes('ADD_A_FIELD:       () =>')) + 1) : '\\d+'
     ok(new RegExp(`There is no field extra to change \\(kernel-check\\.mts:${line}\\)$`).test(it.defects[0]!), it.defects[0])
   }],
+  ...([
+    ['a module served to a window, with a query after its name', 'at http://localhost:63315/checks/threads.mts?import&t=1700000000000:139:37', 'threads.mts:139'],
+    ['a file as Node names it, in parentheses', 'at Object.handler (/app/packs/threads.ts:12:5)', 'threads.ts:12'],
+    ['a file built to JavaScript', 'at handler (file:///app/dist/packs/threads.js:40:9)', 'threads.js:40'],
+  ] as const).map(([frame, line, says]) => [`the report names the line that threw, in ${frame}`, () => {
+    const it = run()
+    // The kernel's own frames come first, and are passed over.
+    it.send({ type: 'THROWS_FROM', stack: `Error: thrown in an edit\n    at produce (/app/node_modules/@apackdev/state/dist/draft.js:88:11)\n    ${line}` })
+    ok(it.defects[0]?.endsWith(`thrown in an edit (${says})`), it.defects[0])
+  }] as [string, () => void]),
   ['an edit cannot remove a field', () => {
     const it = run()
     it.send({ type: 'REMOVES_A_FIELD' })
