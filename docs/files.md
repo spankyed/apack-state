@@ -51,6 +51,10 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-check.mts` | A step as one unit of the database: a handler's rows, data and what it sent kept together, on both stores. Runs, for about 12 seconds |
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
+| `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
+| `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
+| `scripts/bench.mjs` | Runs every measurement, prints each reading beside the recorded one, and records them with their conditions (`--record`) |
+| `bench/*.json` | The recorded readings: each measurement's, with the date, commit, machine, load, Node and elmdb they were read under |
 | `measure/hold-stall.mts` | What the hold costs a window under a steady stream of writes, twelve views each touched in turn, for the hold as it was and as it is. A measurement: it prints, and refuses nothing |
 | `measure/rows-cost.mts` | What a unit around a step and around each handler costs on elmdb, beside the engine alone, and what holding an answer for the views costs a window. A measurement: it prints, and refuses nothing |
 | `surveys/writes-survey.mts`, `surveys/writes-shape.mts` | Where the app writes to the database, and how each function that writes does it, read from syntax trees. Each takes the checkout to read |

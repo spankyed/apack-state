@@ -90,4 +90,5 @@ npm run build
 
 `npm test` runs every check with vitest, each file a spec and each check a case of it. `npx vitest run rows` runs
 the files whose path has `rows` in it, `npx vitest run -t "<words>"` the cases named with them, and
-`npm run test:watch` runs again what a change touches. `npm run measure` runs the measurements.
+`npm run test:watch` runs again what a change touches. `npm run bench` runs the measurements and prints each beside the reading recorded in `bench/`, with the
+conditions it was read under; `npm run bench:record` records them.

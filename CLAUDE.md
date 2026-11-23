@@ -59,7 +59,9 @@ waits a turn in either.
 
 `npm test` runs every check with vitest: each `checks/*-check.mts` is a spec, run without being listed, and each
 check in it a case with its own name (`checks/checks.mts` makes them). No case is given a time to finish in.
-`npm run measure` runs the measurements, each as its own process (`scripts/measure.mjs`). A check that starts a process stops it and waits for it to exit.
+`npm run bench` runs the measurements in `measure/`, each as its own process, and prints each reading beside the one
+recorded in `bench/<measurement>.json` with the conditions it was read under; `npm run bench:record` writes them.
+Neither refuses anything: a reading moves with the machine. A check that starts a process stops it and waits for it to exit.
 
 Each `master` commit whose CI passed is packed and published as the prerelease `pkg-<commit>`
 (`.github/workflows/packages.yml`), which apack installs by URL and pins by commit. Nothing publishes to npm, and

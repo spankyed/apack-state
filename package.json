@@ -35,7 +35,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit && vue-tsc --noEmit -p type-tests/vue-templates/tsconfig.json",
     "test": "vitest run --project node",
-    "measure": "node scripts/measure.mjs",
+    "measure": "node scripts/bench.mjs",
     "test:watch": "vitest --project node",
     "api:check": "node scripts/api.mjs",
     "api:update": "node scripts/api.mjs --local",
@@ -50,7 +50,9 @@
     "deps:check": "node scripts/deps.mjs check",
     "lint": "oxlint --deny-warnings src checks examples measure surveys tools scripts type-tests stryker.config.mjs vitest.config.mts vitest.mutants.mts",
     "package:lint": "node scripts/package-lint.mjs",
-    "test:browser": "vitest run --project browser"
+    "test:browser": "vitest run --project browser",
+    "bench": "node scripts/bench.mjs",
+    "bench:record": "node scripts/bench.mjs --record"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",

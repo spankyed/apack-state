@@ -14,6 +14,7 @@
 import { cpus, loadavg } from 'node:os'
 import { reaching, system, type ViewHost } from '../src/index.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
+import { reading } from './record.mts'
 
 const VIEWS = 12
 const WRITE_EVERY_MS = 2
@@ -73,5 +74,9 @@ console.log(`${VIEWS} views followed by one window, a row written every ${WRITE_
 for (const hold of ['every watch settled', 'each view caught up'] as const) {
   const { took, unended } = await run(hold)
   const sorted = [...took].sort((a, b) => a - b)
+  reading(`${hold}: median`, at(sorted, 0.5), 'ms')
+  reading(`${hold}: 90th`, at(sorted, 0.9), 'ms')
+  reading(`${hold}: most`, sorted.at(-1) ?? NaN, 'ms')
+  reading(`${hold}: not answered in ${GIVE_UP_MS / 1000} s`, unended, 'asks')
   console.log(`  ${(hold === 'every watch settled' ? 'until no watch is behind (as it was)' : 'until each view has caught up, soon (as it is)').padEnd(46)} median ${at(sorted, 0.5).toFixed(1).padStart(7)} ms   90th ${at(sorted, 0.9).toFixed(1).padStart(7)} ms   most ${(sorted.at(-1) ?? NaN).toFixed(1).padStart(8)} ms   not answered in ${GIVE_UP_MS / 1000} s: ${unended} of ${ASKS}`)
 }

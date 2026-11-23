@@ -9,6 +9,7 @@ import { cpus } from 'node:os'
 import { reaching, system, type ViewHost } from '../src/index.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import type { Rows } from '../checks/store.mts'
+import { reading, under } from './record.mts'
 
 const state = reaching()
 type Events = { type: 'TOUCH' } | { type: 'NOTE'; id: string } | { type: 'MANY'; from: number; count: number }
@@ -41,29 +42,30 @@ const kernel = (unit: boolean, event: (at: number) => Events) => (store: Rows): 
   return (at) => sys.send(handle, event(at))
 }
 const line = (what: string, micros: number, beside?: number): void => {
+  reading(what, micros, 'µs')
   console.log(`  ${what.padEnd(64)} ${micros.toFixed(1).padStart(8)} µs${beside === undefined ? '' : `   (${(micros - beside >= 0 ? '+' : '')}${(micros - beside).toFixed(1)} µs beside the line above)`}`)
 }
 
 console.log(`${new Date().toISOString().slice(0, 10)}, ${cpus()[0]?.model}, node ${process.version}, load ${process.platform === 'win32' ? 'unread' : (await import('node:os')).loadavg()[0]!.toFixed(1)}, temporary databases with syncing off\n`)
 
-console.log('A step that writes nothing')
+under('A step that writes nothing'); console.log('A step that writes nothing')
 const quiet = timed(20_000, kernel(false, () => ({ type: 'TOUCH' })))
 line('the kernel alone, given no database', quiet)
 line('the kernel, with each step a unit', timed(20_000, kernel(true, () => ({ type: 'TOUCH' }))), quiet)
 
-console.log('\nA step that writes one row')
+under('A step that writes one row'); console.log('\nA step that writes one row')
 const bareOne = timed(5_000, (store) => (at) => store.transact(() => { store.put('thread', String(at), { topic: 'noted' }) }))
 line('the engine alone: one unit, one write', bareOne)
 line('the kernel, with the step a unit', timed(5_000, kernel(true, (at) => ({ type: 'NOTE', id: String(at) }))), bareOne)
 
-console.log('\nA step in which ten handlers each write one row')
+under('A step in which ten handlers each write one row'); console.log('\nA step in which ten handlers each write one row')
 const bareTen = timed(2_000, (store) => (at) => store.transact(() => { for (let row = 0; row < 10; row++) store.put('thread', `${at}-${row}`, { topic: 'noted' }) }))
 line('the engine alone: one unit, ten writes', bareTen)
 const marked = timed(2_000, (store) => (at) => store.transact(() => { for (let row = 0; row < 10; row++) store.transact(() => { store.put('thread', `${at}-${row}`, { topic: 'noted' }) }) }))
 line('the engine alone: one unit, each write in a unit inside it', marked, bareTen)
 line('the kernel, with the step a unit', timed(2_000, kernel(true, (at) => ({ type: 'MANY', from: at * 10, count: 10 }))), marked)
 
-console.log('\nTen rows, a step each: what a stream written a piece at a time is')
+under('Ten rows, a step each: what a stream written a piece at a time is'); console.log('\nTen rows, a step each: what a stream written a piece at a time is')
 line('the kernel, ten steps of one write', timed(500, (store) => { const step = kernel(true, (at) => ({ type: 'NOTE', id: String(at) }))(store); return (at) => { for (let row = 0; row < 10; row++) step(at * 10 + row) } }), bareTen)
 
 // What it costs a window to be answered after its views show the row: the backend holds the answer until the engine
@@ -106,6 +108,7 @@ const cases = [
   ['something that writes nothing, straight after the last', false, 0, 200],
 ] as const
 for (const [what, writes, apartMs, asks] of cases) {
+  under(`A window asks its backend ${what}, with a view of the rows open`)
   console.log(`\nA window asks its backend ${what}, with a view of the rows open`)
   const unheld: number[] = []
   const settled: number[] = []
