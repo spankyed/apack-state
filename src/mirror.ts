@@ -18,7 +18,8 @@
 // What a state is making is the kernel's own record and holds nothing but whether each is under way, so that is kept
 // to the key: a spinner on one file runs again for that file.
 import { reactive, readonly, shallowReactive, shallowReadonly } from '@vue/reactivity'
-import type { Asks, Handle, Started, System } from './state.mts'
+import type { System } from './kernel.ts'
+import type { Asks, Handle, Started } from './types.ts'
 
 type Making = Record<string, boolean | Record<string, boolean>>
 type Held = { at?: string; data: Record<string, unknown>; making?: Making }
@@ -27,7 +28,7 @@ type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<s
 /** The same, as the mirror writes it. */
 interface Written { readonly whole: { at: string | undefined }; readonly data: Record<string, unknown>; readonly making: Making | undefined }
 
-/** One running state, mirrored once for everything that reads it. */
+/** One running state, mirrored once for everything that reads it. @internal */
 export interface Shared { readonly ref: string; readonly box: { now: Shown | undefined }; readers: number }
 
 /**
@@ -35,6 +36,7 @@ export interface Shared { readonly ref: string; readonly box: { now: Shown | und
  * gone, and a state nobody reads is not mirrored at all. The system is listened to once, for as long as anything is
  * mirrored: a step costs a lookup for each state it changed and a write for each field it replaced, whatever is
  * reading. Nothing is copied, when the first reader arrives or after.
+ * @internal
  */
 export interface Mirrors {
   /** The mirror of the state running under this name, made if this is its first reader. */
@@ -47,6 +49,7 @@ export interface Mirrors {
 
 const made = new WeakMap<System, Mirrors>()
 
+/** @internal */
 export function mirrors(sys: System): Mirrors {
   const existing = made.get(sys)
   if (existing) return existing
@@ -122,6 +125,7 @@ export function mirrors(sys: System): Mirrors {
 /**
  * One reader of a running state, outside a component. A state another started may not be running: its mirror reads
  * as nothing until it is, and as nothing again once it has stopped, and a reader that read it runs again each time.
+ * @internal
  */
 export function mirror<V extends { data: object }>(sys: System, handle: Started<V, never, Asks, any>): { readonly value: V | undefined; stop(): void }
 export function mirror<V extends { data: object }>(sys: System, handle: Handle<V, never, Asks>): { readonly value: V; stop(): void }

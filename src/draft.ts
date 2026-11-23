@@ -5,6 +5,7 @@
 // A state's data is plain: objects, arrays and values that are replaced whole. That is all a draft goes inside.
 // Anything else (a class instance, a Map, a Date) can be read and replaced whole, and refuses to be edited.
 
+/** @internal */
 export type Path = ReadonlyArray<string>
 
 /** What a draft was made over, the copy it writes to once something changes, and the drafts handed out inside it. */
@@ -29,6 +30,7 @@ const isPlain = (value: unknown): value is object => {
 /**
  * `fixed` says the outermost object's keys are not the edit's to change: its values can be edited and replaced, and
  * a key can be neither added nor removed. The write that tries is the one that throws, so the error is on its line.
+ * @internal
  */
 export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()

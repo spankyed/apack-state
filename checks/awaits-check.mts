@@ -5,8 +5,8 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
-import { explore, type Schedule } from '../src/schedule.mts'
-import { reaching } from '../src/state.mts'
+import { explore, type Schedule } from '../src/schedule.ts'
+import { reaching } from '../src/index.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
 

@@ -4,8 +4,8 @@
 //   npx vitest run failure
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { system as unlimited } from '../src/state.mts'
-import { given, reaching } from '../src/state.mts'
+import { system as unlimited } from '../src/index.ts'
+import { given, reaching } from '../src/index.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }

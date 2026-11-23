@@ -5,7 +5,7 @@
     npx vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json
 -->
 <script setup lang="ts">
-import { within } from '../../src/state.mts'
+import { within } from '../../src/index.ts'
 import { useState } from './board.mts'
 
 const props = defineProps<{ id: string }>()

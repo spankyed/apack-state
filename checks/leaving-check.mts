@@ -4,7 +4,7 @@
 //   npx vitest run leaving
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { given, Left, reaching } from '../src/state.mts'
+import { given, Left, reaching } from '../src/index.ts'
 
 type SlowAsks = {
   WAIT: { args: { turns: number }; answer: string }

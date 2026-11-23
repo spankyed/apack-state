@@ -4,7 +4,7 @@
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { run, system } from './checks.mts'
-import { reaching, type ViewHost, type ViewUpdate } from '../src/state.mts'
+import { reaching, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 type App = {
   systems: {}

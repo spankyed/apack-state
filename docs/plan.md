@@ -407,7 +407,7 @@ streamed search results and streamed message text are where the app does exactly
    **A hidden window's frame is a turn too.** A browser gives a hidden window no frames, so progress gathered for the
    next one would wait, and grow, until the window was shown. A hidden window paints nothing and has no reason to wait
    for a paint; and what was already waiting for one when the window was hidden is handed over then
-   (`src/window-frame.mts`).
+   (`src/window-frame.ts`).
    **The sender gathers as well, one hop earlier.** What a backend sends a window within one turn should cross the
    socket as one frame, not one per item. In the app that is spankyed/apack#592, made at the socket under tRPC so it
    holds for every message whatever sent it; the kernel's link sits on it and has nothing of its own to add. Its one rule is that whatever reads that socket splits
@@ -968,7 +968,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
 - **The graph can be derived without running anything** (`tools/graph.mts`): states, moves, what each state answers, and
   which other states it reaches, read from handler return types by the TypeScript checker. An earlier version of it
   caught a handler dropped during a port.
-- **Every ordering, not the one that happened** (`src/schedule.mts`, `checks/interleaving-check.mts`, 8 checks). The kernel puts
+- **Every ordering, not the one that happened** (`src/schedule.ts`, `checks/interleaving-check.mts`, 8 checks). The kernel puts
   off everything through lanes: what crosses a link one way is a lane, and so are a system's frames. A lane keeps its
   order, as a socket does, and a schedule chooses between lanes. `explore` runs a scenario under every such choice,
   `sample` under a seed's worth, and a failure comes back with the choices that `replay` runs again. Run under every
@@ -1008,7 +1008,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   something the user does while progress waits is handled after it; another ask's answer is not ahead of progress
   sent before it; a frame hands over what waits when nothing else arrives first; and stopping a window mid-ask leaves
   nothing unhandled.
-- **Components render only for what they read** (`src/vue.mts`, `checks/vue-check.mts`, 24 checks). These are Vue components
+- **Components render only for what they read** (`src/vue.ts`, `checks/vue-check.mts`, 24 checks). These are Vue components
   mounted with Vue's own runtime, into a tree of plain objects in place of a page, and what is counted is how often
   each rendered. Every check runs twice: with the components written as render functions, and with the same
   components written as templates and compiled by Vue's compiler, reading the state with no `.value`. One more, for
@@ -1029,7 +1029,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   take, an event without what it declares, and a state there is not to be inside. With the marks taken out the
   compiler names each, on its line, in a sentence: `Type '"SHUFFLE"' is not assignable to type '"ADD" | "RETITLE" |
   "OPEN" | "CLOSE"'`.
-- **A reader is handed the state's own values** (`src/mirror.mts`, `checks/binding-check.mts`, 18 checks, with
+- **A reader is handed the state's own values** (`src/mirror.ts`, `checks/binding-check.mts`, 18 checks, with
   `@vue/reactivity`'s `effect` standing for a component's render). A change inside a field runs every reader of that
   field and no reader of another; a reader of one part through a computed runs only when that part was replaced; a
   move runs the reader of where the state is, and the mirror gains and loses the fields the states do. What a reader
@@ -1045,7 +1045,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   what is under way written whole.
 - **Progress gathered into batches** (`measure/append-cost.mts`): the measurement above, and the search and threads examples,
   which now make one change per batch.
-- **A draft** (`src/draft.mts`, 139 lines; `checks/draft-check.mts`, 19 checks) for what a hand-built one gets wrong: the old
+- **A draft** (`src/draft.ts`, 139 lines; `checks/draft-check.mts`, 19 checks) for what a hand-built one gets wrong: the old
   value untouched, what was not edited kept as the same object, an edit that changes nothing returning the very same
   value, the same place read twice being the same draft, arrays through `push`, `splice`, `sort` and `length`, keys
   added and deleted, one part of the draft assigned to another, what is not plain handed over as it is, and a draft
@@ -1061,7 +1061,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   whoever kept it. A field assigned to, what a field holds assigned to, a list changed in place, and either done
   to what is read from a state do not compile; a write through a helper that takes what it is given as writable
   does compile, and still changes nothing and is reported.
-- **`within` narrows by path** (`src/state.mts`, used in `examples/threads.mts`): inside `thread` the thread's id can be read,
+- **`within` narrows by path** (`src/types.ts`, used in `examples/threads.mts`): inside `thread` the thread's id can be read,
   inside `thread.sending` the streamed text can, and a state that does not exist does not compile.
 - **Mistakes that do not compile** were checked at each stage with `@ts-expect-error`: a state missing from a
   definition, entering a state without its data, reading a field of a state it is not in, an answer of the wrong type,
@@ -1120,7 +1120,7 @@ The design is the smaller half of the value. In the order they would pay:
    by `vue-tsc`. What a check cannot say is what the step log would give Vue's devtools, as Pinia gives them its
    stores, and what the read-only types cost the app's components (Not built).
 2. **Tests that replay interleavings.** The risk in this design is ordering: a result that arrives after its state was
-   left. The prototype has this: `src/schedule.mts`, under What the prototype proves. What is left is its place in the
+   left. The prototype has this: `src/schedule.ts`, under What the prototype proves. What is left is its place in the
    harness, so that a pack's spec runs a scenario under every ordering the way it runs a case today, and a reduction
    that skips orderings differing only in two things that cannot affect each other, which is what would let two
    windows be run in full. This is the strongest reason to own the kernel.

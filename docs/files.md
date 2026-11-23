@@ -6,17 +6,20 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 
 | File | What it is |
 |---|---|
-| `src/state.mts` | The types a state's code is checked against, and the kernel: systems, steps, asks, the link between a backend and its windows |
-| `src/draft.mts` | Data edited in place, from which a new value is made. What the kernel uses for a nested change |
+| `src/index.ts` | The door: every export of the package, by name |
+| `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
+| `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |
+| `src/port.ts` | What one system offers another, and the link in memory between a window and its backend |
+| `src/draft.ts` | Data edited in place, from which a new value is made. What the kernel uses for a nested change |
 | `measure/append-cost.mts` | What a growing list costs one change at a time and in batches, on the draft and through an ask. Runs, for about 25 seconds |
 | `measure/frozen-cost.mts` | What a frozen list costs to read and to copy, beside the same list unfrozen. A measurement: it prints, and refuses nothing |
-| `src/mirror.mts` | A running state as a value a component reads: each field is the state's own object, never copied or wrapped, written when the state replaces it. One mirror for each state, shared by all that read it |
-| `src/vue.mts` | `useState`: what a Vue component uses to read a running state and tell it things |
+| `src/mirror.ts` | A running state as a value a component reads: each field is the state's own object, never copied or wrapped, written when the state replaces it. One mirror for each state, shared by all that read it |
+| `src/vue.ts` | `useState`: what a Vue component uses to read a running state and tell it things |
 | `checks/vue-check.mts` | `useState` checked by rendering real components with Vue's runtime and counting what rendered, as render functions and as compiled templates. Runs |
 | `checks/vue-fixture/` | A component file with a template, and the states it reads, for `vue-tsc` to check: what a template may read, and six lines that have to be errors |
-| `src/window-frame.mts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
+| `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
-| `src/schedule.mts` | A schedule given to the kernel in place of the event loop: runs a scenario under every ordering, or a seed's worth, and replays one |
+| `src/schedule.ts` | A schedule given to the kernel in place of the event loop: runs a scenario under every ordering, or a seed's worth, and replays one |
 | `checks/interleaving-check.mts` | Scenarios run under every ordering: a search over a search, a cancel, a click among progress, a window closing. Runs, for about 7 seconds |
 | `examples/commit.mts` | A slice of the app's commit surface ported: its status and a diff as reads it awaits, staging and a push as writes it makes. Runs, and checks what each step leaves |
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |

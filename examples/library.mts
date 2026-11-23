@@ -5,7 +5,7 @@
 import * as path from 'path'
 import * as os from 'os'
 import * as fs from 'fs/promises'
-import { reaching } from '../src/state.mts'
+import { reaching } from '../src/index.ts'
 
 const state = reaching()
 

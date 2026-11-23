@@ -5,7 +5,7 @@
 //   npx vitest run internal
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { reaching } from '../src/state.mts'
+import { reaching } from '../src/index.ts'
 
 type ListEvent =
   | { type: 'PICK'; id: string }
