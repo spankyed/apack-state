@@ -140,6 +140,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const outcome = await sys.ask(it, 'ADD_ELSEWHERE', {})
     strictEqual(outcome.ok, false)
     strictEqual(!outcome.ok && outcome.failure.kind, 'failed')
+    ok(!outcome.ok && /refused/.test(outcome.failure.message), JSON.stringify(outcome))
     deepStrictEqual(now(), { at: 'open', data: { count: 0 } })
     strictEqual(traced.length, 1)
     sys.stop()

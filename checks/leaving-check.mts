@@ -102,9 +102,9 @@ const wired = (connected = true, frame?: (run: () => void) => void) => {
   const backend = system({ side: 'backend', trace: (line) => { if (/answering/.test(line)) backendTraced.push(line) } })
   backend.start('slow', slow)
   const window = system({ side: 'window', ...(frame ? { frame } : {}), trace: (line) => { if (/left unanswered|failed|DEFECT/.test(line)) traced.push(line) } })
-  if (connected) window.connect(backend)
+  const link = connected ? window.connect(backend) : undefined
   const handle = window.start('panel', panel(saw, lock))
-  return { saw, lock, traced, backendTraced, send: (event: PanelEvent): void => window.send(handle, event), at: (): string => window.read(handle).at, stop: (): void => { window.stop(); backend.stop() } }
+  return { saw, lock, traced, backendTraced, link, send: (event: PanelEvent): void => window.send(handle, event), at: (): string => window.read(handle).at, stop: (): void => { window.stop(); backend.stop() } }
 }
 
 // ── a state's work and an answer that go on after the state was left ───────────────────────────────────────────────
@@ -321,6 +321,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(left instanceof Left)
     strictEqual(left.name, 'Left')
     ok(left.message.includes('WAIT'), left.message)
+    it.stop()
+  }],
+  ['an ask still waiting when the link of its window closes is told the connection closed', async () => {
+    const it = wired()
+    it.send({ type: 'START', how: 'answered' })
+    it.link!.close()
+    await rest()
+    ok(/^disconnected: .*closed/i.test(it.saw[0] ?? ''), it.saw.join(' / '))
     it.stop()
   }],
   ['what is said before an answer is heard while the answer is still to come, with no frame given', async () => {

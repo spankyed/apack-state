@@ -355,6 +355,8 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a state that is not running cannot be asked: the ask is answered `unavailable`', async () => {
     const { sys, it } = wired()
     deepStrictEqual(await sys.ask(it, 'LABEL_OF', { id: 'nobody' }), { ok: true, value: 'unavailable' })
+    const direct = await sys.ask(sys.child(it, 'card', 'nobody'), 'LABEL', {})
+    ok(!direct.ok && direct.failure.kind === 'unavailable' && direct.failure.message.includes('LABEL'), JSON.stringify(direct))
     sys.stop()
   }],
   ['a key that could not name a state is reported, and starts nothing', async () => {
