@@ -65,7 +65,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `examples/library.mts` | The app's library system ported handler for handler. Typechecks against stand-ins for its imports; not run |
 | `examples/threads.mts` | Three backend systems, a state per thread, and two windows: asks, tells, a reply the thread writes and broadcasts, windows that leave part-way, and a refusal that carries data. Runs, and checks what each step leaves |
 | `examples/views.mts` | A surface following views, modelled on the threads surface: one always, one while a thread is open, one per tab. Runs, and checks what is followed after each step |
-| `tools/graph.mts` | Derives each state's graph from its types, running nothing |
+| `tools/graph.mts` | Derives each state's graph from its types, running nothing: one file's printed (`npx tsx tools/graph.mts <file>`), or every example's written to and checked against `etc/graphs/` (`graph:update`, `graph:check`) |
+| `etc/graphs/*.txt` | Each example's graph, as the tool reads it |
 | `surveys/xstate-survey.mts` | The survey of how the app uses XState that the plan's figures come from |
 
 Every check runs with `npm test`, each file a spec and each check a case. One file, or the cases named with some

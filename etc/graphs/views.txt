@@ -1,0 +1,11 @@
+# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
+
+ThreadsSurface
+  states: list, detail
+    anywhere         SHOW_LIST          → list
+    anywhere         VIEW_THREAD        → detail
+  changes data only: TABS_CHANGED, list (hearing), tab (hearing), detail (hearing) in detail
+  follows list: threads list, from nothing: once
+  follows tab: threads tab, one for each key of openTabs
+  follows detail in detail: threads detail, from id
+  findings: none

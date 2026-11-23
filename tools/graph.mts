@@ -1,17 +1,26 @@
-// Static analysis of states written on the prototype. Nothing here runs one: it asks the TypeScript checker what
-// each handler can return, reads the moves off those types, and reads who each state reaches off its code.
+// Static analysis of states written on the kernel. Nothing here runs one: it asks the TypeScript checker what each
+// handler can return, reads the moves off those types, and reads who each state reaches off its code.
 //
-//   npx tsx tools/graph.mts examples/search.mts
+//   npx tsx tools/graph.mts examples/search.mts    prints one file's graphs
+//   npm run graph:update                           writes each example's to etc/graphs/<example>.txt
+//   npm run graph:check                            fails when one of those is not what the source says
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
+import { basename, join as joinPath, resolve } from 'node:path'
 
-const file = resolve(process.argv[2]!)
-const ts = createRequire(resolve('package.json'))('typescript')
-const program = ts.createProgram([file], {
+const root = resolve(import.meta.dirname, '..')
+const ts = createRequire(joinPath(root, 'package.json'))('typescript')
+/** The examples a graph is recorded for: each that is not a stand-in. */
+const EXAMPLES = readdirSync(joinPath(root, 'examples')).filter((name) => name.endsWith('.mts')).sort().map((name) => joinPath(root, 'examples', name))
+const files = process.argv.slice(2).filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg))
+const program = ts.createProgram(files.length ? files : EXAMPLES, {
   strict: true, noEmit: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, skipLibCheck: true, types: ['node'],
 })
 const checker = program.getTypeChecker()
+/** What is said of the file being read, a line at a time. */
+let out: string[] = []
+const say = (line: string): void => { out.push(line) }
 
 type Type = any
 const members = (type: Type): Type[] => (type.isUnion() ? type.types : [type])
@@ -136,20 +145,20 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
   }
   survey(shape, '')
 
-  console.log(`\n${title}`)
-  if (declared.length) console.log(`  states: ${declared.join(', ')}`)
-  for (const move of moves) console.log(`    ${move.from.padEnd(16)} ${move.on.padEnd(18)} → ${move.to.join(' | ')}`)
-  if (stays.length) console.log(`  changes data only: ${stays.join(', ')}`)
-  if (answers.length) console.log(`  answers: ${answers.join(', ')}`)
-  if (startsStates.length) console.log(`  starts: ${startsStates.join(', ')}`)
-  for (const followed of follows) console.log(`  follows ${followed}`)
-  for (const awaited of awaits) console.log(`  awaits  ${awaited}`)
-  for (const made of makes) console.log(`  makes   ${made}`)
-  if (reaches.length) console.log(`  reaches: ${reaches.join(', ')}`)
+  say(`\n${title}`)
+  if (declared.length) say(`  states: ${declared.join(', ')}`)
+  for (const move of moves) say(`    ${move.from.padEnd(16)} ${move.on.padEnd(18)} → ${move.to.join(' | ')}`)
+  if (stays.length) say(`  changes data only: ${stays.join(', ')}`)
+  if (answers.length) say(`  answers: ${answers.join(', ')}`)
+  if (startsStates.length) say(`  starts: ${startsStates.join(', ')}`)
+  for (const followed of follows) say(`  follows ${followed}`)
+  for (const awaited of awaits) say(`  awaits  ${awaited}`)
+  for (const made of makes) say(`  makes   ${made}`)
+  if (reaches.length) say(`  reaches: ${reaches.join(', ')}`)
   const findings: string[] = []
   for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
   for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
-  console.log(`  findings: ${findings.length ? findings.join('; ') : 'none'}`)
+  say(`  findings: ${findings.length ? findings.join('; ') : 'none'}`)
 }
 
 const VERBS = new Set(['tell', 'ask', 'broadcast', 'make', 'drop'])
@@ -176,4 +185,30 @@ const visit = (node: any): void => {
   }
   ts.forEachChild(node, visit)
 }
-visit(program.getSourceFile(file)!)
+/** Every graph one file holds, as text. */
+const graphsOf = (file: string): string => {
+  out = []
+  visit(program.getSourceFile(file)!)
+  return `${out.join('\n').trim()}\n`
+}
+
+const recorded = (file: string): string => joinPath(root, 'etc', 'graphs', `${basename(file, '.mts')}.txt`)
+const HEADER = '# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.\n\n'
+if (process.argv.includes('--write') || process.argv.includes('--check')) {
+  const stale: string[] = []
+  mkdirSync(joinPath(root, 'etc', 'graphs'), { recursive: true })
+  for (const file of EXAMPLES) {
+    const text = HEADER + graphsOf(file)
+    const at = recorded(file)
+    if (process.argv.includes('--write')) writeFileSync(at, text)
+    else if (readFileOr(at) !== text) stale.push(basename(at))
+  }
+  if (stale.length) {
+    console.error(`Not what the source says: ${stale.join(', ')}. Run npm run graph:update and commit it.`)
+    process.exit(1)
+  }
+  console.log(`${EXAMPLES.length} examples' graphs ${process.argv.includes('--write') ? 'written to etc/graphs/' : 'as the source says'}`)
+} else {
+  for (const file of files) process.stdout.write(graphsOf(file))
+}
+function readFileOr(at: string): string | undefined { try { return readFileSync(at, 'utf8') } catch { return undefined } }
