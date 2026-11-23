@@ -68,7 +68,7 @@ type BoardEvent =
   | { type: 'BUMP'; id: string }
   | { type: 'RETITLE'; title: string }
   | { type: 'CLOSE' }
-const board = state<Board, BoardEvent>()({
+export const board = state<Board, BoardEvent>()({
   data: { title: 'Board', items: {}, told: 0 },
   start: 'open',
   starts: (start) => ({ card: start(card, { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }) }),
@@ -278,24 +278,6 @@ const checks: Array<[string, () => Promise<void>]> = [
   }],
 ]
 
-// What must not compile.
-defineComponent(() => {
-  const it = useState('board')
-  // @ts-expect-error the window runs no such state
-  useState('deck')
-  // @ts-expect-error the board takes no such event
-  it.send({ type: 'SHUFFLE' })
-  // @ts-expect-error a card is one of many, so reaching one takes its key
-  it.child('card')
-  const one = useState(() => it.child('card', 'a'))
-  // @ts-expect-error a card may not be running, so what it holds cannot be read without saying what if it is not
-  void one.state.value.data.bumps
-  void one.state.value?.data.bumps
-  // @ts-expect-error a component sends; it does not ask
-  void it.ask
-  return () => null
-})
-
 /** Only a template has something to click. */
 const templateOnly: Array<[string, () => Promise<void>]> = [
   ['what a template sends on a click reaches the state, and what reads the place it changed renders again', async () => {
@@ -309,4 +291,5 @@ const templateOnly: Array<[string, () => Promise<void>]> = [
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>
   list.map(([name, check]) => [`${form}: ${name}`, async () => { written = form; await check() }])
+
 await run([...written_as('render functions', checks), ...written_as('templates', [...checks, ...templateOnly])])

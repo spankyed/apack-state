@@ -7,7 +7,7 @@ import { explore, type Schedule } from '../src/schedule.ts'
 import { rest, run, system } from './checks.mts'
 import { answered, given, reaching, type Each } from '../src/index.ts'
 
-const state = reaching()
+export const state = reaching()
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
 
 // ── a card: one for each item on the board ──────────────────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@ type Card = {
   /** What it tells the board, which started it. */
   reports: { type: 'CARD_BUMPED'; bumps: number }
 }
-const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
+export const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
   // Which card it is and what it says are given by whoever starts it. How often it was bumped is its own.
   data: { id: given, label: given, bumps: 0 },
   run({ data, use }) { const { id } = data; log.push(`started ${id}`); use(() => { log.push(`stopped ${id}`) }) },
@@ -33,14 +33,14 @@ const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
 })
 
 /** Started by the board only while it is open, and given the board's title as it is then. */
-const helper = (log: string[]) => state<{ data: { title: string } }, never>()({
+export const helper = (log: string[]) => state<{ data: { title: string } }, never>()({
   data: { title: given },
   run({ data, use }) { log.push(`started helper for ${data.title}`); use(() => { log.push('stopped helper') }) },
 })
 
 // ── the board ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type BoardEvent =
+export type BoardEvent =
   | { type: 'ADD'; id: string; label: string }
   | { type: 'REMOVE'; id: string }
   | { type: 'RETITLE'; title: string }
@@ -52,14 +52,14 @@ type BoardEvent =
   | { type: 'BRIEFLY'; id: string; label: string }
   // from a card it started
   | { type: 'CARD_BUMPED'; bumps: number; from: string }
-type BoardAsks = {
+export type BoardAsks = {
   /** Adds an item once its work is done, and refuses if one is there by then. */
   ADD_LATER: { args: { id: string; label: string }; answer: 'added'; refuses: 'exists' }
   /** Asks the card for its label, and says how that went. */
   LABEL_OF: { args: { id: string }; answer: string }
   SLOWLY_OF: { args: { id: string }; answer: string }
 }
-type Board = {
+export type Board = {
   data: { title: string; items: Record<string, string>; lastBump: string | null }
   starts: { card: Each<ReturnType<typeof card>> }
   states: { open: { starts: { helper: ReturnType<typeof helper> } }; closed: {} }
@@ -271,55 +271,6 @@ const racing = (schedule: Schedule): (() => void) => {
     strictEqual(`${running} added`, said.find((each) => each.endsWith('added')))
   }
 }
-
-// What must not compile.
-state<Board, BoardEvent, BoardAsks>()({
-  data: { title: '', items: {}, lastBump: null },
-  start: 'open',
-  starts: (start) => ({ card: start(card([]), { each: 'items', given: (id) => ({ id, label: '' }) }) }),
-  on: {
-    // @ts-expect-error a card is one of many, so reaching one takes its key
-    BUMP: (_, { tell, child }) => { tell(child('card'), { type: 'BUMP' }) },
-    // @ts-expect-error there is no such state to reach
-    ADD: (_, { child }) => { void child('deck') },
-    // @ts-expect-error the helper is started by `open`, so only a handler inside `open` can reach it
-    CLOSE: (_, { child }) => { void child('helper') },
-    // @ts-expect-error the board declares nothing it reports, so it has nothing to report
-    RETITLE: (_, { report }) => { report({ type: 'CARD_BUMPED', bumps: 1 }) },
-  },
-  states: {
-    open: {
-      starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }),
-      // Inside `open` it can be reached, and there is one, so it takes no key.
-      on: { OPEN: (_, { child }) => { void child('helper') } },
-    },
-    closed: {},
-  },
-})
-// @ts-expect-error a state whose shape says it starts cards has to say which
-state<Board, BoardEvent, BoardAsks>()({ data: { title: '', items: {}, lastBump: null }, start: 'open', states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} } })
-state<Board, BoardEvent, BoardAsks>()({
-  data: { title: '', items: {}, lastBump: null },
-  start: 'open',
-  starts: (start) => ({
-    // @ts-expect-error a title is neither a list nor keyed, so it cannot say which cards there are
-    card: start(card([]), { each: 'title', given: (id) => ({ id, label: '' }) }),
-  }),
-  states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} },
-})
-state<Board, BoardEvent, BoardAsks>()({
-  data: { title: '', items: {}, lastBump: null },
-  start: 'open',
-  starts: (start) => ({
-    // @ts-expect-error a card has to be given its label as well as which it is
-    card: start(card([]), { each: 'items', given: (id) => ({ id }) }),
-  }),
-  states: {
-    // @ts-expect-error the helper has to be given its title, so it cannot be named bare
-    open: { starts: (start) => ({ helper: helper([]) }) },
-    closed: {},
-  },
-})
 
 await run(checks, async (tally) => {
   await tally.every('under every ordering of two asks that add the same item after a wait, one is added, one is refused, and one card starts', () => explore(racing))

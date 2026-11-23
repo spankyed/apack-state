@@ -1021,7 +1021,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   renders one, and there is one mirror for each state however many components read it, and none once nothing does.
   Five mistakes do not compile: a state the window does not run, an event it does not take, one of many without its
   key, reading one that may not be running without saying what if it is not, and asking.
-- **A template is held to the same types** (`vue-fixture/Board.vue`, checked by `vue-tsc`). A component file written
+- **A template is held to the same types** (`type-tests/vue-templates/Board.vue`, checked by `vue-tsc`). A component file written
   as the app writes one. Inside `v-if="within(board, 'open')"`, or `v-if="board.at === 'open'"`, the data of that
   state can be read; inside `v-if="card"`, or with `?.`, what a card holds can be; a `v-for` over a field and a
   `send` from a click are typed. Six lines are marked as having to be errors and are: reading the data of a state

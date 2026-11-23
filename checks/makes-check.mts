@@ -20,7 +20,7 @@ type WorkerAsks = {
   SAVE: { args: { text: string }; answer: string }
 }
 type App = { systems: { worker: { events: never; asks: WorkerAsks } }; surfaces: {}; views: {} }
-const state = reaching<App>()
+export const state = reaching<App>()
 
 /** What the worker was asked and what it was told to give up, in order. */
 const worker = (did: string[]) => {
@@ -46,7 +46,7 @@ const worker = (did: string[]) => {
   })
 }
 
-type JobsEvent =
+export type JobsEvent =
   | { type: 'ADD'; id: string }
   | { type: 'DROP'; id: string }
   | { type: 'TYPE'; text: string }
@@ -55,7 +55,7 @@ type JobsEvent =
   | { type: 'STOP_SAVING' }
   | { type: 'BREAK'; id: string }
   | { type: 'TURN'; on: boolean }
-type Jobs = {
+export type Jobs = {
   data: { text: string; saved: string | null; done: string[]; heard: string[]; tries: Record<string, number>; problem: string | null }
   states: {
     on: { makes: { run: 'each'; save: 'one' } }
@@ -269,50 +269,6 @@ const pushing = (schedule: Schedule): (() => void) => {
     strictEqual(it.now().gitStatus?.ahead, it.held().ahead)
   }
 }
-
-// What must not compile.
-state<Jobs, JobsEvent>()({
-  data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
-  start: 'on',
-  on: {
-    // @ts-expect-error a save is made by a state inside, so only a handler there can say to make one
-    SAVE: (_, { make }) => { make('save') },
-  },
-  states: {
-    on: {
-      makes: ({ one, each }) => ({
-        run: each('worker', 'RUN', { args: (id) => ({ id }), ended: () => {} }),
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: () => {} }),
-      }),
-      on: {
-        // @ts-expect-error a job is one of many, so making one takes its key
-        ADD: (_, { make }) => { make('run') },
-        // @ts-expect-error there is one save at a time, so it takes no key
-        STOP_SAVING: (_, { drop }) => { drop('save', 'a') },
-        // @ts-expect-error it makes no such thing
-        DROP: (_, { make }) => { make('print') },
-      },
-    },
-    off: {},
-  },
-})
-state<Jobs, JobsEvent>()({
-  data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
-  start: 'on',
-  states: {
-    on: {
-      makes: ({ one, each }) => ({
-        // @ts-expect-error a job is one for each of many, so it is made with `each`
-        run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),
-        // @ts-expect-error what a save answers is a string, so it cannot be put where the list goes
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
-      }),
-    },
-    off: {},
-  },
-})
-// @ts-expect-error a state whose shape says it makes these has to say how
-state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null }, start: 'on', states: { on: {}, off: {} } })
 
 await run(checks, async (tally) => {
   await tally.every('two files staged at once are both staged, nothing is left under way, and the status shown is the last', () => sample(staging, { seed: 1, runs: 3_000 }), 'sampled')

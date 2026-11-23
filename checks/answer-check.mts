@@ -7,7 +7,7 @@ import { explore, type Schedule } from '../src/schedule.ts'
 import { rest, run, system } from './checks.mts'
 import { answered, given, reaching } from '../src/index.ts'
 
-type CounterAsks = {
+export type CounterAsks = {
   /** Reads, and changes nothing. */
   READ: { args: {}; answer: number }
   /** Adds one, and answers with what it is then. */
@@ -19,9 +19,9 @@ type CounterAsks = {
   /** Answers with a change the data has no place for. */
   ADD_ELSEWHERE: { args: {}; answer: 'added' }
 }
-type CounterEvent = { type: 'REOPEN' }
-type Counter = { data: { count: number }; states: { open: {}; closed: { data: { reason: string } } } }
-const state = reaching()
+export type CounterEvent = { type: 'REOPEN' }
+export type Counter = { data: { count: number }; states: { open: {}; closed: { data: { reason: string } } } }
+export const state = reaching()
 
 /** Things kept under an id, which can be removed while something is being put there. */
 type BoxAsks = {
@@ -187,25 +187,6 @@ const racing = (schedule: Schedule): (() => void) => {
     strictEqual(sys.read(it).data.count, outcomes.filter((outcome) => outcome.ok).length)
   }
 }
-
-// What must not compile.
-state<Counter, CounterEvent, CounterAsks>()({
-  data: { count: 0 },
-  start: 'open',
-  states: {
-    open: {
-      asks: {
-        // @ts-expect-error after a wait, data is changed by editing a draft, not by giving fields worked out before it
-        ADD_LATER: async (_, { data }) => answered('added' as const, { data: { count: data.count + 1 } }),
-        // @ts-expect-error a move into `closed` has to give its reason
-        CLOSE: () => answered('closed' as const, { at: 'closed' }),
-        // @ts-expect-error the answer is still checked: this ask answers with a number
-        ADD: () => answered('one', { data: { count: 1 } }),
-      },
-    },
-    closed: { data: { reason: given } },
-  },
-})
 
 await run(checks, async (tally) => {
   await tally.every('under every ordering of three such asks and a close, the count is exactly the answers that said they added', () => explore(racing))

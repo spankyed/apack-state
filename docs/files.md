@@ -18,7 +18,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `src/mirror.ts` | A running state as a value a component reads: each field is the state's own object, never copied or wrapped, written when the state replaces it. One mirror for each state, shared by all that read it |
 | `src/vue.ts` | `useState`: what a Vue component uses to read a running state and tell it things |
 | `checks/vue-check.mts` | `useState` checked by rendering real components with Vue's runtime and counting what rendered, as render functions and as compiled templates. Runs |
-| `checks/vue-fixture/` | A component file with a template, and the states it reads, for `vue-tsc` to check: what a template may read, and six lines that have to be errors |
+| `type-tests/*.ts` | What must not compile, by topic: data that cannot be written, asks, follows, awaits, makes, starts, who may send what, refusals and `within`. Each `@ts-expect-error` is a case; `npm run typecheck` fails on one whose line compiles. Compiled, never run |
+| `type-tests/vue-templates/` | A component file with a template, and the states it reads, for `vue-tsc` to check: what a template may read, and six lines that have to be errors |
 | `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
 | `src/schedule.ts` | A schedule given to the kernel in place of the event loop: runs a scenario under every ordering, or a seed's worth, and replays one |
@@ -71,5 +72,5 @@ npx tsx examples/threads.mts
 The component `vue-tsc` checks:
 
 ```bash
-npx vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json
+npx vue-tsc --noEmit -p type-tests/vue-templates/tsconfig.json
 ```

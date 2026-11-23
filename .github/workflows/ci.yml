@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # The oldest TypeScript the package and its type tests are held to
+      - run: npm run typecheck:floor
       # What the package offers is what etc/*.api.md says it is
       - run: npm run api:check
       - run: npm run build

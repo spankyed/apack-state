@@ -7,7 +7,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { reaching } from '../src/index.ts'
 
-type ListEvent =
+export type ListEvent =
   | { type: 'PICK'; id: string }
   | { type: 'REFRESH' }
   | { type: 'PICK_AGAIN' }
@@ -21,14 +21,14 @@ type App = {
   surfaces: { list: { events: ListEvent }; detail: { events: DetailEvent } }
   views: {}
 }
-const state = reaching<App>()
+export const state = reaching<App>()
 
-type List = {
+export type List = {
   data: { picked: string | null; ticks: number }
   /** What it sends itself as its own work goes on. Nothing else may send it this. */
   internal: { type: 'TICK' }
 }
-const list = state<List, ListEvent>()({
+export const list = state<List, ListEvent>()({
   data: { picked: null, ticks: 0 },
   on: {
     // Tells the surface beside it, in this window.
@@ -118,31 +118,5 @@ const checks: Array<[string, () => Promise<void> | void]> = [
     ok(it.backendTraced.some((line) => line.startsWith('DEFECT') && line.includes('told the surface detail SHOW')), it.backendTraced.join(' / '))
   }],
 ]
-
-// What must not compile.
-{
-  const window = system({ side: 'window' })
-  const theList = window.start('typed', list)
-  // @ts-expect-error only the list sends itself a tick
-  window.send(theList, { type: 'TICK' })
-  window.stop()
-}
-state<List, ListEvent>()({
-  data: { picked: null, ticks: 0 },
-  on: {
-    // @ts-expect-error a tick is what it sends itself, and is taken under `internal`
-    TICK: () => ({ data: { ticks: 1 } }),
-    // @ts-expect-error the detail surface takes no such event
-    PICK: (_, { tell }) => { tell({ surface: 'detail' }, { type: 'HIDE' }) },
-    // @ts-expect-error there is no such surface
-    REFRESH: (_, { tell }) => { tell({ surface: 'sidebar' }, { type: 'SHOW', id: 'a' }) },
-    // @ts-expect-error it sends itself a tick, or what others may send it, and nothing else
-    PICK_AGAIN: (_, { send }) => { send({ type: 'TOCK' }) },
-  },
-  internal: {
-    // @ts-expect-error what others may send it is taken under `on`
-    PICK: () => ({ data: { picked: null } }),
-  },
-})
 
 await run(checks)
