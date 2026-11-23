@@ -711,8 +711,11 @@ a link while the hold waited for no watch to be behind.
     a window is. What a step tells a peer leaves at the commit, in the order it was told, everything one step told
     it together, and is applied there as one unit of the peer's own database. One step of the brain is then one
     unit of the log, where ending an event, ending its flow and recording a result are three commits today. This
-    is the transactional outbox, kept in memory: a run does not outlive the process, so nothing is lost by it that
-    is not lost anyway, and what a crash leaves `active` is marked `stopped` as the app starts, as now.
+    is the transactional outbox, kept in memory: a run does not outlive the process today, so nothing is lost by
+    it that is not lost anyway, and what a crash leaves `active` is marked `stopped` as the app starts, as now.
+    A run that goes on after the app starts again is expected, and it ends this: the log then has to hold every
+    step of a run that is still going, which is an outbox kept on disk
+    ([deferred](deferred/durable-outbox.md)).
   - *A tell that leaves the system is written so that it shows.* A surface is told as `{ surface }`, and a peer as
     `{ peer }`: `tell({ peer: 'run-history' }, …)`. A plain name is a state in this system, handled in this step.
     Two sends that look alike and arrive at different times are the oldest mistake of a call made to look local.
@@ -740,9 +743,9 @@ a link while the hold waited for no watch to be behind.
   What was set aside: the log in the app's database, which one unit would cover and which would put a log's
   writes in line for the one writer and wake the app's watches; writing the second database from a handler, which
   needs nothing built and writes another store inside a unit that may not be kept; an outbox kept in the app's
-  database and relayed, which is for a run that outlives the process, and if runs ever do, a run's state belongs
-  in the app's database and the log is a projection of its changes; and a commit in two phases, which LMDB has no
-  first phase for.
+  database and relayed, which is for a run that outlives the process and is put off until runs do
+  ([deferred](deferred/durable-outbox.md)), when a run's state belongs in the app's database and the log may be
+  a projection of its changes instead; and a commit in two phases, which LMDB has no first phase for.
 - **A flow action.** An action is not a state: it is work a step's state runs, outside any step of the kernel's. Its
   31 writes are each a command, which is a unit of its own, and several that belong together go in one `transact`,
   as now. An action's writes are not carried back to the brain's step (decided 2026-11-23): an action runs for as
@@ -761,7 +764,8 @@ a link while the hold waited for no watch to be behind.
   a commit and before that can outlive its row through a power cut. A handler whose answer must not says
   `durable: true`, as `transact` takes today, and its step waits.
 - **What a state holds is lost when the process ends; its rows are not.** After a restart a state is rebuilt from
-  rows and what it was given, so anything a backend state must not lose is a row.
+  rows and what it was given, so anything a backend state must not lose is a row. A state that is kept is the
+  exception to come ([Not built](#not-built)).
 - **One writer.** LMDB takes one write transaction at a time, across processes. A step holds it from its first
   write to its end, which is one run of code with no wait in it.
 
@@ -1206,9 +1210,26 @@ projects. Each would loosen the fit to this app.
   is what the run history needs ([What it does not cover](#what-it-does-not-cover)).
 - **Field names unique along a path** are assumed and not enforced.
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
-- **Saving a state to disk** is not wanted. A saved state is a stored format that would then have to be kept stable.
-  And restoring starts a state's work again, which is right for a search a moment after a reload and wrong for a
-  message that was being sent a day ago.
+- **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
+  able to outlive its process: where it is and its data, as they stood at its last step. It is not designed.
+  What is decided is its outline:
+  - *A state says it is kept; the rest are not.* A run is. A surface is not, and neither is a backend state that
+    only follows its rows, which is rebuilt from them as now.
+  - *It is kept in the step's unit.* Where a state is and its data are written with the rows the step wrote, so
+    the three are kept together or not at all, and what the step said can be kept beside them
+    ([deferred](deferred/durable-outbox.md)). Kept anywhere else, a crash leaves a state that disagrees with its
+    rows.
+  - *A kept state says what it does when it is brought back.* Starting its work again is right for a search and
+    wrong for a message that was being sent a day ago, a model that was being called or an action half run. So
+    work that was under way is not started again unasked: the state is told it was brought back and returns what
+    happens next, as `failed` does for work that threw.
+  - *What is kept is a stored format.* It is the state's declared data, and a change to that is a change to what
+    is stored. Nothing is kept stable until a release has users; from then a kept state's data changes with a
+    step that brings the stored one forward.
+
+  Open: what brings a kept state back and in what order among those it started and those it asked; what an ask
+  it was answering is told; and what its views and its makes are on the way back. The brain is ported first,
+  with runs that end with the process as they do now.
 - **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left:
   - *A step that must be on disk before it answers.* `transact` takes `durable: true`; a handler has no way to ask
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.
