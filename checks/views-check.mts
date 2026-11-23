@@ -166,11 +166,12 @@ await run([
     ok(traced.some((line) => line.startsWith('DEFECT') && line.includes('it cannot say')), JSON.stringify(traced))
     await rest()
   }],
-  ['a view that throws when stopped still lets go of what waited on it', async () => {
+  ['a view that throws when stopped still lets go of what waited on it, and is reported', async () => {
     const store = memory()
     // The first window's view never says it has caught up, and throws when stopped.
     let made = 0
-    const backend = system({ side: 'backend', transact: store.transact, trace: () => {}, views: (feature, view, args, heard) => {
+    const traced: string[] = []
+    const backend = system({ side: 'backend', transact: store.transact, trace: (line) => { traced.push(line) }, views: (feature, view, args, heard) => {
       const first = made++ === 0
       return viewsDoing(store, first ? { caughtUp: () => {}, stop: () => { throw new Error('it would not stop') } } : {})(feature, view, args, heard)
     } })
@@ -189,6 +190,7 @@ await run([
     closing.stop()
     const told = await settlesSoon(asked)
     ok(told?.value.ok, 'what waited on the view that threw was never let go')
+    ok(traced.some((line) => line.startsWith('DEFECT: stopping a view threw') && line.includes('it would not stop')), JSON.stringify(traced))
   }],
   ['a window that stops following and closes in one turn stops what it followed on the backend', async () => {
     const store = memory()

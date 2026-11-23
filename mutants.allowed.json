@@ -610,11 +610,6 @@
     "why": "Where exactly the runaway limit falls, at ten thousand things in a step or one more: a spec holds that a step that never ends is cut short and says so, not the count"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | arrive({ kind: 'ask', ref, name, args, question: new Question((outcome) => toAWindow(() => settle(outcome))), heard: (update) => toAWindow(() => heard(update)), gone: gone.signal }) | \"\"",
-    "original": "'ask'",
-    "why": "take tells an ask from the other kinds by its being none of them, so the name of its kind is never read"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (host.limit !== undefined && ++steps > host.limit) { | true",
     "original": "host.limit !== undefined",
     "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
@@ -698,5 +693,15 @@
     "key": "src/kernel.ts | BlockStatement | ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } } | {}",
     "original": "{ down.delete(window) }",
     "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
+    "original": "ended",
+    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
+    "original": "linked.gone.delete(ended)",
+    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
   }
 ]
