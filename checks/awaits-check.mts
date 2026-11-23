@@ -35,13 +35,14 @@ export type ReaderEvent =
   | { type: 'WATCH'; ids: string[] }
   | { type: 'TURN'; on: boolean }
   | { type: 'CIRCLE' }
+  | { type: 'ONCE'; query: string }
 export type Reader = {
-  data: { title: string; query: string; again: number; found: string | null; heard: string[]; watched: string[]; labels: Record<string, string>; circling: number; problem: string | null }
+  data: { title: string; query: string; again: number; found: string | null; heard: string[]; watched: string[]; labels: Record<string, string>; circling: number; problem: string | null; pending: string; got: string | null }
   states: { on: {}; off: {} }
 }
 
 const reader = state<Reader, ReaderEvent>()({
-  data: { title: 'Reader', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null },
+  data: { title: 'Reader', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null, pending: '', got: null },
   start: 'on',
 
   on: {
@@ -51,6 +52,7 @@ const reader = state<Reader, ReaderEvent>()({
     WATCH: ({ ids }) => ({ data: (d) => { d.watched = ids; for (const id of Object.keys(d.labels)) if (!ids.includes(id)) delete d.labels[id] } }),
     TURN: ({ on }) => ({ at: on ? 'on' : 'off' }),
     CIRCLE: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
+    ONCE: ({ query }) => ({ data: { pending: query } }),
   },
 
   states: {
@@ -76,6 +78,13 @@ const reader = state<Reader, ReaderEvent>()({
           from: ['circling'],
           args: ({ circling }) => circling > 0 && { query: `round ${circling}` },
           ended: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
+        }),
+
+        // Asked while something is pending, and how it ended clears it: it asks for nothing, which cannot come round.
+        once: asking('library', 'LOOKUP', {
+          from: ['pending'],
+          args: ({ pending }) => pending !== '' && { query: pending },
+          ended: (outcome) => ({ data: { pending: '', got: outcome.ok ? outcome.value : null } }),
         }),
       }),
     },
@@ -174,6 +183,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(now().circling, 2)
     strictEqual(defects.length, 1)
     ok(defects[0]!.includes('reader#circle delivered changed a field it is itself asked from'))
+  }],
+  ['a read whose end clears the field it is asked from asks for nothing more, and that is no circle', async () => {
+    const { send, now, did, defects } = wired()
+    send({ type: 'ONCE', query: 'x' })
+    await rest()
+    deepStrictEqual([did, now().got, defects], [['lookup x'], 'X', []])
+    send({ type: 'ONCE', query: 'y' })
+    await rest()
+    deepStrictEqual([did, now().got, defects], [['lookup x', 'lookup y'], 'Y', []])
   }],
   ['which keys there are is looked at only when that field changes', async () => {
     const { send, looked } = wired()

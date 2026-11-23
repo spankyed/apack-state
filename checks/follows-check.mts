@@ -3,7 +3,7 @@
 //
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { run, system } from './checks.mts'
+import { rest, run, system } from './checks.mts'
 import { reaching, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 type App = {
@@ -270,4 +270,80 @@ const checks: Array<[string, () => void]> = [
   }],
 ]
 
-await run(checks)
+// ── a view asked from two fields, and views followed across a link ──────────────────────────────────────────────────
+
+type TwoEvent = { type: 'SET_CURRENCY'; currency: string } | { type: 'SET_SUFFIX'; suffix: string }
+type Two = { data: { currency: string; suffix: string; total: number | null; problem: string | null } }
+const two = state<Two, TwoEvent>()({
+  data: { currency: 'EUR', suffix: '', total: null, problem: null },
+  follows: (follow) => ({
+    total: follow('shop', 'total', {
+      from: ['currency', 'suffix'],
+      args: ({ currency, suffix }) => ({ currency: `${currency}${suffix}` }),
+      heard: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
+    }),
+  }),
+  on: {
+    SET_CURRENCY: ({ currency }) => ({ data: { currency } }),
+    SET_SUFFIX: ({ suffix }) => ({ data: { suffix } }),
+  },
+})
+/** A host of views that says what is followed now, by what it was asked for. */
+const host = () => {
+  const following = new Set<string>()
+  const views: ViewHost = (_feature, _view, args) => {
+    const id = (args as { currency: string }).currency
+    following.add(id)
+    return () => { following.delete(id) }
+  }
+  return { views, following: (): string[] => [...following].sort() }
+}
+/** A window with no views of its own, following them over the link from a backend that runs them, or none. */
+const across = (runsViews = true) => {
+  const backendHost = host()
+  const backend = system({ side: 'backend', ...(runsViews ? { views: backendHost.views } : {}) })
+  const window = system({ side: 'window' })
+  window.connect(backend)
+  const it = window.start('two', two)
+  return { following: backendHost.following, send: (event: TwoEvent): void => window.send(it, event), data: () => window.read(it).data }
+}
+
+const moreChecks: Array<[string, () => void | Promise<void>]> = [
+  ['a view asked from two fields is followed again when either changes', () => {
+    const { views, following } = host()
+    const sys = system({ side: 'window', views })
+    const it = sys.start('two', two)
+    sys.send(it, { type: 'SET_SUFFIX', suffix: '!' })
+    deepStrictEqual(following(), ['EUR!'])
+    sys.send(it, { type: 'SET_CURRENCY', currency: 'USD' })
+    deepStrictEqual(following(), ['USD!'])
+  }],
+  ['a window with no views and no backend follows nothing, and nothing breaks', () => {
+    const defects: string[] = []
+    const sys = system({ side: 'window', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const it = sys.start('two', two)
+    sys.send(it, { type: 'SET_CURRENCY', currency: 'USD' })
+    deepStrictEqual([sys.read(it).data, defects], [{ currency: 'USD', suffix: '', total: null, problem: null }, []])
+  }],
+  ['a window follows its backend\'s views over the link, and a view it stops following is stopped there', async () => {
+    const it = across()
+    await rest()
+    deepStrictEqual(it.following(), ['EUR'])
+    it.send({ type: 'SET_CURRENCY', currency: 'USD' })
+    await rest()
+    deepStrictEqual(it.following(), ['USD'])
+  }],
+  ['a view given up before it crossed is never followed there', async () => {
+    const it = across()
+    it.send({ type: 'SET_CURRENCY', currency: 'USD' })
+    await rest()
+    deepStrictEqual(it.following(), ['USD'])
+  }],
+  ['a view of a backend that runs none is heard as failing, saying so', async () => {
+    const it = across(false)
+    await rest()
+    ok(/runs no views/.test(it.data().problem ?? ''), String(it.data().problem))
+  }],
+]
+
+await run([...checks, ...moreChecks])

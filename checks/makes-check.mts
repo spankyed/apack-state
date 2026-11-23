@@ -115,8 +115,8 @@ const wired = () => {
   const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
   sys.start('worker', worker(did))
   const it = sys.start('jobs', jobs)
-  const steps: Array<{ making: boolean; data: boolean }> = []
-  sys.subscribe((_, fields, changes) => { const mine = changes.jobs; if (mine) steps.push({ making: mine.making, data: (fields.jobs ?? []).length > 0 }) })
+  const steps: Array<{ making: boolean; moved: boolean; data: boolean }> = []
+  sys.subscribe((_, fields, changes) => { const mine = changes.jobs; if (mine) steps.push({ making: mine.making, moved: mine.moved, data: (fields.jobs ?? []).length > 0 }) })
   return { sys, it, did, defects, steps, send: (event: JobsEvent): void => sys.send(it, event), now: () => sys.read(it).data, making: () => sys.read(it).making }
 }
 
@@ -142,6 +142,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const ran = (): string[] => { const names = (Object.keys(runs) as Array<keyof typeof runs>).filter((name) => runs[name] !== since[name]); Object.assign(since, runs); return names }
     send({ type: 'ADD', id: 'a' })
     deepStrictEqual(ran(), ['a'])
+    strictEqual(held.value.making.run.a, true)
     send({ type: 'SAVE' })
     deepStrictEqual(ran(), ['save'])
     send({ type: 'ADD', id: 'b' })
@@ -157,7 +158,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const before = now()
     steps.length = 0
     send({ type: 'ADD', id: 'a' })
-    deepStrictEqual(steps, [{ making: true, data: false }])
+    deepStrictEqual(steps, [{ making: true, moved: false, data: false }])
     deepStrictEqual(now(), before)
     await rest()
   }],

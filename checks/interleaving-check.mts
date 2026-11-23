@@ -228,8 +228,43 @@ const broken = (schedule: Schedule): (() => void) => {
   return () => { deepStrictEqual(window.read(it).data.results, ['b result']) }
 }
 
+// ── what a window says to its backend, in order ─────────────────────────────────────────────────────────────────────
+
+type Said = { systems: { notes: { events: { type: 'NOTE'; n: number }; asks: { READ: { args: {}; answer: number[] } } } }; surfaces: {}; views: {} }
+const saying = reaching<Said>()
+const notes = saying<{ data: { heard: number[] } }, { type: 'NOTE'; n: number }, { READ: { args: {}; answer: number[] } }>()({
+  data: { heard: [] },
+  on: { NOTE: ({ n }) => ({ data: (d) => { d.heard.push(n) } }) },
+  asks: { READ: (_, { data }) => [...data.heard] },
+})
+/** Tells the backend one thing, asks it what it has heard, and tells it another. */
+const sayer = (answered: number[][]) => saying<{}, never>()({
+  async run({ tell, ask }) {
+    tell('notes', { type: 'NOTE', n: 1 })
+    const read = ask('notes', 'READ', {})
+    tell('notes', { type: 'NOTE', n: 2 })
+    const outcome = await read
+    if (outcome.ok) answered.push([...outcome.value])
+  },
+  failed: () => {},
+})
+const inOrder = (schedule: Schedule): (() => void) => {
+  const answered: number[][] = []
+  const backend = system({ side: 'backend', later: schedule.later })
+  const it = backend.start('notes', notes)
+  const window = system({ side: 'window', later: schedule.later })
+  window.connect(backend)
+  window.start('sayer', sayer(answered))
+  schedule.does('the user', ['does nothing much', () => {}])
+  return () => {
+    deepStrictEqual(answered, [[1]])
+    deepStrictEqual(backend.read(it).data.heard, [1, 2])
+  }
+}
+
 await run([], async (tally) => {
   for (const [name, scenario] of scenarios) await tally.every(name, () => explore(scenario))
+  await tally.every('what a window tells and asks its backend arrives there in the order it was said', () => explore(inOrder))
   await tally.every('a window closed at any moment: its search unwinds, and the backend goes on answering the other window', () => sample(twoWindows, { seed: 1, runs: 5_000 }), 'sampled')
 
   await tally.check('exploring finds the order that breaks results taken from a broadcast, and replaying it breaks the same way', async () => {

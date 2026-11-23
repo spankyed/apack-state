@@ -1,0 +1,76 @@
+name: mutants
+
+# Mutation testing of src/ on CI's runners: each job changes one part of it a mutant at a time and runs the specs,
+# and fails on a mutant that survived and is not listed in mutants.allowed.json with why; one more job, given every
+# report, fails on a listed mutant that survived in none. It runs on a pull request that touches what is mutated or
+# what holds it, on master, and by hand.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', '.github/workflows/mutants.yml', 'package-lock.json']
+  workflow_dispatch:
+
+concurrency:
+  group: mutants-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    name: mutate (${{ matrix.part }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - 'src/kernel.ts:1-275'
+          - 'src/kernel.ts:276-550'
+          - 'src/kernel.ts:551-825'
+          - 'src/kernel.ts:826-1093'
+          - 'src/draft.ts,src/mirror.ts,src/schedule.ts,src/types.ts,src/vue.ts,src/window-frame.ts,src/port.ts'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Mutate ${{ matrix.part }}
+        run: npx stryker run
+        env:
+          MUTATE: ${{ matrix.part }}
+      - name: What survived
+        if: always()
+        run: node scripts/mutants.mjs reports/mutation/mutation.json "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-${{ strategy.job-index }}
+          path: reports/mutation/mutation.json
+          if-no-files-found: ignore
+
+  # A listed mutant that survived in no job is taken off the list. Only all the reports together can say so: a job
+  # mutates part of a file, and the same line as written can be in another job's part.
+  listed:
+    name: every listed mutant still survives
+    needs: mutate
+    # After the jobs, whatever they did, unless the run was called off: the run that called it off says it instead.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutants-*
+          path: reports
+      - name: Listed, and still surviving
+        run: |
+          test "$(ls reports/*/mutation.json | wc -l)" -eq 5 || { echo 'A job left no report, so the list cannot be checked'; exit 1; }
+          node scripts/mutants.mjs --all "$GITHUB_STEP_SUMMARY" reports/*/mutation.json

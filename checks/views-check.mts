@@ -183,6 +183,31 @@ await run([
     ok((await again).ok)
     strictEqual(store.count('thread'), 2)
   }],
+  ['what each step sends a window waits for its own step\'s views, however the waits overlap', async () => {
+    const store = memory()
+    const waiting: Array<() => void> = []
+    const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), viewsSent: (then) => { waiting.push(then) } })
+    const made = backend.start('threads', threads(store))
+    const window = system({ side: 'window' })
+    window.connect(backend)
+    const handle = window.start('panel', panel)
+    // Waits are still held, so nothing comes to rest: what crossed is read after a few turns.
+    const told = async (): Promise<number> => { for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => { setImmediate(resolve) }); return window.read(handle).data.atEvent.length }
+    await rest()
+    waiting.length = 0
+    await backend.ask(made, 'CREATE', { id: 'a' })
+    await backend.ask(made, 'CREATE', { id: 'b' })
+    // The first step's views have been sent: what it sent goes, and only that.
+    waiting.shift()!()
+    strictEqual(await told(), 1)
+    await backend.ask(made, 'CREATE', { id: 'c' })
+    // The second step's have: its own goes, and not the third's, whose views are still to be sent.
+    waiting.shift()!()
+    strictEqual(await told(), 2)
+    waiting.shift()!()
+    strictEqual(await told(), 3)
+    for (const then of waiting.splice(0)) then()
+  }],
   ['a window that closes before its ask crosses is told so, and neither side is left waiting', async () => {
     const store = memory()
     const { backend, window, handle, link } = made(store, true)
@@ -197,6 +222,12 @@ await run([
     ok(backend.idle() && window.idle())
   }],
 ], async (tally) => {
+  await tally.every('a window that stops while what it follows comes and goes stops following, under every ordering', () => explore((schedule) => {
+    const store = memory((go) => schedule.later({ label: 'the views are told' }, go))
+    const { window, handle, defects } = made(store, true, schedule.later)
+    schedule.does('the user', ['asks for a', () => { void window.ask(handle, 'ADD', { id: 'a' }) }], ['closes the window', () => { window.stop() }])
+    return () => { deepStrictEqual(defects(), []) }
+  }))
   for (const how of ['one after the other', 'both at once'] as const) {
     await tally.every(`${how}: under every ordering, a window is answered and told after its view shows the thread`, () => explore(scenario(true, how)))
     await tally.check(`${how}: without the hold there is an ordering in which it is told first, so the hold is what the rule rests on`, async () => {

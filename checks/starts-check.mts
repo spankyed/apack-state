@@ -128,6 +128,118 @@ const wired = () => {
   return { sys, it, log, defects, looked, ignored, steps, cards, send: (event: BoardEvent): void => sys.send(it, event), now: () => sys.read(it) }
 }
 
+// ── a shelf: cards for what it holds from the start, and beside them a helper started as it is ────────────────────────────
+
+type Pinger = { data: { pings: number; ready: boolean }; reports: { type: 'PINGED'; pings: number } }
+/** Needs nothing given, so it is started as it is. Its work says at once that it is ready. */
+export const pinger = state<Pinger, { type: 'PING' }>()({
+  data: { pings: 0, ready: false },
+  run: () => ({ data: { ready: true } }),
+  on: { PING: (_, { data, report }) => { report({ type: 'PINGED', pings: data.pings + 1 }); return { data: { pings: data.pings + 1 } } } },
+})
+type ShelfEvent =
+  | { type: 'ADD'; id: string; label: string }
+  | { type: 'PING_HELPER' }
+  | { type: 'READ'; id: string }
+  | { type: 'WHERE' }
+  | { type: 'BUMP_AND_REMOVE'; id: string }
+  | { type: 'CLOSE' }
+  | { type: 'PINGED'; pings: number; from: string }
+type Shelf = {
+  data: { items: Record<string, string>; read: string | null; pinged: number }
+  states: { open: { starts: { card: Each<ReturnType<typeof card>>; helper: typeof pinger } }; closed: {} }
+}
+/** A card is started inside open, so a handler at the top names it the way a component does, by name and key. */
+const cardOf = (child: unknown, id: string): never => (child as (name: string, key: string) => never)('card', id)
+const helperOf = (child: unknown): never => (child as (name: string) => never)('helper')
+const shelf = (log: string[]) => state<Shelf, ShelfEvent>()({
+  // It holds two items from the start.
+  data: { items: { a: 'Alpha', b: 'Beta' }, read: null, pinged: 0 },
+  start: 'open',
+  // Tells a card in the very step the shelf starts in, before the card has started.
+  run: ({ tell, child }) => { tell(cardOf(child, 'a'), { type: 'BUMP' }) },
+  on: {
+    ADD: ({ id, label }) => ({ data: (d) => { d.items[id] = label } }),
+    PING_HELPER: (_, { tell, child }) => { tell(helperOf(child), { type: 'PING' }) },
+    READ: ({ id }, { read, child }) => ({ data: { read: (read(cardOf(child, id)) as { data: { label: string } }).data.label } }),
+    WHERE: (_, { snapshot }) => ({ data: { read: snapshot.at } }),
+    // Tells a card something and takes its item away, in one handler: the card changes and stops in the same step.
+    BUMP_AND_REMOVE: ({ id }, { tell, child }) => { tell(cardOf(child, id), { type: 'BUMP' }); return { data: (d) => { delete d.items[id] } } },
+    CLOSE: () => ({ at: 'closed' }),
+    PINGED: ({ pings }) => ({ data: { pinged: pings } }),
+  },
+  states: {
+    // The helper beside the cards: one started as it is, among many started by key.
+    open: { starts: (start) => ({ card: start(card(log), { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }), helper: pinger }) },
+    closed: {},
+  },
+})
+const shelved = () => {
+  const log: string[] = []
+  const defects: string[] = []
+  const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+  const it = sys.start('shelf', shelf(log))
+  const read = (ref: string): Record<string, unknown> | undefined => (sys.snapshot()[ref] as { data: Record<string, unknown> } | undefined)?.data
+  return { sys, it, log, defects, read, send: (event: ShelfEvent): void => sys.send(it, event), now: () => sys.read(it) }
+}
+
+const shelfChecks: Array<[string, () => Promise<void>]> = [
+  ['what a state holds from the start starts its states at once, and what it tells one in that step reaches it', async () => {
+    const it = shelved()
+    deepStrictEqual(it.log, ['started a', 'started b'])
+    deepStrictEqual([it.read('shelf/card/a')?.bumps, it.read('shelf/card/b')?.bumps], [1, 0])
+    deepStrictEqual(it.defects, [])
+  }],
+  ['a state named in starts as it is, with nothing to give, is started, and what it says at once is made', async () => {
+    const it = shelved()
+    deepStrictEqual(it.read('shelf/helper'), { pings: 0, ready: true })
+  }],
+  ['what a state starts as it is goes on while the keys of another field change', async () => {
+    const it = shelved()
+    it.send({ type: 'PING_HELPER' })
+    it.send({ type: 'ADD', id: 'c', label: 'Gamma' })
+    deepStrictEqual(it.read('shelf/helper'), { pings: 1, ready: true })
+  }],
+  ['a handler reaches a state it starts by its name alone, and one of many by name and key', async () => {
+    const it = shelved()
+    it.send({ type: 'PING_HELPER' })
+    deepStrictEqual([it.read('shelf/helper')?.pings, it.now().data.pinged], [1, 1])
+    it.send({ type: 'READ', id: 'b' })
+    strictEqual(it.now().data.read, 'Beta')
+  }],
+  ["a handler's snapshot is the state's value as it is", async () => {
+    const it = shelved()
+    it.send({ type: 'WHERE' })
+    strictEqual(it.now().data.read, 'open')
+  }],
+  ['a state told something and stopped in the same step is stopped, and nothing breaks', async () => {
+    const it = shelved()
+    it.send({ type: 'BUMP_AND_REMOVE', id: 'a' })
+    strictEqual(it.read('shelf/card/a'), undefined)
+    deepStrictEqual(it.log, ['started a', 'started b', 'stopped a'])
+    deepStrictEqual(it.defects, [])
+  }],
+  ['leaving a state stops what it started, the last started first', async () => {
+    const it = shelved()
+    it.send({ type: 'ADD', id: 'c', label: 'Gamma' })
+    it.log.length = 0
+    it.send({ type: 'CLOSE' })
+    deepStrictEqual(it.log, ['stopped c', 'stopped b', 'stopped a'])
+  }],
+  ['a state started by nothing that reports has nobody to report to, and its change is made all the same', async () => {
+    const sys = system({ side: 'backend' })
+    const alone = sys.start('alone', pinger)
+    sys.send(alone, { type: 'PING' })
+    strictEqual(sys.read(alone).data.pings, 1)
+  }],
+  ['a state started without what it has to be given is reported, naming what is missing', async () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    sys.start('loose', card([]) as never)
+    ok(defects.some((line) => line.includes('loose') && line.includes('without id')), defects.join(' / '))
+  }],
+]
+
 const checks: Array<[string, () => Promise<void>]> = [
   ['a state it starts runs while it is the case, stops when it is left, and starts anew when it is entered again', async () => {
     const { log, send, sys } = wired()
@@ -156,10 +268,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.stop()
   }],
   ['a state started part-way through a step is there for what comes next in that step', async () => {
-    const { send, cards, steps, sys } = wired()
+    const { send, cards, steps, sys, now } = wired()
     steps.length = 0
     send({ type: 'ADD_THEN_BUMP', id: 'a', label: 'Alpha' })
     deepStrictEqual(cards(), { a: { id: 'a', label: 'Alpha', bumps: 1 } })
+    // And what the card says back is heard in that step too.
+    strictEqual(now().data.lastBump, 'a to 1')
     deepStrictEqual(steps, [['board', 'board/card/a']])
     sys.stop()
   }],
@@ -172,6 +286,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(cards(), {})
     deepStrictEqual(log.filter((line) => line.endsWith(' a')), ['started a', 'stopped a'])
     deepStrictEqual(await slowly, { ok: true, value: 'abandoned' })
+    send({ type: 'ADD', id: 'b', label: 'Beta' })
+    const direct = sys.ask(sys.child(it, 'card', 'b'), 'SLOWLY', {})
+    await turns(3)
+    send({ type: 'REMOVE', id: 'b' })
+    const outcome = await direct
+    ok(!outcome.ok && outcome.failure.kind === 'abandoned' && /stopped before answering/i.test(outcome.failure.message), JSON.stringify(outcome))
     sys.stop()
   }],
   ['a key taken out and put back within a step is a key that stayed, whichever way it was done', async () => {
@@ -235,6 +355,8 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a state that is not running cannot be asked: the ask is answered `unavailable`', async () => {
     const { sys, it } = wired()
     deepStrictEqual(await sys.ask(it, 'LABEL_OF', { id: 'nobody' }), { ok: true, value: 'unavailable' })
+    const direct = await sys.ask(sys.child(it, 'card', 'nobody'), 'LABEL', {})
+    ok(!direct.ok && direct.failure.kind === 'unavailable' && direct.failure.message.includes('LABEL'), JSON.stringify(direct))
     sys.stop()
   }],
   ['a key that could not name a state is reported, and starts nothing', async () => {
@@ -272,6 +394,6 @@ const racing = (schedule: Schedule): (() => void) => {
   }
 }
 
-await run(checks, async (tally) => {
+await run([...checks, ...shelfChecks], async (tally) => {
   await tally.every('under every ordering of two asks that add the same item after a wait, one is added, one is refused, and one card starts', () => explore(racing))
 })

@@ -4,9 +4,9 @@
 //   npx vitest run binding
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { computed, effect } from '@vue/reactivity'
-import { mirror } from '../src/mirror.ts'
+import { mirror, mirrors } from '../src/mirror.ts'
 import { run, system } from './checks.mts'
-import { given, reaching, type Each, type Value } from '../src/index.ts'
+import { given, reaching, within, type Each, type Value } from '../src/index.ts'
 import { windowFrame } from '../src/window-frame.ts'
 
 /** Not plain data: handed over as it is, and never frozen. */
@@ -217,6 +217,49 @@ const checks: Array<[string, () => void]> = [
     throws(() => { (it.held.value.data.messages.a as string[]).push('written') }, TypeError)
     throws(() => { (it.held.value.data.titles as Record<string, string>).a = 'written' }, TypeError)
     deepStrictEqual(it.sys.read(it.handle).data.messages, { a: [], b: [] })
+  }],
+
+  ['within says whether a value is at a state or anywhere inside it', () => {
+    const at = (where: string): { at: string } => ({ at: where })
+    ok(within(at('thread'), 'thread'))
+    ok(within(at('thread.idle'), 'thread'))
+    ok(within(at('thread.idle.typing'), 'thread.idle'))
+    ok(!within(at('list'), 'thread'))
+    ok(!within(at('threads'), 'thread'), 'a state whose name begins with the other is not inside it')
+    ok(!within(at('list.thread'), 'thread'), 'a state of the same name inside another is not it')
+  }],
+
+  // ── readers coming and going ─────────────────────────────────────────────────────────────────────────────────────
+
+  ['a state read on its own is shown when a step of one nobody reads starts it', () => {
+    const sys = system({ side: 'window' })
+    const handle = sys.start('board', board)
+    const c = mirror(sys, sys.child(handle, 'card', 'c'))
+    const shows = (): string => (c.value ? `${c.value.data.label} ${c.value.data.bumps}` : 'nothing')
+    strictEqual(shows(), 'nothing')
+    sys.send(handle, { type: 'ADD', id: 'c', label: 'Gamma' })
+    strictEqual(shows(), 'Gamma 0')
+    sys.send(handle, { type: 'BUMP', id: 'c' })
+    strictEqual(shows(), 'Gamma 1')
+  }],
+  ['one reader stopping leaves the others reading', () => {
+    const it = watched()
+    const other = mirror<Value<Shape>>(it.sys, it.handle)
+    other.stop()
+    it.send({ type: 'COUNT' })
+    strictEqual(it.held.value.data.count, 1)
+    deepStrictEqual(it.ran(), ['count'])
+  }],
+  ['stopping a reader twice is stopping it once, and once the last has stopped the state is not mirrored', () => {
+    const it = watched()
+    const other = mirror<Value<Shape>>(it.sys, it.handle)
+    strictEqual(mirrors(it.sys).size, 1)
+    other.stop()
+    other.stop()
+    it.send({ type: 'COUNT' })
+    deepStrictEqual(it.ran(), ['count'])
+    it.held.stop()
+    strictEqual(mirrors(it.sys).size, 0)
   }],
 
   // ── a frame, in a window ──────────────────────────────────────────────────────────────────────────────────────────
