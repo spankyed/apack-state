@@ -235,11 +235,6 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves at the commit', leave) | \"\"",
-    "original": "'what leaves at the commit'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
     "key": "src/kernel.ts | StringLiteral | if (!mine) { trace(`nothing to tell ${ref}: not connected`); return } | ``",
     "original": "`nothing to tell ${ref}: not connected`",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
@@ -763,5 +758,13 @@
     "key": "src/testing.ts | StringLiteral | schedule.does('the user', ...events.map((event) => [event.type, () => { | \"\"",
     "original": "'the user'",
     "why": "The lane the events are sent from is named in a list of what was run, which fromEvents does not report: a failure says its seed and the events it sent"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | for (const leave of now) safely('what leaves at the commit', leave) | \"\"",
+    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended), { kind: 'unfollow', to: feature, name: view }) } | \"\"",
+    "why": "Which lane a view's stop goes up in: the backend takes a stop whenever it comes, and the window stopped hearing that view when it gave it up, so its place among what else goes up changes nothing either side sees"
   }
 ]

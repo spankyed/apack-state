@@ -4,8 +4,9 @@
 //   npx vitest run log
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { given, reaching, type StepLog } from '../src/index.ts'
+import { given, reaching, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
+import { nextTurn } from '../src/turn.ts'
 
 const MARK = 'MARKER-5d0c'
 
@@ -55,6 +56,58 @@ const panel = state<{ data: { draft: string; seen: string[] }; states: { idle: {
     },
   },
 })
+
+type WorkAsks = { RUN: { args: { id: string }; progress: string; answer: string } }
+type Kinds = {
+  systems: { worker: { events: { type: 'PING' }; asks: WorkAsks } }
+  surfaces: {}
+  views: { threads: { count: { args: {}; result: number } } }
+}
+const kinds = reaching<Kinds>()
+
+/** Answers a run once its id is let go: `now` at once, anything else when this check says. */
+const worker = (letGo: (id: string) => Promise<void>) => kinds<{}, { type: 'PING' }, WorkAsks>()({
+  on: { PING: () => {} },
+  asks: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
+})
+/** Makes a run of the worker for each id it is given, and lets one go. */
+const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
+  data: { done: [] },
+  start: 'on',
+  states: {
+    on: {
+      makes: ({ each }) => ({
+        run: each('worker', 'RUN', {
+          args: (id) => ({ id }),
+          heard: () => undefined,
+          ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
+        }),
+      }),
+      on: { ADD: ({ id }, { make }) => { make('run', id) }, DROP: ({ id }, { drop }) => { drop('run', id) } },
+    },
+  },
+})
+/** Work that ends, or throws. */
+const runs = (breaks: boolean) => kinds<{ states: { busy: {}; idle: {} } }, never>()({
+  start: 'busy',
+  states: { busy: { async run() { if (breaks) throw new Error('it broke') }, failed: () => ({ at: 'idle' }) }, idle: {} },
+})
+/** Follows how many threads there are. */
+const watcher = kinds<{ data: { count: number } }, never>()({
+  data: { count: 0 },
+  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+})
+/** Once its work has waited a turn, outside any step, tells the worker something. */
+const teller = kinds<{ states: { telling: {}; told: {} } }, never>()({
+  start: 'telling',
+  states: { telling: { async run({ tell }) { await Promise.resolve(); tell('worker', { type: 'PING' }) }, failed: () => ({ at: 'told' }) }, told: {} },
+})
+const countOf = (store: Rows): ViewHost => (_feature, _view, _args, heard) => store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
+const handledIn = (logs: readonly StepLog[]): Handled[] => logs.flatMap((step) => step.handled)
+const leftIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.left)
+/** While an ask is held unanswered nothing comes to rest, so a few turns are let pass instead. */
+const turns = async (): Promise<void> => { for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => { nextTurn(resolve) }) }
+const has = <T,>(all: readonly T[], one: T): void => { ok(all.some((each) => { try { deepStrictEqual(each, one); return true } catch { return false } }), `${JSON.stringify(one)} is not among ${JSON.stringify(all)}`) }
 
 /** A backend and a window, each logging its steps. */
 const wired = (host: { failNext?: string } = {}) => {
@@ -132,6 +185,65 @@ await run([
     await rest()
     ok(logs.window.length > 3 && logs.backend.length > 0)
     strictEqual(JSON.stringify(logs).includes(MARK), false)
+  }],
+  ['what a step handled is each thing by its kind, the state it is for and the name it was declared by, and the key of one of each', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const held = new Map<string, () => void>()
+    const letGo = (id: string): Promise<void> => (id === 'now' ? Promise.resolve() : new Promise((resolve) => { held.set(id, resolve) }))
+    const backend = system({ side: 'backend', transact: store.transact, views: countOf(store), log: (step) => { logs.push(step) } })
+    backend.start('worker', worker(letGo))
+    const made = backend.start('jobs', jobs)
+    backend.start('ends', runs(false))
+    backend.start('breaks', runs(true))
+    backend.start('watcher', watcher)
+    await rest()
+    backend.send(made, { type: 'ADD', id: 'now' })
+    backend.send(made, { type: 'ADD', id: 'later' })
+    await turns()
+    backend.send(made, { type: 'DROP', id: 'later' })
+    await turns()
+    const handled = handledIn(logs)
+    has(handled, { kind: 'make', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'progressed', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'answer', ref: 'worker', name: 'RUN' })
+    has(handled, { kind: 'ended', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'drop', ref: 'jobs', name: 'run', key: 'later' })
+    has(handled, { kind: 'result', ref: 'ends', name: 'busy' })
+    has(handled, { kind: 'failure', ref: 'breaks', name: 'busy' })
+    has(handled, { kind: 'view', ref: 'watcher', name: 'count' })
+    // A state that moved and changed none of its fields says so, and where it is.
+    const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
+    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, making: false, at: 'idle' })
+    for (const resolve of held.values()) resolve()
+    await rest()
+    // A state that ended is nowhere.
+    backend.stop()
+    await rest()
+    strictEqual(logs.at(-1)!.changed.ends?.at, '')
+  }],
+  ['what left is said by kind, to whom and by name: a follow and an unfollow, a tell made outside a step, and an ask its state stopped before answering', async () => {
+    const store = memory()
+    const logs = { backend: [] as StepLog[], window: [] as StepLog[] }
+    const backend = system({ side: 'backend', transact: store.transact, views: countOf(store), log: (step) => { logs.backend.push(step) } })
+    backend.start('worker', worker(() => new Promise(() => {})))
+    const made = backend.start('jobs', jobs)
+    const window = system({ side: 'window', log: (step) => { logs.window.push(step) } })
+    window.connect(backend)
+    window.start('watcher', watcher)
+    window.start('teller', teller)
+    await rest()
+    has(leftIn(logs.window), { kind: 'follow', to: 'threads', name: 'count' })
+    has(leftIn(logs.window), { kind: 'tell', to: 'worker', name: 'PING' })
+    window.stop()
+    await rest()
+    has(leftIn(logs.window), { kind: 'unfollow', to: 'threads', name: 'count' })
+    // The worker is asked, and never answers: it stops first.
+    backend.send(made, { type: 'ADD', id: 'never' })
+    await turns()
+    backend.stop()
+    await turns()
+    has(leftIn(logs.backend), { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
     const window = system({ side: 'window', log: () => { throw new Error('the log broke') } })
