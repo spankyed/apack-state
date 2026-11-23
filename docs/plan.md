@@ -704,8 +704,11 @@ frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-bui
     a window is. What a step tells a peer leaves at the commit, in the order it was told, everything one step told
     it together, and is applied there as one unit of the peer's own database. One step of the brain is then one
     unit of the log, where ending an event, ending its flow and recording a result are three commits today. This
-    is the transactional outbox, kept in memory: a run does not outlive the process, so nothing is lost by it that
-    is not lost anyway, and what a crash leaves `active` is marked `stopped` as the app starts, as now.
+    is the transactional outbox, kept in memory: a run does not outlive the process today, so nothing is lost by
+    it that is not lost anyway, and what a crash leaves `active` is marked `stopped` as the app starts, as now.
+    A run that goes on after the app starts again is expected, and it ends this: the log then has to hold every
+    step of a run that is still going, which is an outbox kept on disk
+    ([deferred](deferred/durable-outbox.md)).
   - *A tell that leaves the system is written so that it shows.* A surface is told as `{ surface }`, and a peer as
     `{ peer }`: `tell({ peer: 'run-history' }, …)`. A plain name is a state in this system, handled in this step.
     Two sends that look alike and arrive at different times are the oldest mistake of a call made to look local.
@@ -733,9 +736,9 @@ frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-bui
   What was set aside: the log in the app's database, which one unit would cover and which would put a log's
   writes in line for the one writer and wake the app's watches; writing the second database from a handler, which
   needs nothing built and writes another store inside a unit that may not be kept; an outbox kept in the app's
-  database and relayed, which is for a run that outlives the process, and if runs ever do, a run's state belongs
-  in the app's database and the log is a projection of its changes; and a commit in two phases, which LMDB has no
-  first phase for.
+  database and relayed, which is for a run that outlives the process and is put off until runs do
+  ([deferred](deferred/durable-outbox.md)), when a run's state belongs in the app's database and the log may be
+  a projection of its changes instead; and a commit in two phases, which LMDB has no first phase for.
 - **A flow action.** An action is not a state: it is work a step's state runs, outside any step of the kernel's. Its
   31 writes are each a command, which is a unit of its own, and several that belong together go in one `transact`,
   as now. An action's writes are not carried back to the brain's step (decided 2026-11-23): an action runs for as
@@ -1202,6 +1205,12 @@ projects. Each would loosen the fit to this app.
 - **Saving a state to disk** is not wanted. A saved state is a stored format that would then have to be kept stable.
   And restoring starts a state's work again, which is right for a search a moment after a reload and wrong for a
   message that was being sent a day ago.
+- **A flow that goes on after the app starts again** is expected, and is not designed. It does not ask for a
+  saved state: what a run must not lose is rows, and a run is rebuilt from them as any backend state is. What is
+  open is which rows those are, what a step that was under way does when it is rebuilt (a model that was being
+  called, an action half run), and what the run had said that was not yet delivered, which is an outbox kept on
+  disk ([deferred](deferred/durable-outbox.md)). The brain is ported first, with runs that end with the process
+  as they do now.
 - **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left:
   - *A step that must be on disk before it answers.* `transact` takes `durable: true`; a handler has no way to ask
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.
