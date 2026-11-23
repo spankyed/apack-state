@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "sourceMap": false,
+    "declarationMap": false,
+    "outDir": "./.temp/api-types"
+  }
+}

@@ -7,6 +7,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | File | What it is |
 |---|---|
 | `src/index.ts` | The door: every export of the package, by name |
+| `etc/*.api.md` | What each entry offers, as API Extractor reads it: `npm run api:check` holds the source to them, `npm run api:update` writes them |
+| `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
 | `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
 | `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |
 | `src/port.ts` | What one system offers another, and the link in memory between a window and its backend |

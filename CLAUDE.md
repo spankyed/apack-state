@@ -34,9 +34,14 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 
 ```bash
 npm run typecheck
+npm run api:check
 npm test
 npm run build
 ```
+
+`etc/*.api.md` is what each entry offers, as API Extractor reads it from the source. A change to what the package
+offers fails `api:check` until `npm run api:update` has written it, so it shows in the diff. A type a public
+signature uses and no entry exports is listed there as a forgotten export.
 
 `npm test` runs every check with vitest: each `checks/*-check.mts` is a spec, run without being listed, and each
 check in it a case with its own name (`checks/checks.mts` makes them). No case is given a time to finish in.

@@ -36,7 +36,9 @@
     "typecheck": "tsc --noEmit && vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json",
     "test": "vitest run",
     "measure": "node scripts/measure.mjs",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "api:check": "node scripts/api.mjs",
+    "api:update": "node scripts/api.mjs --local"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
@@ -52,6 +54,7 @@
   },
   "devDependencies": {
     "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-ears-0.1.0.tgz",
+    "@microsoft/api-extractor": "^7.60.1",
     "@types/node": "^24.1.0",
     "@vue/compiler-dom": "^3.5.0",
     "@vue/reactivity": "^3.5.0",

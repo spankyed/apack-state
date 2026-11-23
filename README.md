@@ -38,6 +38,10 @@ npm run typecheck
 ```
 
 ```bash
+npm run api:check
+```
+
+```bash
 npm test
 ```
 
