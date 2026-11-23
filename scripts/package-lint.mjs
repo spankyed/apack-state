@@ -12,20 +12,25 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
-const windows = process.platform === 'win32'
-const npm = windows ? 'npm.cmd' : 'npm'
-const bin = (name) => path.join(root, 'node_modules', '.bin', windows ? `${name}.cmd` : name)
+// Each tool's own script, run by this Node: no shell, which on Windows would split a path at its spaces.
+const npmCli = process.env.npm_execpath?.endsWith('.js') ? process.env.npm_execpath : path.join(path.dirname(process.execPath), process.platform === 'win32' ? '' : '..', process.platform === 'win32' ? '' : 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+/** The script a package installed here runs as `name`, from what its manifest says. */
+const bin = (pkg, name) => {
+  const dir = path.join(root, 'node_modules', pkg)
+  const { bin: bins } = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+  return path.join(dir, typeof bins === 'string' ? bins : bins[name])
+}
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'apack-state-pack-'))
 let failed = false
 try {
-  const [packed] = JSON.parse(execFileSync(npm, ['pack', '--json', '--pack-destination', out], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: windows }))
+  const [packed] = JSON.parse(execFileSync(process.execPath, [npmCli, 'pack', '--json', '--pack-destination', out], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
   const tarball = path.join(out, packed.filename)
   for (const [what, command, args] of [
-    ['publint', bin('publint'), ['run', tarball, '--strict', '--level', 'suggestion']],
-    ['attw', bin('attw'), [tarball, '--profile', 'esm-only']],
+    ['publint', bin('publint', 'publint'), ['run', tarball, '--strict', '--level', 'suggestion']],
+    ['attw', bin('@arethetypeswrong/cli', 'attw'), [tarball, '--profile', 'esm-only']],
   ]) {
     try {
-      execFileSync(command, args, { cwd: root, stdio: 'inherit', shell: windows })
+      execFileSync(process.execPath, [command, ...args], { cwd: root, stdio: 'inherit' })
     } catch {
       failed = true
       console.error(`${what} found a problem with ${packed.filename}`)
