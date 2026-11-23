@@ -432,6 +432,8 @@ export function system(host: {
     const heard = hears && gather(hears, signal)
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
     const question = new Question((outcome) => { handOver(); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
+    // Which ask it is, for what is logged of how it ends: here or across the link, it may end without being taken.
+    askedOf.set(question, { ref, name })
     // Whoever asked has gone: the ask ends where it is awaited, with `Left`, so the code that asked unwinds.
     const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Left(name)) }
     if (signal?.aborted) { left(); return }
@@ -878,7 +880,8 @@ export function system(host: {
       case 'result': case 'failure': return { kind: item.kind, ref: item.of.top.ref, name: item.of.path || item.of.name }
       case 'view': case 'ended': case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
       case 'make': case 'drop': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
-      case 'answer': { const asked = askedOf.get(item.question); return { kind: 'answer', ref: asked?.ref ?? '', ...(asked ? { name: asked.name } : {}) } }
+      // Every ask an answer comes back to was noted where it was made, or where it arrived to be answered.
+      case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name } }
     }
   }
   const handle = (item: Item): void => {

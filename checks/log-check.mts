@@ -92,6 +92,18 @@ const runs = (breaks: boolean) => kinds<{ states: { busy: {}; idle: {} } }, neve
   start: 'busy',
   states: { busy: { async run() { if (breaks) throw new Error('it broke') }, failed: () => ({ at: 'idle' }) }, idle: {} },
 })
+/** Work in a state inside another: named by its path. */
+const nested = kinds<{ states: { outer: { states: { inner: {}; done: {} } } } }, never>()({
+  start: 'outer',
+  states: { outer: { start: 'inner', states: { inner: { async run() {}, failed: () => ({ at: 'outer.done' }) }, done: {} } } },
+})
+/** Asks the worker to run something that is never let go. */
+const asker = kinds<{ states: { asking: {}; asked: {} } }, never>()({
+  start: 'asking',
+  states: { asking: { async run({ ask }) { await ask('worker', 'RUN', { id: 'never' }) }, failed: () => ({ at: 'asked' }) }, asked: {} },
+})
+/** Sends itself the same event as it handles it, without end. */
+const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => { send({ type: 'AGAIN' }) } } })
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
@@ -197,7 +209,9 @@ await run([
     backend.start('ends', runs(false))
     backend.start('breaks', runs(true))
     backend.start('watcher', watcher)
+    backend.start('nested', nested)
     await rest()
+    has(handledIn(logs), { kind: 'result', ref: 'nested', name: 'outer.inner' })
     backend.send(made, { type: 'ADD', id: 'now' })
     backend.send(made, { type: 'ADD', id: 'later' })
     await turns()
@@ -245,12 +259,34 @@ await run([
     await turns()
     has(leftIn(logs.backend), { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
+  ['an ask across the link that the link ends is logged as answered: which ask it was, and that it ended', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', transact: store.transact })
+    backend.start('worker', worker(() => new Promise(() => {})))
+    const window = system({ side: 'window', log: (step) => { logs.push(step) } })
+    const link = window.connect(backend)
+    window.start('asker', asker)
+    await turns()
+    link.close()
+    await turns()
+    has(handledIn(logs), { kind: 'answer', ref: 'worker', name: 'RUN' })
+  }],
+  ['a step that runs away is logged as cut short', async () => {
+    const logs: StepLog[] = []
+    const window = system({ side: 'window', log: (step) => { logs.push(step) }, trace: () => {} })
+    window.send(window.start('runaway', runaway), { type: 'AGAIN' })
+    await turns()
+    ok(logs.some((step) => step.ended === 'cut short'), JSON.stringify(logs.map((step) => step.ended)))
+  }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
-    const window = system({ side: 'window', log: () => { throw new Error('the log broke') } })
+    const traced: string[] = []
+    const window = system({ side: 'window', log: () => { throw new Error('the log broke') }, trace: (line) => { traced.push(line) } })
     const handle = window.start('panel', panel)
     window.send(handle, { type: 'TYPE', text: 'one' })
     window.send(handle, { type: 'TYPE', text: 'two' })
     await rest()
     strictEqual(window.read(handle).data.draft, 'two')
+    ok(traced.some((line) => line.startsWith('DEFECT: the step log threw')), JSON.stringify(traced))
   }],
 ])
