@@ -1,0 +1,64 @@
+{
+  "name": "@apackdev/state",
+  "version": "0.1.0",
+  "description": "States that reach each other by name, across a backend and its windows: one primitive, steps that are kept whole or not at all, and every ordering checked.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.mts",
+      "import": "./dist/vue.mjs"
+    },
+    "./testing": {
+      "types": "./dist/schedule.d.mts",
+      "import": "./dist/schedule.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spankyed/apack-state.git"
+  },
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json",
+    "test": "node scripts/run-checks.mjs",
+    "measure": "node scripts/run-checks.mjs measure"
+  },
+  "peerDependencies": {
+    "@vue/reactivity": "^3.5.0",
+    "@vue/runtime-core": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "@vue/reactivity": {
+      "optional": true
+    },
+    "@vue/runtime-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-ears-0.1.0.tgz",
+    "@types/node": "^24.1.0",
+    "@vue/compiler-dom": "^3.5.0",
+    "@vue/reactivity": "^3.5.0",
+    "@vue/runtime-core": "^3.5.0",
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-0.1.0.tgz",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vue": "^3.5.0",
+    "vue-tsc": "^3.0.0"
+  }
+}
