@@ -8,13 +8,14 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { cpus, loadavg, platform, release, tmpdir, totalmem } from 'node:os'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const tsx = join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const record = process.argv.includes('--record')
 const only = process.argv.slice(2).filter((arg) => arg !== '--record')
-const measurements = readdirSync(join(root, 'measure')).filter((name) => name.endsWith('.mts') && name !== 'record.mts')
+const measurements = readdirSync(join(root, 'measure')).filter((name) => name.endsWith('.mts') && name !== 'record.mts').sort()
   .filter((name) => only.length === 0 || only.some((part) => name.includes(part)))
 if (measurements.length === 0) { console.error('Nothing to run'); process.exit(1) }
 
@@ -24,8 +25,9 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const conditions = () => ({
   date: new Date().toISOString(),
   commit: git('rev-parse', 'HEAD'),
-  // Whether the code differs from the commit: the readings this writes into bench/ are not a change to it.
-  changed: git('status', '--porcelain', '--', '.', ':(exclude)bench') !== '',
+  // Whether the code differs from the commit: the readings this writes into bench/ are not a change to it. Unknown
+  // when git cannot say.
+  changed: ((status) => (status === 'unknown' ? null : status !== ''))(git('status', '--porcelain', '--', '.', ':(exclude)bench')),
   cpu: cpus()[0]?.model ?? 'unknown',
   cores: cpus().length,
   memory: `${Math.round(totalmem() / 2 ** 30)} GB`,
@@ -33,6 +35,7 @@ const conditions = () => ({
   node: process.version,
   load: platform() === 'win32' ? null : Number(loadavg()[0].toFixed(2)),
   elmdb: manifest.devDependencies?.elmdb ?? null,
+  typescript: createRequire(import.meta.url)('typescript/package.json').version,
 })
 
 const scratch = mkdtempSync(join(tmpdir(), 'apack-state-bench-'))
@@ -50,8 +53,10 @@ try {
     const before = new Map((recorded?.readings ?? []).map((one) => [one.name, one.value]))
     for (const { name: what, value, unit } of readings) {
       const was = before.get(what)
-      const beside = typeof was === 'number' && was !== 0 && Number.isFinite(value) ? `   (recorded ${was.toFixed(1)} ${unit}, ${(value / was).toFixed(2)}×)` : ''
-      console.log(`  ${what.padEnd(84)} ${value.toFixed(1).padStart(10)} ${unit}${beside}`)
+      // A reading that is not a number is recorded as null: what a measurement reads when there was nothing to read.
+      const read = typeof value === 'number' && Number.isFinite(value)
+      const beside = read && typeof was === 'number' && was !== 0 ? `   (recorded ${was.toFixed(1)} ${unit}, ${(value / was).toFixed(2)}×)` : ''
+      console.log(`  ${what.padEnd(84)} ${(read ? value.toFixed(1) : 'none').padStart(10)} ${unit}${beside}`)
     }
     if (recorded) console.log(`  recorded ${recorded.conditions.date.slice(0, 10)} on ${recorded.conditions.cpu}, load ${recorded.conditions.load}, at ${recorded.conditions.commit.slice(0, 7)}`)
     if (record) {

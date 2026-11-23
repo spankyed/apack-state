@@ -106,28 +106,32 @@ under('checking N states')
 for (const count of sizes.length ? sizes : [10, 100, 300]) {
   const dir = join(root, '.temp', 'compile', String(count))
   rmSync(dir, { recursive: true, force: true })
-  mkdirSync(join(dir, 'states'), { recursive: true })
-  writeFileSync(join(dir, 'states', 'app.ts'), appFile)
-  for (let at = 0; at < count; at++) writeFileSync(join(dir, 'states', `state${at}.ts`), stateFile(at))
-  writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ extends: '../../../tsconfig.json', compilerOptions: { noEmit: true, types: [] }, include: ['states/*.ts'] }, null, 2))
-  const check = (): { wall: number; out: string } => {
-    const began = process.hrtime.bigint()
-    let out: string
-    try { out = execFileSync(process.execPath, [tsc, '-p', dir, '--extendedDiagnostics'], { encoding: 'utf8' }) } catch (error) {
-      // What is measured has to compile: a state that does not is not what a pack writes.
-      throw new Error(`The generated states do not compile:\n${(error as { stdout?: string }).stdout?.split('\n').filter((line) => line.includes('error')).slice(0, 10).join('\n')}`)
+  // What is generated is removed however its check ends.
+  try {
+    mkdirSync(join(dir, 'states'), { recursive: true })
+    writeFileSync(join(dir, 'states', 'app.ts'), appFile)
+    for (let at = 0; at < count; at++) writeFileSync(join(dir, 'states', `state${at}.ts`), stateFile(at))
+    writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ extends: '../../../tsconfig.json', compilerOptions: { noEmit: true, types: [] }, include: ['states/*.ts'] }, null, 2))
+    const check = (): { wall: number; out: string } => {
+      const began = process.hrtime.bigint()
+      let out: string
+      try { out = execFileSync(process.execPath, [tsc, '-p', dir, '--extendedDiagnostics'], { encoding: 'utf8' }) } catch (error) {
+        // What is measured has to compile: a state that does not is not what a pack writes.
+        throw new Error(`The generated states do not compile:\n${(error as { stdout?: string }).stdout?.split('\n').filter((line) => line.includes('error')).slice(0, 10).join('\n')}`)
+      }
+      return { wall: Number(process.hrtime.bigint() - began) / 1e6, out }
     }
-    return { wall: Number(process.hrtime.bigint() - began) / 1e6, out }
+    check()
+    const { wall, out } = check()
+    const checkTime = diagnostic(out, 'Check time') * 1000
+    const types = diagnostic(out, 'Types')
+    const memory = Number(/^Memory used:\s+(\d+)K/m.exec(out)?.[1] ?? NaN) / 1024
+    reading(`${count} states: check time`, checkTime, 'ms')
+    reading(`${count} states: wall time`, wall, 'ms')
+    reading(`${count} states: types`, types, 'types')
+    reading(`${count} states: memory`, memory, 'MB')
+    console.log(`  ${String(count).padStart(4)} states   check ${checkTime.toFixed(0).padStart(6)} ms   wall ${wall.toFixed(0).padStart(6)} ms   ${types.toFixed(0).padStart(8)} types   ${memory.toFixed(0).padStart(5)} MB   (${(checkTime / count).toFixed(1)} ms a state)`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
-  check()
-  const { wall, out } = check()
-  const checkTime = diagnostic(out, 'Check time') * 1000
-  const types = diagnostic(out, 'Types')
-  const memory = Number(/^Memory used:\s+(\d+)K/m.exec(out)?.[1] ?? NaN) / 1024
-  reading(`${count} states: check time`, checkTime, 'ms')
-  reading(`${count} states: wall time`, wall, 'ms')
-  reading(`${count} states: types`, types, 'types')
-  reading(`${count} states: memory`, memory, 'MB')
-  console.log(`  ${String(count).padStart(4)} states   check ${checkTime.toFixed(0).padStart(6)} ms   wall ${wall.toFixed(0).padStart(6)} ms   ${types.toFixed(0).padStart(8)} types   ${memory.toFixed(0).padStart(5)} MB   (${(checkTime / count).toFixed(1)} ms a state)`)
-  rmSync(dir, { recursive: true, force: true })
 }
