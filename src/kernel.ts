@@ -449,21 +449,15 @@ export function system(host: {
     out(() => carry(mine.link, 'up', () => {
       // Whoever asked may have ended before the ask crossed the link: then it is never started.
       if (signal?.aborted) { mine.waiting.delete(question); return }
-      // A port may answer before it returns, as a link that has closed does: what it returns is not there yet then,
-      // and an ask that has ended is not one to let go of.
-      let gone: (() => void) | undefined
-      let ended = false
-      gone = mine.port.ask(ref, name, args,
-        (update) => carry(mine.link, 'down', () => heard?.(update)),
-        (outcome) => carry(mine.link, 'down', () => {
-          ended = true
-          mine.waiting.delete(question)
-          if (gone) mine.gone.delete(gone)
-          question.end(outcome)
-        }))
-      if (ended) return
+      // What lets the ask go is there before the port is asked: a port may answer before it returns, as a link that has
+      // closed does, and what it returns is not there yet then.
+      let leave: (() => void) | undefined
+      const gone = (): void => { leave?.() }
       mine.gone.add(gone)
       signal?.addEventListener('abort', gone, { once: true })
+      leave = mine.port.ask(ref, name, args,
+        (update) => carry(mine.link, 'down', () => heard?.(update)),
+        (outcome) => carry(mine.link, 'down', () => { mine.waiting.delete(question); mine.gone.delete(gone); question.end(outcome) }))
     }), { kind: 'ask', to: ref, name })
   }))
 
