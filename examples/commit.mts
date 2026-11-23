@@ -19,7 +19,7 @@
 // `git` at the bottom stands in for the code system's git engine, with the asks' own names.
 
 import { deepStrictEqual } from 'node:assert'
-import { answered, reaching, system } from '../src/state.mts'
+import { answered, reaching, system } from '../src/index.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // What can be reached by name

@@ -21,7 +21,7 @@ and API are the prototype's, not yet a package's: files are `.mts`, and checks a
 
 | Folder | Holds |
 |---|---|
-| `src/` | The package: the types a state is checked against and the kernel (`state.mts`), drafts, the mirror a component reads, the Vue binding, and the schedule that runs a scenario under every ordering |
+| `src/` | The package: the types a state is checked against (`types.ts`) and the kernel (`kernel.ts`), drafts, the mirror a component reads, the Vue binding, and the schedule that runs a scenario under every ordering |
 | `checks/` | What holds the kernel to what it says, each file a script that exits non-zero when something does not hold. Rows are checked in memory and on [elmdb](https://github.com/spankyed/elmdb) |
 | `examples/` | Parts of apack ported to it: search, commit, threads, views, the library system |
 | `measure/` | What things cost. These print, and refuse nothing |

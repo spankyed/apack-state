@@ -17,7 +17,7 @@
 // and `inference` for `services.inference`.
 
 import { deepStrictEqual } from 'node:assert'
-import { answered, given, reaching, system, within, type AskFailure, type Each } from '../src/state.mts'
+import { answered, given, reaching, system, within, type AskFailure, type Each } from '../src/index.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // What can be reached by name. In the app a pack's generated facade would declare this.
@@ -498,7 +498,7 @@ if (process.argv[1]?.endsWith('threads.mts')) {
 
 // ── `within`: what must not compile ─────────────────────────────────────────────────────────────────────────────────
 
-function withinMustNotCompile(value: import('../src/state.mts').Value<ThreadsSurface>): void {
+function withinMustNotCompile(value: import('../src/index.ts').Value<ThreadsSurface>): void {
   // @ts-expect-error a thread's id exists only somewhere inside `thread`
   void value.data.threadId
   if (within(value, 'thread')) void value.data.threadId

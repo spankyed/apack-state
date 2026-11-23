@@ -7,16 +7,16 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./vue": {
-      "types": "./dist/vue.d.mts",
-      "import": "./dist/vue.mjs"
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js"
     },
     "./testing": {
-      "types": "./dist/schedule.d.mts",
-      "import": "./dist/schedule.mjs"
+      "types": "./dist/schedule.d.ts",
+      "import": "./dist/schedule.js"
     }
   },
   "files": [

@@ -4,7 +4,7 @@
 //   npx vitest run progress
 import { deepStrictEqual, strictEqual } from 'node:assert'
 import { run, system } from './checks.mts'
-import { given, reaching, type State } from '../src/state.mts'
+import { given, reaching, type State } from '../src/index.ts'
 
 type Step = { progress: string } | { note: string }
 type StreamAsks = {

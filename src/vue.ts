@@ -21,8 +21,9 @@
 // A component reads and sends. It does not ask: an ask is work with an owner, and a component is not one. What a
 // component needs done, it sends to a state, whose `run` does it.
 import { computed, getCurrentScope, inject, onScopeDispose, shallowRef, toValue, watch, type App, type ComputedRef, type InjectionKey, type MaybeRefOrGetter } from '@vue/runtime-core'
-import { mirrors, type Shared } from './mirror.mts'
-import type { AllStarts, AnyEvent, AnyState, Asks, Each, HandleOf, Started, State, System, Value } from './state.mts'
+import { mirrors, type Shared } from './mirror.ts'
+import type { System } from './kernel.ts'
+import type { AllStarts, AnyEvent, AnyState, Asks, Each, HandleOf, Started, State, Value } from './types.ts'
 
 const SYSTEM: InjectionKey<System> = Symbol('the system this app reads')
 

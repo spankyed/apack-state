@@ -3,9 +3,9 @@
 //
 //   npx vitest run answer
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { explore, type Schedule } from '../src/schedule.mts'
+import { explore, type Schedule } from '../src/schedule.ts'
 import { rest, run, system } from './checks.mts'
-import { answered, given, reaching } from '../src/state.mts'
+import { answered, given, reaching } from '../src/index.ts'
 
 type CounterAsks = {
   /** Reads, and changes nothing. */

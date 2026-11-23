@@ -1,7 +1,7 @@
 // The states the component files in this folder read, and the `useState` typed for them. In the app a pack's
 // generated facade would give both.
-import { given, reaching, type Each } from '../../src/state.mts'
-import { vueBinding } from '../../src/vue.mts'
+import { given, reaching, type Each } from '../../src/index.ts'
+import { vueBinding } from '../../src/vue.ts'
 
 const state = reaching()
 

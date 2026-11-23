@@ -5,8 +5,8 @@
 // A value is replaced, never mutated, so appending copies the array it appends to. One change per item is then
 // quadratic. The first half measures that on the draft alone. The second streams results through a real ask, from a
 // backend to a window, the way the search does.
-import { produce } from '../src/draft.mts'
-import { reaching, system } from '../src/state.mts'
+import { produce } from '../src/draft.ts'
+import { reaching, system } from '../src/index.ts'
 
 const time = async (label: string, run: () => void | Promise<void>): Promise<void> => {
   const started = process.hrtime.bigint()

@@ -7,7 +7,7 @@
 // `searchFiles` signature, so that the last section can run.
 
 import { deepStrictEqual } from 'node:assert'
-import { reaching, system } from '../src/state.mts'
+import { reaching, system } from '../src/index.ts'
 
 // ── the app's types, unchanged ──────────────────────────────────────────────────────────────────────────────────────
 

@@ -4,10 +4,12 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 
 ## Layout
 
-- `src/index.mts` is the door: what it exports is the package. `src/state.mts` is the types and the kernel,
-  `src/draft.mts` data edited in place, `src/mirror.mts` and `src/vue.mts` what a component reads a running state
-  with (`@apackdev/state/vue`), `src/schedule.mts` the schedule a check runs under every ordering
-  (`@apackdev/state/testing`), `src/window-frame.mts` what a frame is in a window.
+- `src/index.ts` is the door: what it exports, each by name, is the package. `src/types.ts` is what a state's code
+  is checked against, `src/kernel.ts` the systems that run states, `src/port.ts` what joins two systems,
+  `src/draft.ts` data edited in place, `src/mirror.ts` and `src/vue.ts` what a component reads a running state with
+  (`@apackdev/state/vue`), `src/schedule.ts` the schedule a check runs under every ordering
+  (`@apackdev/state/testing`), `src/window-frame.ts` what a frame is in a window. What a module exports that the
+  doors do not is marked `@internal`: the package's own, which checks may reach and nothing else should.
 - `checks/` is every check, each file a vitest spec: `checks.mts` is what they are written with, `examples-check.mts`
   runs the examples, `store.mts` and
   `store-elmdb.mts` the rows a step writes, in memory and on elmdb, and `vue-fixture/` a component `vue-tsc` checks.

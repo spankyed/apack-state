@@ -3,7 +3,8 @@
 //   npx vitest run kernel
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run as runChecks, system } from './checks.mts'
-import { given, reaching, said, WROTE_TO_WHAT_WAS_READ } from '../src/state.mts'
+import { given, reaching } from '../src/index.ts'
+import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
 
 class Repository { constructor(public directory: string) {} }
 
@@ -294,12 +295,12 @@ const checks: Array<[string, () => void]> = [
       FURTHER_IN: (_, { data }) => { data.byId.a?.push('further in') },
     },
   })
-  const read = undefined as unknown as import('../src/state.mts').Value<Shelf>
+  const read = undefined as unknown as import('../src/index.ts').Value<Shelf>
   // What is read is handed on as its declared type wherever that only asks for an object: read-only fields ask
   // nothing of a helper, and a string marked as a kind of id is still that string.
   type BookId = string & { readonly book: true }
   type Book = { id: BookId; title: string; tags: string[] }
-  const held = undefined as unknown as import('../src/state.mts').Value<{ data: { open: Book; byId: Record<string, Book> } }>
+  const held = undefined as unknown as import('../src/index.ts').Value<{ data: { open: Book; byId: Record<string, Book> } }>
   const takes = (_book: Book, _id: BookId): void => {}
   if (false) { takes(held.data.open, held.data.open.id); takes(held.data.byId.a!, held.data.byId.a!.id) }
   // @ts-expect-error what is read from a state cannot be assigned

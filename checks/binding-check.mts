@@ -4,10 +4,10 @@
 //   npx vitest run binding
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { computed, effect } from '@vue/reactivity'
-import { mirror } from '../src/mirror.mts'
+import { mirror } from '../src/mirror.ts'
 import { run, system } from './checks.mts'
-import { given, reaching, type Each, type Value } from '../src/state.mts'
-import { windowFrame } from '../src/window-frame.mts'
+import { given, reaching, type Each, type Value } from '../src/index.ts'
+import { windowFrame } from '../src/window-frame.ts'
 
 /** Not plain data: handed over as it is, and never frozen. */
 class Repository { constructor(public directory: string) {} where(): string { return this.directory } }

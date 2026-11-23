@@ -8,7 +8,7 @@
 // changed result.
 
 import { deepStrictEqual } from 'node:assert'
-import { given, reaching, system, type ViewHost, type ViewUpdate } from '../src/state.mts'
+import { given, reaching, system, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 interface ThreadSummary { id: string; title: string }
 interface ThreadDetail { id: string; title: string; messages: number }

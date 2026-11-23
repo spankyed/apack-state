@@ -5,7 +5,7 @@
 // What is in one lane keeps its order. Between lanes the schedule chooses, and `explore` runs a scenario once for
 // every way of choosing. A failure comes back with the choices that led to it, and `replay` runs exactly those again.
 import { MessageChannel } from 'node:worker_threads'
-import type { Lane } from './state.mts'
+import type { Lane } from './port.ts'
 
 type Task = { readonly what: string; run(): void }
 

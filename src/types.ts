@@ -1,0 +1,498 @@
+// What a state's code is checked against: a state's shape and definition, what a handler is handed and may return,
+// and how one state reaches another by name. Nothing here runs a state; `kernel.ts` does.
+//
+// A state's value is where it is and the data there:  { at: 'thread.sending', data: { … } }
+
+
+export type AnyEvent = { readonly type: string }
+/**
+ * One ask. `refuses` names the ways it may be refused that an asker can act on: kinds alone
+ * (`'not-found' | 'no-access'`), or each kind with the data its refusal carries
+ * (`{ 'name-taken': { existingId: string } }`).
+ */
+export type AskShape = { args: object; answer: unknown; refuses?: string | Record<string, object>; progress?: unknown }
+export type Asks = Record<string, AskShape>
+
+/**
+ * What a state is, declared as a type: its own data, the states inside it, and the states it starts. The same shape
+ * all the way down.
+ */
+export type Shape = {
+  data?: object
+  states?: Record<string, Shape>
+  starts?: Record<string, AnyState | Each<AnyState>>
+  /** At the outermost state only: what it tells whichever state started it. */
+  reports?: AnyEvent
+  /**
+   * At the outermost state only: the events it sends itself, and nothing else may send it. They are taken by its
+   * `internal` handlers. What others may send it is the events it is declared with.
+   */
+  internal?: AnyEvent
+  /** The asks it makes when told to, by name: `each` for one made for each of many keys, `one` for one at a time. */
+  makes?: Record<string, 'each' | 'one'>
+}
+
+/** Any state, as something another can start. */
+export type AnyState = State<any, any, any, any>
+/** In a shape's `starts`: one of these for each key, where a bare state is the one. */
+export interface Each<T> { readonly _each?: T }
+
+/** What some code can reach by name: the backend's systems, and the surfaces a window runs. */
+export type Net = {
+  systems: Record<string, { events: AnyEvent; asks: Asks }>
+  surfaces: Record<string, { events: AnyEvent }>
+  /** The live reads a feature offers, by feature and then by name. */
+  views: Record<string, Record<string, { args: object; result: unknown }>>
+}
+type Nothing = { systems: {}; surfaces: {}; views: {} }
+
+/** What a view delivers: its result, and each changed result after it, or why it could not be read. */
+export type ViewUpdate<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string }
+/** What runs a view: it calls `heard` with the result and every changed result until the function it returns is called. */
+export type ViewHost = (feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void) => () => void
+
+export type AskEnd =
+  | 'failed'        // the handler threw
+  | 'abandoned'     // whatever was answering ended first
+  | 'unavailable'   // nothing takes this ask where it was sent
+  | 'disconnected'  // the link to whoever was answering closed
+/** An ask's refusals by kind, with what each carries: nothing, where only kinds were declared. */
+type Refusals<A> = A extends { refuses: infer R } ? ([R] extends [string] ? { [K in R]: {} } : R) : {}
+type Refuses<A> = keyof Refusals<A> & string
+type RefusalData<D> = [keyof D] extends [never] ? [] : {} extends D ? [data?: D] : [data: D]
+/**
+ * Why an ask was not done, as its asker gets it: a kind to branch on, a message to show, and whatever data the ask
+ * declares for that kind. Checking `kind` narrows to that data.
+ */
+export type AskFailure<A = {}> =
+  | { [K in Refuses<A>]: { readonly kind: K; readonly message: string } & Readonly<Refusals<A>[K]> }[Refuses<A>]
+  | { readonly kind: AskEnd; readonly message: string }
+export type Outcome<V, F = AskFailure> = { readonly ok: true; readonly value: V } | { readonly ok: false; readonly failure: F }
+/** @internal */
+export type AnyOutcome = Outcome<unknown, { readonly kind: string; readonly message: string }>
+/** What an ask says before it answers. */
+export type ProgressOf<A extends AskShape> = A extends { progress: infer P } ? P : never
+/** How an ask ends: its answer, or a failure of one of the kinds it may fail with. */
+export type OutcomeOf<A extends AskShape> = Outcome<A['answer'], AskFailure<A>>
+
+/** In a state's `data`, marks a field that whoever enters the state has to give. */
+export const given: unique symbol = Symbol('given')
+type Given = typeof given
+
+// ── what a state's code is checked against ──────────────────────────────────────────────────────────────────────────
+
+type DataOf<S> = S extends { data: infer D extends object } ? D : {}
+type StatesOf<S> = S extends { states: infer T extends Record<string, Shape> } ? T : {}
+type Names<S> = keyof StatesOf<S> & string
+type Sub<S, K> = K extends keyof StatesOf<S> ? StatesOf<S>[K] : never
+type StartsOf<S> = S extends { starts: infer C extends object } ? C : {}
+type StartsBelow<S, P> = P extends `${infer H}.${infer T}` ? StartsOf<Sub<S, H>> & StartsBelow<Sub<S, H>, T> : StartsOf<Sub<S, P>>
+/** Everything started where a handler sits: by its own state and by every state around it. */
+type MakesOf<S> = S extends { makes: infer M extends object } ? M : {}
+type MakesBelow<S, P> = P extends `${infer H}.${infer T}` ? MakesOf<Sub<S, H>> & MakesBelow<Sub<S, H>, T> : MakesOf<Sub<S, P>>
+/** The asks that can be made where a handler sits: its own state's and those of every state around it. */
+type MakesAt<S, P extends string> = P extends '' ? MakesOf<S> : MakesOf<S> & MakesBelow<S, P>
+/** Every ask a state makes, whichever of its states declares it: what is read from outside it. */
+type AllMakes<S> = MakesOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllMakes<StatesOf<S>[K]> }[Names<S>]>)
+/** Which of them are under way: by key, for one made for each of many, and whether, for one at a time. */
+type MakingOf<M> = { readonly [K in keyof M]: M[K] extends 'each' ? Readonly<Record<string, true>> : boolean }
+type StartsAt<S, P extends string> = P extends '' ? StartsOf<S> : StartsOf<S> & StartsBelow<S, P>
+type ReportsOf<S> = S extends { reports: infer P extends AnyEvent } ? P : never
+type InternalOf<S> = S extends { internal: infer P extends AnyEvent } ? P : never
+/** A field that says which there are: by its keys, or by its items. */
+type KeysField<D> = { [K in keyof D & string]: D[K] extends readonly string[] | Readonly<Record<string, unknown>> ? K : never }[keyof D & string]
+type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (of: infer I) => void ? I : never
+/** Everything a state starts, whichever of its states declares it: what can be reached from outside it. */
+export type AllStarts<S> = StartsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllStarts<StatesOf<S>[K]> }[Names<S>]>)
+export type HandleOf<T> = T extends Each<infer X> ? HandleOf<X> : T extends State<infer S2, infer E2, infer A2, any> ? Started<Value<S2>, E2, A2, AllStarts<S2>> : never
+type Join<H extends string, K extends string> = H extends '' ? K : `${H}.${K}`
+
+type Paths<S> = [Names<S>] extends [never] ? never : { [K in Names<S>]: K | `${K}.${Paths<StatesOf<S>[K]>}` }[Names<S>]
+type Leaves<S> = [Names<S>] extends [never] ? never : { [K in Names<S>]: [Names<StatesOf<S>[K]>] extends [never] ? K : `${K}.${Leaves<StatesOf<S>[K]>}` }[Names<S>]
+type Below<S, P> = P extends `${infer H}.${infer T}` ? DataOf<Sub<S, H>> & Below<Sub<S, H>, T> : DataOf<Sub<S, P>>
+type DataAt<S, P extends string> = P extends '' ? DataOf<S> : DataOf<S> & Below<S, P>
+
+/**
+ * A value as it is read. No field of it can be assigned, at any depth, and a field that is a list, a map or a set
+ * cannot be changed in place. A list further in than a field is typed as it was declared.
+ *
+ * Each half goes as far as it costs nothing. A read-only object is taken wherever a writable one is expected, so
+ * read-only fields at every depth ask nothing of a helper that takes the object. A read-only list is refused where a
+ * writable one is expected, which is the one thing TypeScript holds a caller to: said of a field's own list it is
+ * kept across a call, and said of every list inside an entity it would refuse the entity wherever its declared type
+ * is asked for. What holds at every depth, whatever the types say, is that the value is frozen.
+ */
+/** What has nothing inside it to write. Asked first, so that a string marked as a kind of id, which is a string and an object at once, stays the string it is. */
+type Whole = string | number | bigint | boolean | symbol | null | undefined
+export type Read<T> =
+  T extends Whole ? T
+  : T extends (...given: never[]) => unknown ? T
+  : T extends ReadonlyMap<infer Key, infer Held> ? ReadonlyMap<Key, Inside<Held>>
+  : T extends ReadonlySet<infer Item> ? ReadonlySet<Item>
+  : T extends object ? { readonly [K in keyof T]: ReadHeld<T[K]> }
+  : T
+/** What a field holds, as it is read: a list, a map or a set that cannot be changed in place, and an object whose fields cannot be assigned. */
+type ReadHeld<T> =
+  T extends Whole ? T
+  : T extends (...given: never[]) => unknown ? T
+  : T extends ReadonlyMap<infer Key, infer Held> ? ReadonlyMap<Key, Inside<Held>>
+  : T extends ReadonlySet<infer Item> ? ReadonlySet<Item>
+  : T extends object ? { readonly [K in keyof T]: Inside<T[K]> }
+  : T
+/**
+ * What is further in than a field: an object's fields cannot be assigned, at any depth, and a list, a map or a set
+ * is as it was declared. A read-only object is taken wherever a writable one is expected, so saying it costs no
+ * caller anything. A read-only list is not, so one further in is left writable in its type, and frozen.
+ */
+type Inside<T> =
+  T extends Whole ? T
+  : T extends (...given: never[]) => unknown ? T
+  : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> ? T
+  : T extends readonly unknown[] ? { [K in keyof T]: Inside<T[K]> }
+  : T extends object ? { readonly [K in keyof T]: Inside<T[K]> }
+  : T
+/** What a field may be given: its own type, or that read from somewhere it cannot be written. */
+type Givable<D> = { [K in keyof D]: D[K] | Read<D[K]> }
+
+/** A state as it is read: where it is, and the data there. */
+export type Value<S> = ([Names<S>] extends [never]
+  ? { readonly data: Read<DataOf<S>> }
+  : { [L in Leaves<S>]: { readonly at: L; readonly data: Read<DataAt<S, L>> } }[Leaves<S>])
+  // What it has been told to make and has not yet ended. The kernel keeps this, and nothing else writes it.
+  & ([keyof AllMakes<S>] extends [never] ? {} : { readonly making: MakingOf<AllMakes<S>> })
+
+/** Every state a path passes through: `thread` and `thread.idle` for `thread.idle`. */
+type Through<A> = A extends `${infer H}.${infer T}` ? H | `${H}.${Through<T>}` : A
+
+/**
+ * Whether a value is at a state or anywhere inside it. It narrows the value to the places under that state, so the
+ * data that exists there can be read. The path is the structure itself: nothing is declared, and nothing can go stale.
+ */
+export function within<V extends { readonly at: string }, P extends Through<V['at']>>(value: V, state: P): value is Extract<V, { readonly at: P | `${P}.${string}` }> {
+  return value.at === state || value.at.startsWith(`${state}.`)
+}
+
+type Gained<S, H, T> = T extends `${infer TH}.${infer TT}`
+  ? (H extends `${TH}.${infer HT}` ? Gained<Sub<S, TH>, HT, TT> : H extends TH ? Below<Sub<S, TH>, TT> : Below<S, T>)
+  : DataOf<Sub<S, T>>
+
+/**
+ * A change to data: the fields to replace, or a function that edits a draft of the data in place. The draft is the way
+ * to change something nested: `(d) => { d.titles[id] = title }`. Nothing is mutated; a new value is made from the edits.
+ * A move that has nothing to give may edit a draft too: the draft is the data where the handler sits, edited before
+ * the move. A move that enters a state needing data says it as fields, since those fields are what it gives.
+ */
+type Change<D> = Partial<Givable<D>> | ((draft: D) => void)
+
+/** What happens next, in the shape of the value: where to be, and what data changes. */
+type Next<R, H extends string> =
+  | { at?: never; data: Change<DataAt<R, H>> }
+  | { [T in Paths<R>]: {} extends Gained<R, H, T> ? { at: T; data?: Partial<Givable<DataAt<R, T>>> | ((draft: DataAt<R, H>) => void) } : { at: T; data: Givable<Gained<R, H, T>> & Partial<Givable<DataAt<R, T>>> } }[Paths<R>]
+
+/** A state this one started. Only its starter holds it: it can be told, asked and read, never written. */
+export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> { readonly ref: string; readonly _?: { v: V; e: (event: E) => void; a: A; c: C } }
+/**
+ * A handle to a state that another started. It is a name, and the state it names runs only while its starter is the
+ * case and its key is there: reading it gives nothing while it is not running.
+ */
+export interface Started<V, E extends AnyEvent, A extends Asks, C = {}> extends Handle<V, E, A, C> { readonly _started: true }
+
+type SystemsOf<N extends Net> = keyof N['systems'] & string
+type AskOf<N extends Net, K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks']> = N['systems'][K]['asks'][Q]
+
+export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
+  /** The data that exists here: this state's own and that of every state around it. */
+  readonly data: Read<DataAt<R, H>>
+  /** The whole value, as it is now. */
+  readonly snapshot: Value<R>
+  /** Aborted when this state stops being the case. For an ask, also when whoever asked has gone. */
+  readonly signal: AbortSignal
+
+  /**
+   * Tells this running state an event: one only it sends itself, which its `internal` handlers take, or one that
+   * others may send it too.
+   */
+  send(event: Read<E | InternalOf<R>>): void
+
+  /** Tells a backend system, or a state this one started, an event. Nobody waits. */
+  tell<K extends SystemsOf<N>>(to: K, event: Read<N['systems'][K]['events']>): void
+  tell<E2 extends AnyEvent>(to: Handle<unknown, E2, Asks>, event: Read<E2>): void
+  /**
+   * From a window: tells another surface in this window an event that surface says it takes. A surface and a
+   * backend system can be called the same, so a surface is named as one. From the backend a surface is broadcast to.
+   */
+  tell<K extends keyof N['surfaces'] & string>(to: { readonly surface: K }, event: Read<N['surfaces'][K]['events']>): void
+
+  /**
+   * Asks a backend system, or a state this one started. `heard` is called with the progress made since it was last
+   * called, as a list: however fast updates are produced, they arrive at most once a frame, so that a stream of
+   * ten thousand is a few dozen changes and not ten thousand.
+   */
+  ask<K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks'] & string>(
+    of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void,
+  ): Promise<OutcomeOf<AskOf<N, K, Q>>>
+  ask<A2 extends Asks, Q extends keyof A2 & string>(
+    of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void,
+  ): Promise<OutcomeOf<A2[Q]>>
+
+  /** From the backend: tells that surface, in every window, an event. */
+  broadcast<K extends keyof N['surfaces'] & string>(to: K, event: Read<N['surfaces'][K]['events']>): void
+
+  /**
+   * Tells the state that started this one something. It arrives there as an event, with `from` saying which state
+   * told it: its key, where it is one of many. Only its starter hears, as only whoever asked hears an ask's progress.
+   */
+  report(event: Read<ReportsOf<R>>): void
+
+  /**
+   * Has an ask this state declares under `makes` made, once. It is made when the step commits, with the data as the
+   * handler left it. One that is already under way, or under way for that key, is the same one and is not made
+   * twice. How it ends goes to the handler it was declared with.
+   */
+  make<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void
+  /** Gives one up: the one answering is told, and how it ended is not heard. */
+  drop<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void
+
+  /** A state this one started, as it is now. */
+  read<V2>(of: Handle<V2, never, Asks>): V2
+  /**
+   * A state this one starts, by the name it is declared under, and by key where there is one for each. A handle is
+   * a name: asking through one whose state is not running is answered `unavailable`.
+   */
+  child<K extends keyof StartsAt<R, H> & string>(name: K, ...key: StartsAt<R, H>[K] extends Each<any> ? [key: string] : []): HandleOf<StartsAt<R, H>[K]>
+  /** Released, last first, when this state stops being the case. */
+  use(release: () => void): void
+}
+
+/**
+ * What an event's handler is given: everything but `ask`. A handler is synchronous and cannot await an answer, and
+ * an ask it only started would end, if its state were left, with nothing around it to take that. Asking is for `run`
+ * and for an ask's handler, which the kernel is around.
+ */
+export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask'>
+
+export interface AskScope<R, H extends string, E extends AnyEvent, N extends Net, A extends AskShape> extends Scope<R, H, E, N> {
+  /**
+   * `throw refuse(kind, message)` answers with one of the refusals the ask declares. A kind that carries data takes
+   * it as a third argument: required when the declaration has required fields, and not accepted when it has none.
+   */
+  refuse<K extends Refuses<A>>(kind: K, message: string, ...data: RefusalData<Refusals<A>[K]>): Error
+  /** Tells whoever asked something before the answer. Only they hear it. */
+  progress(update: Read<ProgressOf<A>>): void
+}
+
+/** Events: synchronous. What a handler returns is what happens next. */
+type On<R, H extends string, Taken extends AnyEvent, E extends AnyEvent, N extends Net> =
+  { [T in Taken['type']]?: (event: Extract<Taken, { type: T }>, scope: EventScope<R, H, E, N>) => Next<R, H> | void }
+/** What marks an answer that also changes something, for the kernel to tell it from an answer alone. */
+export const ANSWERED = Symbol('answered')
+/** An answer together with what happens next: what an ask's handler returns when answering also changes something. */
+export interface Answered<V, X> { readonly [ANSWERED]: true; readonly answer: V; readonly next: X }
+/**
+ * Answers, and says what happens next, as one thing. The change is made in the step the answer leaves in, so whoever
+ * asked never hears of a change that was not made: if the change is refused, the ask is answered `failed`.
+ */
+export function answered<V, X>(answer: V, next: X): Answered<V, X> { return { [ANSWERED]: true, answer, next } }
+
+/**
+ * What can happen next after an `await`. Data is changed by editing a draft, never by giving fields: fields would be
+ * worked out from data as it was before the wait, and would overwrite what changed meanwhile. A draft is edited when
+ * the change is made, against the data as it is then. A move still gives the fields the states it enters need.
+ *
+ * It is also where to check what has to hold when the change is made. What was checked before the wait may not be
+ * so after it, and an edit may `throw refuse(...)`: the ask is then answered with that refusal and nothing changes.
+ */
+type NextAfterAwait<R, H extends string> =
+  | { at?: never; data: (draft: DataAt<R, H>) => void }
+  | { [T in Paths<R>]: {} extends Gained<R, H, T> ? { at: T; data?: (draft: DataAt<R, H>) => void } : { at: T; data: Gained<R, H, T> } }[Paths<R>]
+
+/**
+ * Asks: may be async. What a handler returns is the answer. To change something as well it returns
+ * `answered(answer, next)`, where `next` is what any handler returns: where to be, and what data changes.
+ */
+type Answering<R, H extends string, E extends AnyEvent, A extends Asks, N extends Net> =
+  { [Q in keyof A]?: (args: A[Q]['args'], scope: AskScope<R, H, E, N, A[Q]>) =>
+    | Read<A[Q]['answer']> | Answered<Read<A[Q]['answer']>, Next<R, H>>
+    | Promise<Read<A[Q]['answer']> | Answered<Read<A[Q]['answer']>, NextAfterAwait<R, H>>> }
+
+/**
+ * Where a state goes when its work fails: what `run` threw, and what happens next. It is an event's handler in every
+ * other way: synchronous, and without `ask`. It is never given a `Left`, which is the state having been left and not
+ * its work failing, so it is where to handle a failure without a `catch` that could take one.
+ */
+type Failed<R, H extends string, E extends AnyEvent, N extends Net> = (error: unknown, scope: EventScope<R, H, E, N>) => Next<R, H> | void
+
+/**
+ * What a state does while it is the case. Work that awaits can fail long after the state was entered, with nobody
+ * around it, so a `run` that returns a promise has to say where the state goes then. A `run` that only sets things up
+ * may leave `failed` out: what it throws is reported, and the state stays as it was entered.
+ */
+type Work<R, H extends string, E extends AnyEvent, N extends Net> =
+  | { run?: (scope: Scope<R, H, E, N>) => Next<R, H> | void; failed?: Failed<R, H, E, N> }
+  | { run: (scope: Scope<R, H, E, N>) => Promise<Next<R, H> | void>; failed: Failed<R, H, E, N> }
+
+/** The definition of a state. The same keys at every depth, the outermost included. */
+export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N extends Net> = {
+  /** The events it takes while it is the case. An event goes to the innermost state that takes it. */
+  on?: On<R, H, E, E, N>
+  /**
+   * The events it sends itself, while it is the case. Nothing outside it reaches these: what is told, broadcast or
+   * sent to it from outside is looked for in `on` alone.
+   */
+  internal?: On<R, H, InternalOf<R>, E, N>
+  /** The asks it answers while it is the case. An ask goes to the innermost state that answers it. */
+  asks?: Answering<R, H, E, A, N>
+} & Work<R, H, E, N> & ([keyof DataOf<S>] extends [never] ? { data?: never } : {
+  /** Its own data: each field's starting value, or `given` for one whoever enters it has to give. */
+  data: { [K in keyof DataOf<S>]-?: DataOf<S>[K] | Given }
+}) & ([keyof StartsOf<S>] extends [never] ? { starts?: never } : {
+  /**
+   * The states it starts. Each runs for exactly as long as this one is the case and, where there is one for each
+   * key, for as long as its key is among the keys the data gives. Nothing starts or stops one by hand: change the
+   * data, and what runs follows in the same step.
+   */
+  starts: (start: Start<DataAt<R, H>>) => { [K in keyof StartsOf<S>]: StartsOf<S>[K] extends Each<infer X> ? EachOf<DataAt<R, H>, X>
+    : NeedsGiven<StartsOf<S>[K]> extends true ? OneOf<DataAt<R, H>, StartsOf<S>[K]> : StartsOf<S>[K] | OneOf<DataAt<R, H>, StartsOf<S>[K]> }
+}) & {
+  /**
+   * The views it follows while it is the case. What each is asked for comes from the data, and what it delivers goes
+   * to a handler, which returns what happens next as any handler does.
+   */
+  follows?: (follow: Follow<R, H, E, N>) => Record<string, Followed<R, H, E, N>>
+  /**
+   * The asks it is waiting on while it is the case: a read, asked again when a field it names changes, or one for
+   * each key of a field, which is how several writes are under way at once. How each ended goes to a handler.
+   */
+  awaits?: (asking: Asking<R, H, E, N>) => Record<string, Awaiting<R, H, E, N>>
+} & ([keyof MakesOf<S>] extends [never] ? { makes?: never } : {
+  /**
+   * The asks it makes when a handler says `make`. A read is awaited because the data says so, for as long as it
+   * does. A write is not like that: it is made once, by saying so, and nothing in the data stands for it.
+   */
+  makes: (asking: { one: MakeOne<R, H, E, N>; each: MakeEach<R, H, E, N> }) => { [K in keyof MakesOf<S>]: MakesOf<S>[K] extends 'each' ? MadeEach<R, H, E, N> : MadeOne<R, H, E, N> }
+}) & ([Names<S>] extends [never] ? { start?: never; states?: never } : {
+  /** The state inside it that it is at when whoever enters it does not say. */
+  start: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
+  /** Every state inside it. */
+  states: { [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N> }
+})
+
+/** A state, as something that can be started. `G` names the fields of its own data that whoever starts it has to give. */
+export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never> { readonly def: unknown; readonly _?: { s: S; e: E; a: A; g: G } }
+/** The fields a definition marks `given` in its own data. */
+type GivenIn<D> = D extends { data: infer X } ? { [K in keyof X]: X[K] extends Given ? K : never }[keyof X] & string : never
+
+/** What a started state has to be given: the fields of its own data that it marks `given`. */
+type RootGiven<X> = X extends State<infer S2, any, any, infer G> ? Givable<Pick<DataOf<S2>, G & keyof DataOf<S2>>> : never
+type NeedsGiven<X> = X extends State<any, any, any, infer G> ? ([G] extends [never] ? false : true) : false
+
+/** One state for each key of a field, each given its data from its key and the starter's data. */
+export interface EachOf<D, X> { readonly each: KeysField<D>; readonly state: X; readonly given: (key: string, data: Read<D>) => RootGiven<X> }
+/** One state, given its data from the starter's data. */
+export interface OneOf<D, X> { readonly state: X; readonly given: (data: Read<D>) => RootGiven<X> }
+
+// ── one grammar for what a state starts, follows and awaits ─────────────────────────────────────────────────────────
+//
+//   starts:  (start)  => ({ thread: start(thread, { each: 'titles', given: (threadId) => ({ threadId }) }) }),
+//   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), heard }) }),
+//   awaits:  (asking) => ({ diff:   asking('code', 'GET_GIT_DIFF', { from: ['selected'], args: ({ selected }) => selected, ended }) }),
+//
+// Each says which fields of the data it depends on: `each`, a field with one of them for each of its keys, or
+// `from`, the fields a single one reads. The kernel looks again only when one of those fields changes. There is
+// nothing to work out and nothing to run to find out, so nothing can throw, and the graph can say what depends on
+// what. Each is written as a function of the helper it is made with, which is what gives a handler inside it the
+// types of the state it is declared in.
+
+/**
+ * Makes a state to start. With `each`, one for each key of that field, or each item where the field is a list: a
+ * key that appears starts its state, one that goes stops it, and one that stays leaves it as it is. `given` says
+ * what the state is given as it starts, once.
+ */
+export interface Start<D> {
+  <X extends AnyState>(state: X, options: { each: KeysField<D>; given: (key: string, data: Read<D>) => RootGiven<X> }): EachOf<D, X>
+  <X extends AnyState>(state: X, options: { given: (data: Read<D>) => RootGiven<X> }): OneOf<D, X>
+}
+
+/** What `args` is given: the key, for one of many, or the fields it named. */
+type Given_<R, H extends string, K extends string, Many> = [Many] extends [string] ? string : Read<Pick<DataAt<R, H>, K & keyof DataAt<R, H>>>
+/** What a handler of one of many is given beside its scope: which one it is. */
+type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
+
+/** A view a state follows, as `follow` makes it. */
+export interface Followed<R, H extends string, E extends AnyEvent, N extends Net> {
+  readonly feature: string; readonly view: string; readonly each?: string; readonly from?: readonly string[]
+  readonly args: Function; readonly heard: Function
+  readonly _?: { r: R; h: H; e: E; n: N }
+}
+/**
+ * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
+ * one of them changes. With `each`, one is followed for each key of that field. What it delivers goes to `heard`,
+ * which returns what happens next as any handler does.
+ */
+export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
+  F extends keyof N['views'] & string, V extends keyof N['views'][F] & string,
+  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
+>(feature: F, view: V, options: {
+  /** The fields a single one reads. It is followed again when one of them changes. */
+  from?: readonly K[]
+  /** A field with one to follow for each of its keys, in place of `from`. */
+  each?: Many
+  args: (given: Given_<R, H, K, Many>) => N['views'][F][V]['args']
+  heard: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
+}) => Followed<R, H, E, N>
+
+/** An ask to make once, one at a time, as `one` makes it. */
+export interface MadeOne<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args: Function; readonly ended: Function; readonly heard?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
+/** An ask to make once for each of many keys, as `each` makes it. */
+export interface MadeEach<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args: Function; readonly ended: Function; readonly heard?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
+/** Makes an ask to make one at a time. What it is asked for is worked out from the data when it is made. */
+export type MakeOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
+  args: (data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args']
+  ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
+  heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
+}) => MadeOne<R, H, E, N>
+/** Makes an ask to make for each of many keys. What each is asked for is worked out from its key when it is made. */
+export type MakeEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
+  args: (key: string, data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args']
+  ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
+  heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
+}) => MadeEach<R, H, E, N>
+
+/** An ask a state awaits, as `asking` makes it. */
+export interface Awaiting<R, H extends string, E extends AnyEvent, N extends Net> {
+  readonly of: string; readonly ask: string; readonly each?: string; readonly from?: readonly string[]
+  readonly args: Function; readonly ended: Function; readonly heard?: Function
+  readonly _?: { r: R; h: H; e: E; n: N }
+}
+/**
+ * Makes an ask to wait on.
+ *
+ * It is a read: it is there because the data says so, for as long as it does. With `from`, it is asked for what
+ * `args` makes of those fields, and asked again when one of them changes, the one before given up. Where `args`
+ * gives nothing, nothing is asked. To have it asked again with nothing else changed, name a field that only counts,
+ * and change it. With `each` there is one for each key of that field: a key that appears asks, and one that goes
+ * gives its ask up.
+ *
+ * An ask to make once, a write, is not awaited: it is declared under `makes` and made with `make`.
+ *
+ * How it ended goes to `ended`, and what it says before that to `heard`, as a list at most once a frame. Each
+ * returns what happens next as any handler does.
+ */
+export type Asking<R, H extends string, E extends AnyEvent, N extends Net> = <
+  S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string,
+  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
+>(of: S, ask: Q, options: {
+  /** The fields a single one reads. It is asked again when one of them changes. */
+  from?: readonly K[]
+  /** A field with one ask for each of its keys, in place of `from`. */
+  each?: Many
+  args: (given: Given_<R, H, K, Many>) => AskOf<N, S, Q>['args'] | ([Many] extends [string] ? never : null | undefined | false)
+  ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
+  heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
+}) => Awaiting<R, H, E, N>
+
+/** `state`, for code that can reach `N` by name. In the app this is what a pack's generated facade would export. */
+export function reaching<N extends Net = Nothing>() {
+  return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
+    <D extends Def<S, S, '', E, A, N>>(def: D): State<S, E, A, GivenIn<D>> => ({ def })
+}

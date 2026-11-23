@@ -10,8 +10,9 @@
 // `run` makes the checks the cases of a spec file, each with its own name, so that one can be run alone
 // (`npx vitest run -t "<name>"`) and a failing one is named.
 import { beforeAll, it } from 'vitest'
-import { system as kernel, type System } from '../src/state.mts'
-import type { Explored } from '../src/schedule.mts'
+import { type System } from '../src/index.ts'
+import { system as kernel } from '../src/kernel.ts'
+import type { Explored } from '../src/schedule.ts'
 
 const made: System[] = []
 /** More steps than this in one check is a kernel that does not come to rest. */

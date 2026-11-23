@@ -10,10 +10,10 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { compile } from '@vue/compiler-dom'
 import * as runtime from '@vue/runtime-core'
 import { createRenderer, defineComponent, h, nextTick, ref, type Component } from '@vue/runtime-core'
-import { mirrors } from '../src/mirror.mts'
+import { mirrors } from '../src/mirror.ts'
 import { run, system } from './checks.mts'
-import { given, reaching, type Each } from '../src/state.mts'
-import { vueBinding } from '../src/vue.mts'
+import { given, reaching, type Each } from '../src/index.ts'
+import { vueBinding } from '../src/vue.ts'
 
 // ── what is rendered into ───────────────────────────────────────────────────────────────────────────────────────────
 

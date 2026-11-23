@@ -9,8 +9,8 @@
 //   npx vitest run rows-property
 import { deepStrictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { sample, type Schedule } from '../src/schedule.mts'
-import { answered, reaching } from '../src/state.mts'
+import { sample, type Schedule } from '../src/schedule.ts'
+import { answered, reaching } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
 

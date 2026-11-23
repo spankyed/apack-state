@@ -3,7 +3,7 @@
 //   npx vitest run draft
 import { deepStrictEqual, notStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run } from './checks.mts'
-import { produce } from '../src/draft.mts'
+import { produce } from '../src/draft.ts'
 
 const freeze = <T,>(value: T): T => {
   if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) { Object.freeze(value); for (const inner of Object.values(value)) freeze(inner) }

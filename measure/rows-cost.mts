@@ -6,7 +6,7 @@
 //
 //   npx tsx measure/rows-cost.mts
 import { cpus } from 'node:os'
-import { reaching, system, type ViewHost } from '../src/state.mts'
+import { reaching, system, type ViewHost } from '../src/index.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import type { Rows } from '../checks/store.mts'
 

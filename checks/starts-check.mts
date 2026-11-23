@@ -3,9 +3,9 @@
 //
 //   npx vitest run starts
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { explore, type Schedule } from '../src/schedule.mts'
+import { explore, type Schedule } from '../src/schedule.ts'
 import { rest, run, system } from './checks.mts'
-import { answered, given, reaching, type Each } from '../src/state.mts'
+import { answered, given, reaching, type Each } from '../src/index.ts'
 
 const state = reaching()
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
