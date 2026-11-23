@@ -300,7 +300,7 @@
     "why": "What is told is a name, a handle or a surface, never null (the types say so), so the null test never decides"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
+    "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
     "original": "!signal?.aborted",
     "why": "When the asker's signal is aborted the ask has already been rejected with Left (the abort listener runs first), so resolving it after does nothing"
   },

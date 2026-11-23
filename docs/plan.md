@@ -851,7 +851,7 @@ reporting its own count:
 | `checks/draft-check.mts` | 19 | The draft a nested change is edited in |
 | `checks/answer-check.mts` | 13 | An answer and the change it comes with |
 | `checks/failure-check.mts` | 13 | What a handler or a state's work throws |
-| `checks/unsaid-check.mts` | 19 | What a handler said, when it was not made |
+| `checks/unsaid-check.mts` | 27 | What a handler said, when it was not made |
 | `checks/leaving-check.mts` | 8 | An ask whose asker has gone |
 | `checks/interleaving-check.mts` | 8 | Scenarios under every ordering |
 | `checks/progress-check.mts` | 6 | Progress gathered, and its place among other messages |
@@ -1045,7 +1045,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   a state that tells itself without end is cut short after ten thousand things, reported, and takes events
   afterwards; and an async `run` without `failed` does not compile. Before this a `run` or a handler that threw at once escaped the step
   and left the kernel refusing everything after it.
-- **What was not made has said nothing** (`checks/unsaid-check.mts`, 19 checks): a handler that throws, or whose
+- **What was not made has said nothing** (`checks/unsaid-check.mts`, 27 checks): a handler that throws, or whose
   change cannot be made, has told no state, sent itself nothing and broadcast to no window, and what was said before
   and after it keeps its order; an ask whose handler throws or refuses, or whose change throws, refuses or cannot be
   made, has also reported no progress and asked nothing, the ask it made is ended so that nothing waits on it, and
