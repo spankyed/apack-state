@@ -26,12 +26,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The kernel in four, the last to its end however long it grows, and every other file of src/ in one: a file
+        # added to src/ is mutated without being named here.
         part:
           - 'src/kernel.ts:1-275'
           - 'src/kernel.ts:276-550'
           - 'src/kernel.ts:551-825'
-          - 'src/kernel.ts:826-1093'
-          - 'src/draft.ts,src/mirror.ts,src/schedule.ts,src/types.ts,src/vue.ts,src/window-frame.ts,src/port.ts'
+          - 'src/kernel.ts:826-99999'
+          - 'src/**/*.ts,!src/kernel.ts'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
