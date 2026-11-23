@@ -211,4 +211,5 @@ if (process.argv.includes('--write') || process.argv.includes('--check')) {
 } else {
   for (const file of files) process.stdout.write(graphsOf(file))
 }
-function readFileOr(at: string): string | undefined { try { return readFileSync(at, 'utf8') } catch { return undefined } }
+/** A recorded file as written, whatever line endings a checkout gave it. */
+function readFileOr(at: string): string | undefined { try { return readFileSync(at, 'utf8').replaceAll('\r\n', '\n') } catch { return undefined } }
