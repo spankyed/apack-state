@@ -57,5 +57,9 @@ Each `master` commit whose CI passed is packed and published as the prerelease `
 `npm run workflows:check` fails a workflow or script that could. `npm run package:smoke` installs the packed
 package into a project of its own and imports each entry, as CI does on every push.
 
-elmdb's packages are installed from a release's tarballs, named by commit in `package.json`. Moving them is
-editing both URLs to another release and `npm install`.
+The packages this repository takes from its siblings (elmdb's now, apack-link's later) are installed from the
+tarballs each sibling's CI attaches to a release of a commit, named by URL in `package.json`. `scripts/deps.mjs`
+holds the table of them and writes the URLs: `npm run deps:pin -- elmdb <commit>` moves to another release,
+`npm run deps:local -- elmdb` points at a built checkout beside this one (never committed), and
+`npm run deps:released` undoes that. No URL is edited by hand; `npm run deps:check`, which CI runs, fails one that
+is not as `deps:pin` writes it.

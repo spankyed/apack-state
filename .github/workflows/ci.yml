@@ -30,6 +30,8 @@ jobs:
       - run: npm ci
       # Nothing here publishes to npm or holds a token for it
       - run: npm run workflows:check
+      # Each sibling's packages are named by a release of it, all at one commit, as deps:pin writes them
+      - run: npm run deps:check
       - run: npm run typecheck
       # The oldest TypeScript the package and its type tests are held to
       - run: npm run typecheck:floor
