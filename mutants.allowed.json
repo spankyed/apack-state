@@ -773,5 +773,20 @@
     "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }), { kind: 'unfollow', to: feature, name: view }) | true",
     "original": "linked.gone.delete(ended)",
     "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | safely('what leaves at the commit', leave.lost) | \"\"",
+    "original": "'what leaves at the commit'",
+    "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | safely('what leaves as it stops', leave) | \"\"",
+    "original": "'what leaves as it stops'",
+    "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (item.kind === 'answer' && abandoned.has(item.question)) return MADE | true",
+    "original": "item.kind === 'answer'",
+    "why": "Only an ask's question is ever abandoned, and an answer is the only thing that comes back to one: an ask that arrives is a question nobody has answered, so the abandoned check finds nothing for anything but an answer"
   }
 ]

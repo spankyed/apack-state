@@ -183,6 +183,8 @@ await run([
     ok(left(logs.window).some((sent) => sent.kind === 'ask' && sent.to === 'notes' && sent.name === 'WRITE'), JSON.stringify(left(logs.window)))
     const answered = logs.backend.find((step) => step.handled[0]?.kind === 'ask')!
     deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE' })
+    // Taken once, and logged once.
+    strictEqual(answered.handled.filter((one) => one.kind === 'ask').length, 1)
     deepStrictEqual(answered.left.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
     deepStrictEqual(answered.left.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
     deepStrictEqual(answered.left.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
@@ -207,6 +209,22 @@ await run([
     ok(lost, JSON.stringify(logs.backend.map((step) => step.ended)))
     // Whoever asked in it was told it failed, and the log says so.
     has(lost.left, { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'failed' })
+  }],
+  ['a step whose rows could not be kept logs what its states sent as they ended: an ask one was answering, abandoned', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', transact: store.transact, log: (step) => { logs.push(step) }, trace: () => {} })
+    backend.start('worker', worker(() => new Promise(() => {})))
+    const made = backend.start('jobs', jobs)
+    const writer = backend.start('writer', kinds<{}, { type: 'WRITE' }>()({ on: { WRITE: () => { store.put('thread', 'w', { topic: 'w' }) } } }))
+    backend.send(made, { type: 'ADD', id: 'never' })
+    await turns()
+    store.failNext('the disk is full')
+    backend.send(writer, { type: 'WRITE' })
+    await turns()
+    const lost = logs.find((step) => step.ended === 'lost')
+    ok(lost, JSON.stringify(logs.map((step) => step.ended)))
+    has(lost.left, { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
   ['what is sent to a state that is not running is logged once, as it is taken', async () => {
     const logs: StepLog[] = []
