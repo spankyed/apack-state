@@ -8,7 +8,7 @@ import { system as unlimited } from '../src/index.ts'
 import { given, reaching } from '../src/index.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
-type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
+type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: { threads: { detail: { args: { id: string }; result: string } } } }
 export const state = reaching<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
@@ -89,6 +89,41 @@ const wired = () => {
   const handle = window.start('panel', panel(released))
   const value = () => window.read(handle)
   return { released, traced, backendTraced, askBreak: () => backend.ask(theSlow, 'BREAK', {}), send: (event: PanelEvent): void => window.send(handle, event), at: (): string => value().at, problem: (): string | null => value().data.problem, count: (): number => value().data.count, stop: (): void => { window.stop(); backend.stop() } }
+}
+
+// ── a state whose declarations throw until it has an id ─────────────────────────────────────────────────────────────
+
+const helper = state<{ data: { title: string } }, never>()({ data: { title: given } })
+type Odd = {
+  data: { count: number; id: string | null; waited: string | null }
+  starts: { helper: typeof helper }
+  makes: { save: 'one' }
+}
+type OddEvent = { type: 'THROWS_A_STRING' } | { type: 'SET'; id: string } | { type: 'SAVE' }
+type OddAsks = { THROWS: { args: {}; answer: string } }
+const noId = (id: string | null): string => { if (id === null) throw new Error('no id yet'); return id }
+const oddState = state<Odd, OddEvent, OddAsks>()({
+  data: { count: 0, id: null, waited: null },
+  starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
+  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), heard: () => {} }) }),
+  awaits: (asking) => ({ wait: asking('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), ended: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
+  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), ended: () => {} }) }),
+  on: {
+    THROWS_A_STRING: () => ({ data: (d) => { d.count++; throw 'not an error' } }),
+    SET: ({ id }) => ({ data: { id } }),
+    SAVE: (_, { make }) => { make('save') },
+  },
+  asks: { THROWS: () => { throw 'not an error' } },
+})
+const brokenAtOnce = state<{ data: { n: number } }, never>()({ data: { n: 0 }, run() { throw new Error('could not start') } })
+
+const odd = () => {
+  const defects: string[] = []
+  const followed: object[] = []
+  const sys = system({ side: 'backend', views: (_, __, args) => { followed.push(args); return () => {} }, trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+  sys.start('slow', slow)
+  const handle = sys.start('odd', oddState)
+  return { sys, handle, defects, followed, send: (event: OddEvent): void => sys.send(handle, event), now: () => sys.read(handle) }
 }
 
 const checks: Array<[string, () => Promise<void>]> = [
@@ -200,6 +235,44 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.released, ['last', 'first'])
     ok(it.traced.some((line) => line.includes('the release broke')))
     it.stop()
+  }],
+
+  // ── what code a state declares throws, and what is thrown that is not an Error ──────────────────────────────────
+
+  ['an edit that throws what is not an Error is reported with what it threw, and changes nothing', async () => {
+    const it = odd()
+    const before = it.defects.length
+    it.send({ type: 'THROWS_A_STRING' })
+    deepStrictEqual([it.now().data.count, it.defects.slice(before)], [0, ['DEFECT: odd: not an error']])
+  }],
+  ['an ask whose handler throws what is not an Error fails, saying what it threw', async () => {
+    const it = odd()
+    deepStrictEqual(await it.sys.ask(it.handle, 'THROWS', {}), { ok: false, failure: { kind: 'failed', message: 'not an error' } })
+  }],
+  ['work that fails in a state that says nowhere to go is reported, naming the state, and the state stays as it is', async () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const handle = sys.start('broken', brokenAtOnce)
+    deepStrictEqual(sys.read(handle), { data: { n: 0 } })
+    ok(defects.some((line) => line.startsWith('DEFECT: broken says nowhere to go')), defects.join(' / '))
+  }],
+  ['what a state cannot say to give a state it starts is reported, and that one is not started', async () => {
+    const it = odd()
+    ok(it.defects.some((line) => line.includes('could not say what to give') && line.includes('no title yet')), it.defects.join(' / '))
+    strictEqual('odd/helper' in it.sys.snapshot(), false)
+  }],
+  ['what a state cannot say to ask a view, a read or a make for is reported, and nothing is asked until it can', async () => {
+    const it = odd()
+    deepStrictEqual(it.followed, [])
+    ok(it.defects.some((line) => line.includes('could not say what to ask detail for: no id yet')), it.defects.join(' / '))
+    ok(it.defects.some((line) => line.includes('could not say what to ask wait for: no id yet')), it.defects.join(' / '))
+    it.send({ type: 'SAVE' })
+    ok(it.defects.some((line) => line.includes('could not say what to ask save for: no id yet')), it.defects.join(' / '))
+    strictEqual(it.now().making.save, false)
+    it.send({ type: 'SET', id: 'a' })
+    deepStrictEqual(it.followed, [{ id: 'a' }])
+    await rest()
+    strictEqual(it.now().data.waited, 'done')
   }],
 ]
 
