@@ -654,7 +654,11 @@ one inside it, and a repository's command, which is a `transact` of its own, joi
    out before its change is made, so an answer that names a row its change creates takes the id first (`newId`).
    A handler could still open a `transact` of its own after an `await` and write there. That is refused by a pack
    rule and not by handing a handler its writer: the rule keeps the 184 calls as they are, where a writer passed in
-   would change every one.
+   would change every one. The rule has no allow (decided 2026-11-23): such a unit is tied to no step, so it is kept
+   when the state was left during the wait, kept when what follows it throws, and nothing is held for it. What it
+   was wanted for has a form inside the rule: a write after a wait is returned, and a job that writes in batches
+   tells its own state an event for each. The rule is about a state's handlers and its own work; an action is
+   neither ([What it does not cover](#what-it-does-not-cover)).
 5. **What a handler wrote before it waited is kept.** An ask that writes a row, waits, and is then refused has kept
    the row: the write was in the step that took the ask. A row that should not outlive a refusal is written in the
    change that comes with the answer.
@@ -710,10 +714,28 @@ frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-bui
   the state owns, and write the row that says it happened in the step its result arrives in. A crash between the
   two leaves the outside thing done and unrecorded, so what is recorded has to be something a later look can find
   again: the commit by its hash, the file by its path.
-- **The run history**, which is a second database with its own engine. A run node is written beside a step.
-- **A flow action.** An action is not a state: it is work the brain runs, outside any step. Its 31 writes are each
-  a command, which is a unit of its own, and several that belong together go in one `transact`, as now. Whether an
-  action's result should carry its writes back to the brain's step is settled when the brain is ported.
+- **The run history**, which is a second database with its own engine, and by its contract a log that a unit of
+  the app's data never undoes. One unit cannot cover both, so what is held is the order: a run node is recorded
+  once the step that started it is kept. The brain tells the run history, and what a step tells leaves when the
+  step is kept, so a handler that is undone has recorded nothing. The brain makes a run node's id itself, where the
+  run history makes it today, and does not read back in a step what that step recorded. Read from apack at
+  `eddd825c24`, 2026-11-23: a run node is started inside the handler that spawns it
+  (`createStepRunNode`, `packages/default-setup/src/features/brain/be/step-system.ts`), and one left `active` by a
+  handler that threw is found only when the brain is next killed or restarted.
+- **A flow action.** An action is not a state: it is work a step's state runs, outside any step of the kernel's. Its
+  31 writes are each a command, which is a unit of its own, and several that belong together go in one `transact`,
+  as now. An action's writes are not carried back to the brain's step (decided 2026-11-23): an action runs for as
+  long as a model takes, reads what it wrote, and may write as it goes. So an action is not whole: a step killed or
+  failed leaves what its action had written, and the step records only how it ended. Seven action functions write
+  after an `await`, which is what an action is for, and the pack rule above is not about them. The hold needs
+  nothing more for it: an action's rows are kept before its step ends, so a window told the step ended has been
+  shown them.
+- **What a step type's handler is handed.** A step's handler is given an actor and sends it `COMPLETE` or `ERROR`,
+  and reaches another flow through `getFlowActor` (`StepRuntimeFacet`, apack's `packages/apack-sdk/src/steps/types.ts`).
+  That is a pack contract naming an actor. Here a handler returns its result, throws to fail, and is handed the
+  signal that aborts when its step is left, which an action's sandbox is passed in turn; a step that never
+  completes waits until it is left; and killing a flow is something the brain is asked. All fourteen step types
+  move with the brain.
 - **Durable is later than committed.** A commit is on disk within a second (group commit). An answer released after
   a commit and before that can outlive its row through a power cut. A handler whose answer must not says
   `durable: true`, as `transact` takes today, and its step waits.
@@ -1279,7 +1301,11 @@ projects. Each would loosen the fit to this app.
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.
   - *Restart.* Nothing here kills a system between something done outside and the row that records it. That is
     checked against the first ported feature that does both, since what is to be found again differs by feature.
-  - *A flow action's writes and the brain's step*, settled with the brain.
+  - *The brain*, whose decisions are under [What it does not cover](#what-it-does-not-cover): the run history told
+    and not written, a step type's handler returning its result, and an action keeping units of its own. Two
+    things are not checked: whether a bare write at the top of a state's own work is inside a unit (the create and
+    update steps make one), and a flow's events, which are made from its trigger nodes as it starts and need one
+    declared event that says which was heard.
 - **Delayed transitions and history states** are absent. The app uses one delayed transition and no history states.
   A delay, when there is one, goes through the kernel's `later` so that a schedule can choose when it fires.
 - **The kernel's own rough edge.** Reading a state that has ended throws.
