@@ -241,7 +241,8 @@ const checks: Array<[string, () => void]> = [
     deepStrictEqual(it.data().messages.a, [])
     for (const type of ['WRITES_IN_PLACE', 'WRITES_THROUGH_A_HELPER', 'WRITES_FURTHER_IN']) {
       const line = it.defects.find((defect) => defect.includes(`threw handling ${type}`))
-      ok(line?.includes(WROTE_TO_WHAT_WAS_READ), `${type}: ${line}`)
+      // What it says is where data is written instead, in words of its own.
+      ok(line?.includes(WROTE_TO_WHAT_WAS_READ) && line.includes('Data is not written where it is read'), `${type}: ${line}`)
     }
   }],
   ['an error that is not such a write is reported as it was thrown', () => {
@@ -272,7 +273,7 @@ const checks: Array<[string, () => void]> = [
       let thrown: unknown
       try { write(held) } catch (error) { thrown = error }
       ok(thrown instanceof TypeError, `${name} did not throw`)
-      ok(said(thrown).endsWith(WROTE_TO_WHAT_WAS_READ), `${name}: ${(thrown as Error).message}`)
+      ok(said(thrown).endsWith(WROTE_TO_WHAT_WAS_READ) && said(thrown).includes('Data is not written where it is read'), `${name}: ${(thrown as Error).message}`)
     }
   }],
   ['after a change, what a state holds is frozen at its top too: a handler that assigns a field of it changes nothing', () => {

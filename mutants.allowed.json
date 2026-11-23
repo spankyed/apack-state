@@ -693,5 +693,10 @@
     "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
     "original": "[]",
     "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a make is said, not compared, and never reads it"
+  },
+  {
+    "key": "src/kernel.ts | Regex | const WRITE_TO_FROZEN = /^Cannot (assign to read only property|add property|delete property|define property|redefine property)\\b/ | /Cannot (assign to read only property|add property|delete property|define property|redefine property)\\b/",
+    "original": "/^Cannot (assign to read only property|add property|delete property|define property|redefine property)\\b/",
+    "why": "A write to something frozen throws a TypeError whose message begins with what it could not do, in Node and in each browser the checks run in: matched anywhere or from the start, these messages match alike"
   }
 ]

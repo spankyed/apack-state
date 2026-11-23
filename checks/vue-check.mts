@@ -83,7 +83,8 @@ export const board = state<Board, BoardEvent>()({
   states: { open: {}, closed: {} },
 })
 
-const { provide, useState } = vueBinding<{ board: typeof board }>()
+// Held whole, and read as it is used: a binding that is not one fails the case that uses it, not the loading of this file.
+const binding = vueBinding<{ board: typeof board }>()
 
 // ── the components ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -103,14 +104,14 @@ const mounted = (parts: Array<'title' | 'where' | 'list' | 'pair' | 'picked' | '
   const pairs: Array<[number, number | undefined]> = []
   const picked = ref('a')
 
-  const Title = defineComponent(() => { const it = useState('board'); return () => { rendered('title'); return h('h1', it.state.value.data.title) } })
-  const Where = defineComponent(() => { const it = useState('board'); return () => { rendered('where'); return h('p', it.state.value.at) } })
+  const Title = defineComponent(() => { const it = binding.useState('board'); return () => { rendered('title'); return h('h1', it.state.value.data.title) } })
+  const Where = defineComponent(() => { const it = binding.useState('board'); return () => { rendered('where'); return h('p', it.state.value.at) } })
   const CardView = defineComponent({
     props: { id: { type: String, required: true } },
     setup(props) {
-      const it = useState('board')
+      const it = binding.useState('board')
       // One of many, by the prop: when the prop changes, this reads the other card.
-      const one = useState(() => it.child('card', props.id))
+      const one = binding.useState(() => it.child('card', props.id))
       return () => {
         rendered(`card ${props.id}`)
         const now = one.state.value
@@ -120,12 +121,12 @@ const mounted = (parts: Array<'title' | 'where' | 'list' | 'pair' | 'picked' | '
     },
   })
   const List = defineComponent(() => {
-    const it = useState('board')
+    const it = binding.useState('board')
     return () => { rendered('list'); return h('ul', Object.keys(it.state.value.data.items).map((id) => h(CardView, { id, key: id }))) }
   })
   const Pair = defineComponent(() => {
-    const it = useState('board')
-    const a = useState(() => it.child('card', 'a'))
+    const it = binding.useState('board')
+    const a = binding.useState(() => it.child('card', 'a'))
     return () => { rendered('pair'); pairs.push([it.state.value.data.told, a.state.value?.data.bumps]); return h('p', `${it.state.value.data.told}`) }
   })
   const Picked = defineComponent(() => () => h(CardView, { id: picked.value }))
@@ -135,23 +136,23 @@ const mounted = (parts: Array<'title' | 'where' | 'list' | 'pair' | 'picked' | '
   // `<script setup>` does, so the template reads `state.data.title` and not `state.value.data.title`.
   const CardTemplate = templated('<li v-if="card">{{ card.data.label }} {{ card.data.bumps }}</li><li v-else>nothing</li>', {
     props: { id: { type: String, required: true } },
-    setup: (props: { id: string }) => { const { child } = useState('board'); const { state: card } = useState(() => child('card', props.id)); return { card } },
+    setup: (props: { id: string }) => { const { child } = binding.useState('board'); const { state: card } = binding.useState(() => child('card', props.id)); return { card } },
   }, (reads) => { rendered(`card ${reads.id}`); if (!reads.card) sawNothing.push(reads.id) })
   const templates: Record<string, Component> = {
-    title: templated('<h1>{{ state.data.title }}</h1>', { setup: () => { const { state } = useState('board'); return { state } } }, () => rendered('title')),
-    where: templated('<p>{{ state.at }}</p>', { setup: () => { const { state } = useState('board'); return { state } } }, () => rendered('where')),
-    list: templated('<ul><CardView v-for="(label, id) in state.data.items" :key="id" :id="id" /></ul>', { components: { CardView: CardTemplate }, setup: () => { const { state } = useState('board'); return { state } } }, () => rendered('list')),
+    title: templated('<h1>{{ state.data.title }}</h1>', { setup: () => { const { state } = binding.useState('board'); return { state } } }, () => rendered('title')),
+    where: templated('<p>{{ state.at }}</p>', { setup: () => { const { state } = binding.useState('board'); return { state } } }, () => rendered('where')),
+    list: templated('<ul><CardView v-for="(label, id) in state.data.items" :key="id" :id="id" /></ul>', { components: { CardView: CardTemplate }, setup: () => { const { state } = binding.useState('board'); return { state } } }, () => rendered('list')),
     pair: templated('<p>{{ board.data.told }}</p>', {
-      setup: () => { const { state: board, child } = useState('board'); const { state: a } = useState(() => child('card', 'a')); return { board, a } },
+      setup: () => { const { state: board, child } = binding.useState('board'); const { state: a } = binding.useState(() => child('card', 'a')); return { board, a } },
     }, (reads) => { rendered('pair'); pairs.push([reads.board.data.told, reads.a?.data.bumps]) }),
     picked: templated('<CardView :id="picked" />', { components: { CardView: CardTemplate }, setup: () => ({ picked }) }, () => {}),
-    retitle: templated(`<button @click="send({ type: 'RETITLE', title: 'Clicked' })">Rename</button>`, { setup: () => { const { send } = useState('board'); return { send } } }, () => rendered('retitle')),
+    retitle: templated(`<button @click="send({ type: 'RETITLE', title: 'Clicked' })">Rename</button>`, { setup: () => { const { send } = binding.useState('board'); return { send } } }, () => rendered('retitle')),
   }
   const all = written === 'templates' ? templates : functions
 
   const page = node('page')
   const app = createApp(defineComponent(() => () => parts.map((part) => h(all[part]!))))
-  provide(app, sys)
+  binding.provide(app, sys)
   app.mount(page)
   const since: Record<string, number> = { ...renders }
   /** Which components rendered since this was last asked, once Vue has done what it had waiting. */
@@ -293,7 +294,7 @@ const templateOnly: Array<[string, () => Promise<void>]> = [
 const either: Array<[string, () => Promise<void>]> = [
   ['a component that reads a state where no system was provided is told to provide one', async () => {
     const errors: unknown[] = []
-    const app = createApp(defineComponent(() => { useState('board'); return () => h('p') }))
+    const app = createApp(defineComponent(() => { binding.useState('board'); return () => h('p') }))
     app.config.errorHandler = (error) => { errors.push(error) }
     app.config.warnHandler = () => {}
     app.mount(node('page'))
@@ -308,13 +309,13 @@ const either: Array<[string, () => Promise<void>]> = [
     sys.send(handle, { type: 'ADD', id: 'b', label: 'Beta' })
     let pick: (id: string) => string | undefined = () => undefined
     const app = createApp(defineComponent(() => {
-      const { child } = useState('board')
+      const { child } = binding.useState('board')
       const which = ref('a')
-      const { state } = useState(() => child('card', which.value))
+      const { state } = binding.useState(() => child('card', which.value))
       pick = (id) => { which.value = id; return state.value?.data.label }
       return () => h('p', state.value?.data.label)
     }))
-    provide(app, sys)
+    binding.provide(app, sys)
     app.mount(node('page'))
     strictEqual(pick('b'), 'Beta')
     app.unmount()
