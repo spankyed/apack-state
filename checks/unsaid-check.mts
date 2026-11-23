@@ -33,8 +33,8 @@ const ear = state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
   asks: { ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }) },
 })
 
-/** Says something every way a backend state can, and then ends as it is told to. */
-const desk = state<{ data: { count: number; problem: string | null }; states: { idle: {}; working: { data: { how: 'at once' | 'in failed' } } } }, DeskEvent, DeskAsks>()({
+/** Says something every way a backend state can, and then ends as it is told to. `ended` is told how the ask it made ended. */
+const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: number; problem: string | null }; states: { idle: {}; working: { data: { how: 'at once' | 'in failed' } } } }, DeskEvent, DeskAsks>()({
   data: { count: 0, problem: null },
   start: 'idle',
   on: {
@@ -56,7 +56,7 @@ const desk = state<{ data: { count: number; problem: string | null }; states: { 
       send({ type: 'COUNT' })
       broadcast('panel', { type: 'NOTED', text: 'doing' })
       progress('half way')
-      void ask('ear', 'ECHO', { text: 'echo' })
+      void ask('ear', 'ECHO', { text: 'echo' }).then(ended)
       if (how === 'throws') throw new Error('the handler broke')
       if (how === 'refuses') throw refuse('no', 'the handler refused')
       if (how === 'stray') return answered('done', { data: { nothing: 1 } } as never)
@@ -83,7 +83,7 @@ const desk = state<{ data: { count: number; problem: string | null }; states: { 
 })
 
 /** A surface: keeps what was broadcast to it, and passes word to the backend before ending as it is told to. */
-const panel = state<{ data: { seen: string[] } }, PanelEvent, PanelAsks>()({
+const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: string[] } }, PanelEvent, PanelAsks>()({
   data: { seen: [] },
   on: {
     NOTED: ({ text }, { data }) => ({ data: { seen: [...data.seen, text] } }),
@@ -96,7 +96,7 @@ const panel = state<{ data: { seen: string[] } }, PanelEvent, PanelAsks>()({
   },
   asks: {
     RELAY: ({ how }, { ask }) => {
-      void ask('desk', 'DO', { how: 'made' })
+      void ask('desk', 'DO', { how: 'made' }).then(ended)
       if (how !== 'made') throw new Error('the handler broke')
       return 'relayed'
     },
@@ -109,13 +109,14 @@ const wired = () => {
   const steps: StepLog[] = []
   const backend = system({ side: 'backend', transact: store.transact, log: (step) => { steps.push(step) } })
   const theEar = backend.start('ear', ear)
-  const theDesk = backend.start('desk', desk)
+  const ended = { echo: [] as unknown[], relayed: [] as unknown[] }
+  const theDesk = backend.start('desk', desk((outcome) => { ended.echo.push(outcome) }))
   const window = system({ side: 'window' })
   window.connect(backend)
-  const thePanel = window.start('panel', panel)
+  const thePanel = window.start('panel', panel((outcome) => { ended.relayed.push(outcome) }))
   const progress: string[] = []
   return {
-    backend, window, steps, progress,
+    backend, window, steps, progress, ended,
     say: (how: Ends): void => backend.send(theDesk, { type: 'SAY', how }),
     work: (how: 'at once' | 'in failed'): void => backend.send(theDesk, { type: 'WORK', how }),
     doIt: (how: AskEnds) => backend.ask(theDesk, 'DO', { how }, (updates) => { progress.push(...updates) }),
@@ -127,6 +128,8 @@ const wired = () => {
   }
 }
 const NOTHING = { heard: [], count: 0, seen: [], progress: [] }
+/** How an ask ends when the handler that made it was not made. */
+const TAKEN_BACK = { ok: false, failure: { kind: 'abandoned', message: 'What made this ask was not made, so it was never asked' } }
 
 const refused: ReadonlyArray<readonly [AskEnds, string, string]> = [
   ['throws', 'failed', 'the handler broke'],
@@ -175,6 +178,7 @@ await run([
     // It comes to rest: the ask the handler made is ended, so nothing waits on what will never be asked.
     await rest()
     deepStrictEqual(it.said(), NOTHING)
+    deepStrictEqual(it.ended.echo, [TAKEN_BACK])
   }] as const),
   ['what leaves the step of an ask that was not made is its answer, and nothing the handler said', async () => {
     const it = wired()
@@ -227,6 +231,7 @@ await run([
     deepStrictEqual(await it.relay('throws'), { ok: false, failure: { kind: 'failed', message: 'the handler broke' } })
     await rest()
     deepStrictEqual(it.said(), NOTHING)
+    deepStrictEqual(it.ended.relayed, [TAKEN_BACK])
     // Closing the link finds no ask waiting on it to end.
     strictEqual(it.window.idle(), true)
   }],
