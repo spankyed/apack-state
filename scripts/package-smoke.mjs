@@ -29,7 +29,7 @@ try {
     "const vue = await import('@apackdev/state/vue')",
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
-    "for (const name of ['explore', 'sample', 'replay']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "for (const name of ['explore', 'sample', 'replay', 'everyOrdering', 'onSchedule', 'fromEvents']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
     // A state made and run, so that what loaded is the kernel and not only its names
     "const sys = index.system({ side: 'window' })",
     "const counter = index.reaching()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",

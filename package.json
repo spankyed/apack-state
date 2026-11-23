@@ -15,8 +15,8 @@
       "import": "./dist/vue.js"
     },
     "./testing": {
-      "types": "./dist/schedule.d.ts",
-      "import": "./dist/schedule.js"
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "files": [

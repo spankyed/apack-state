@@ -5,6 +5,18 @@
 ```ts
 
 // @public
+export interface Clock {
+    after(ms: number, run: () => void): () => void;
+    now(): number;
+    sleep(ms: number): Promise<void>;
+}
+
+// @public
+export function everyOrdering(scenario: Scenario, options?: {
+    limit?: number;
+}): Promise<number>;
+
+// @public
 export function explore(scenario: (schedule: Schedule) => () => void, options?: {
     limit?: number;
 }): Promise<Explored>;
@@ -21,6 +33,49 @@ export interface Explored {
     readonly orderings: number;
 }
 
+// Warning: (ae-forgotten-export) The symbol "Shape" needs to be exported by the entry point testing.d.ts
+// Warning: (ae-forgotten-export) The symbol "AnyEvent" needs to be exported by the entry point testing.d.ts
+// Warning: (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point testing.d.ts
+//
+// @public (undocumented)
+export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks> {
+    // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+    readonly always: (value: Value<S>, sent: readonly E[]) => void;
+    // Warning: (ae-forgotten-export) The symbol "System" needs to be exported by the entry point testing.d.ts
+    readonly around?: (system: System, schedule: Schedule) => void;
+    // (undocumented)
+    readonly events: Makers<E>;
+    // (undocumented)
+    readonly runs: number;
+    // (undocumented)
+    readonly seed: number;
+    // Warning: (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+    readonly state: State<S, E, A>;
+    readonly steps: number;
+}
+
+// @public
+export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks>(options: FromEvents<S, E, A>): Promise<void>;
+
+// @public
+export type Makers<E extends AnyEvent> = {
+    readonly [K in E['type']]: (random: Random) => Extract<E, {
+        type: K;
+    }>;
+};
+
+// @public
+export function onSchedule(schedule: Schedule, name?: string): {
+    later(lane: Lane, run: () => void): void;
+    frame(run: () => void): void;
+};
+
+// @public
+export interface Random {
+    int(below: number): number;
+    pick<T>(from: readonly T[]): T;
+}
+
 // @public
 export function replay(scenario: (schedule: Schedule) => () => void, choices: readonly number[]): Promise<{
     taken: readonly string[];
@@ -33,14 +88,21 @@ export function sample(scenario: (schedule: Schedule) => () => void, options: {
     runs: number;
 }): Promise<Explored>;
 
+// @public
+export type Scenario = (schedule: Schedule) => () => void;
+
 // @public (undocumented)
 export interface Schedule {
     breaks(label: string, error: Error): Promise<never>;
+    readonly clock: Clock;
     does(label: string, ...steps: ReadonlyArray<readonly [what: string, run: () => void]>): void;
-    // Warning: (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point schedule.d.ts
     later(lane: Lane, run: () => void): void;
     work<T>(label: string, value: T): Promise<T>;
 }
+
+// Warnings were encountered during analysis:
+//
+// .temp/api-types/testing.d.ts:13:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

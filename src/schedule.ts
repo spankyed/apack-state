@@ -4,6 +4,10 @@
 //
 // What is in one lane keeps its order. Between lanes the schedule chooses, and `explore` runs a scenario once for
 // every way of choosing. A failure comes back with the choices that led to it, and `replay` runs exactly those again.
+//
+// Time is the schedule's too. A scenario's clock moves only when the schedule runs one of its timers, which wait in a
+// lane of their own in the order they are due: a timer falls in every place among everything else, and what is due
+// sooner fires first.
 import type { Lane } from './port.ts'
 
 type Task = { readonly what: string; run(): void }
@@ -17,6 +21,18 @@ export interface Schedule {
   work<T>(label: string, value: T): Promise<T>
   /** The same, for work that fails. */
   breaks(label: string, error: Error): Promise<never>
+  /** The scenario's clock, which the schedule moves. */
+  readonly clock: Clock
+}
+
+/** A clock a schedule owns: it reads what its timers have moved it to, and never the time it is. */
+export interface Clock {
+  /** How long since the scenario began, in milliseconds: the time the last timer to fire was set for. */
+  now(): number
+  /** Runs `run` once, `ms` from now, when the schedule gets to it. Returns what cancels it. */
+  after(ms: number, run: () => void): () => void
+  /** Resolves `ms` from now, when the schedule gets to it. */
+  sleep(ms: number): Promise<void>
 }
 
 /** How one run went: each choice made, how many there were to choose from, and what was run, in order. */
@@ -40,7 +56,25 @@ const RUNAWAY = 10_000
 async function once(scenario: (schedule: Schedule) => () => void, choose: (depth: number, among: number) => number): Promise<Run> {
   const lanes = new Map<Lane, Task[]>()
   const into = (lane: Lane, task: Task): void => { (lanes.get(lane) ?? lanes.set(lane, []).get(lane)!).push(task) }
+  // The clock's timers: a lane kept in the order they are due, and of two due at once, the one set first.
+  let time = 0
+  const timers: Array<Task & { readonly due: number }> = []
+  const clockLane: Lane = { label: 'the clock' }
+  const clock: Clock = {
+    now: () => time,
+    after: (ms, run) => {
+      const due = time + Math.max(0, ms)
+      const timer = { what: `the clock: ${due} ms`, due, run: () => { time = due; run() } }
+      let at = timers.length
+      while (at > 0 && timers[at - 1]!.due > due) at--
+      timers.splice(at, 0, timer)
+      lanes.set(clockLane, timers)
+      return () => { const index = timers.indexOf(timer); if (index >= 0) timers.splice(index, 1) }
+    },
+    sleep: (ms) => new Promise((resolve) => { clock.after(ms, resolve) }),
+  }
   const schedule: Schedule = {
+    clock,
     later: (lane, run) => into(lane, { what: lane.label, run }),
     does: (label, ...steps) => { const lane: Lane = { label }; for (const [what, run] of steps) into(lane, { what: `${label}: ${what}`, run }) },
     work: (label, value) => new Promise((resolve) => { into({ label }, { what: label, run: () => resolve(value) }) }),
