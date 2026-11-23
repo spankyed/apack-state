@@ -728,5 +728,30 @@
     "key": "src/turn.ts | BlockStatement | return (run: () => void) => { waiting.push(run); channel.port2.postMessage(0) } | {}",
     "original": "{ waiting.push(run); channel.port2.postMessage(0) }",
     "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | ConditionalExpression | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | true",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | ConditionalExpression | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | false",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | EqualityOperator | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | typeof setImmediate !== 'function'",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | StringLiteral | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | \"\"",
+    "original": "'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/schedule.ts | OptionalChaining | hold.unref?.() | hold.unref()",
+    "original": "hold.unref?.()",
+    "why": "In Node, where mutants run, a MessagePort always has ref and unref, so the optional call always calls; the ?. is for a window's port, which has neither, and the checks run there in the browser project, which Stryker does not run"
   }
 ]
