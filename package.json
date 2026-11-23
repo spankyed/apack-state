@@ -40,7 +40,10 @@
     "api:check": "node scripts/api.mjs",
     "api:update": "node scripts/api.mjs --local",
     "typecheck:floor": "node node_modules/typescript-5.7/bin/tsc --noEmit -p tsconfig.json",
-    "mutants": "stryker run"
+    "mutants": "stryker run",
+    "prepack": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && npm run build",
+    "workflows:check": "node scripts/workflows-check.mjs",
+    "package:smoke": "node scripts/package-smoke.mjs"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",

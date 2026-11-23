@@ -31,6 +31,15 @@ and API are the prototype's, not yet a package's: files are `.mts`, and checks a
 It is one of three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps the rows a step writes, and
 [apack-link](https://github.com/spankyed/apack-link) carries what states say between a backend and its windows.
 
+## Installing it
+
+Each commit on `master` whose CI passed is a prerelease, `pkg-<commit>`, holding the package as `npm pack` packs it
+and its `SHA256SUMS`. It is installed by the tarball's URL, and never from npm:
+
+```bash
+npm install https://github.com/spankyed/apack-state/releases/download/pkg-<commit>/apackdev-state-0.1.0.tgz
+```
+
 ## Commands
 
 ```bash

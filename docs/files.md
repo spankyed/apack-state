@@ -9,6 +9,9 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `docs/deferred/` | What is left out of the plan on purpose, each with what it is, what it would take, and what would make it worth starting |
 | `src/index.ts` | The door: every export of the package, by name |
 | `etc/*.api.md` | What each entry offers, as API Extractor reads it: `npm run api:check` holds the source to them, `npm run api:update` writes them |
+| `.github/workflows/packages.yml` | Packs each `master` commit whose CI passed and publishes it as the prerelease `pkg-<commit>` |
+| `scripts/package-smoke.mjs` | Installs the packed package into a project of its own, imports each entry and runs a state from it |
+| `scripts/workflows-check.mjs` | Fails a workflow or package script that could publish to npm or hold a token for it |
 | `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
 | `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
 | `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |
