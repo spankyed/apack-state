@@ -48,6 +48,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |
 | `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data. Runs |
 | `checks/answer-check.mts` | An ask that changes something as it answers: the change is there with the answer, a refused change fails the ask, nothing is lost across a wait. Runs |
+| `checks/unsaid-check.mts` | What a handler said when it was not made: one that threw, refused, or returned a change that could not be made has told, sent, asked and broadcast nothing, on a backend and in a window. Runs |
 | `checks/failure-check.mts` | What happens when a state's work or a handler throws: where the state goes, and that the kernel goes on. Runs |
 | `checks/leaving-check.mts` | What happens to an ask when whoever made it goes: it throws `Left` where awaited, `finally` runs, the answerer is told, nothing hangs. Runs |
 | `checks/store.mts` | Rows as the rule about them is checked: one interface, and rows kept in memory behind it. `transact` is all the kernel is given of it |

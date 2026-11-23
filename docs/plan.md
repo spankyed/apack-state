@@ -128,8 +128,8 @@ points at.
    throws is reported and the state stays as entered.
 
 5. **Nothing a pack's code throws stops the kernel.** A handler that throws changes nothing and is reported, and the
-   state takes the next event as before; what it had already sent is sent, as a process that crashes has sent what it
-   sent. A release, a subscriber, or what hears progress or a view that throws is reported and the rest still run.
+   state takes the next event as before; what it had said is taken back with it, so it has told nobody of a change
+   that was not made ([Rows](#rows), rule 2). A release, a subscriber, or what hears progress or a view that throws is reported and the rest still run.
 
 6. **A move that also changes data changes the data first**, so the work of the state it enters reads the data as the
    handler left it.
@@ -603,9 +603,17 @@ one inside it, and a repository's command, which is a `transact` of its own, joi
 
 1. **A handler writes as it does now**, with its repository's commands, and reads its own writes back. The 184
    calls to a command stay as they are.
-2. **A handler that changes nothing has written nothing.** One that threw, refused, or returned a change that could
-   not be made has its rows taken back, its commands' included, and the rows of everything else in the step are
-   kept. A step is not refused whole: one handler in it can fail while the others stand, as with data. *Everything*
+2. **A handler that changes nothing has written nothing, and said nothing.** One that threw, refused, or returned
+   a change that could not be made has its rows taken back, its commands' included, and the rows of everything
+   else in the step are kept. What it said goes with its rows: what it told, sent itself, asked, had made or
+   dropped, broadcast and reported as progress, with or without a database behind the system. An ask among it is
+   ended, since nothing will now answer it. Whoever asked the handler is still told that it failed: that is the
+   kernel's word and not the handler's, and so is the trace. What a handler said before it waited was said in the
+   step that took it, which was made, and stands as its rows do (rule 5). A mutation that throws has scheduled
+   nothing in Convex, an `update` that throws has returned no command in Elm, and a transaction rolled back has
+   written nothing to its outbox. The other way is Erlang's, where a message is sent as it is sent (set
+   aside 2026-11-23): there a process that crashes dies and whoever watches it is told, and here the state goes
+   on, so whoever was told would have no way to learn that what it heard of was never made. A step is not refused whole: one handler in it can fail while the others stand, as with data. *Everything*
    a step handles is a handler here: an event, an ask, the change that comes with an answer, where work goes when
    it fails, what a state hears from a view or from an ask it made. Whether one was made is what handling it
    returns, so a path that does not say does not compile. The 24 torn handlers are whole without being touched.
@@ -734,8 +742,8 @@ a link while the hold waited for no watch to be behind.
     under a parent it does not hold is dropped with a warning. With the order held neither can happen, so each is
     reported.
 
-  One thing has to be true of the kernel for the log to hold only what was kept, and is not
-  ([Not built](#not-built), what a handler said before it was not made). Read from apack at `eddd825c24`,
+  The log holds only what was kept because what a handler said is taken back with it ([Rows](#rows), rule 2):
+  one that told the log and then threw has told it nothing. Read from apack at `eddd825c24`,
   2026-11-23: a run node is started inside the handler that spawns it (`createStepRunNode`,
   `packages/default-setup/src/features/brain/be/step-system.ts`), and one left `active` by a handler that threw
   is found only when the brain is next killed or restarted.
@@ -824,7 +832,7 @@ thing declined here: one transaction over two stores.
 | A component reads and sends, and cannot ask | Giving `useState` an `ask`. An ask made from a component has no owner to stop it or to say where the state goes if it fails, which is what `run` and `failed` are for |
 | No tags; `within(value, 'thread')` reads the path | Tags, as XState has them. "Somewhere inside `thread`" is a fact about the structure, so a tag for it is a second copy that can go stale, and it narrows no data. Tags are for grouping states that share no parent, and the app has no such group: on `375e00a563`, 2026-11-21, by text search, all 16 tags it declares name one state each. To revisit if a port finds a real cross-cutting group |
 | A refusal may carry data, declared per kind | A kind and a message only. spankyed/apack#583 declares data per kind, and its settings refusal, which carries the store's `problems`, is the case a message alone cannot serve |
-| A step is one unit of the database, which the kernel knows as its `transact` and nothing else: rows, data and what is sent are kept together, and a handler that changes nothing has written nothing. A handler writes with its repository as now; after an `await` it returns the writes. | Writes made as the handler runs, outside the step: a refused ask had written, and 24 of 25 handlers with several writes could leave part of them. A store of the kernel's own with marks to go back to, dropped: the engine's `transact` inside itself is that already, and a command's own unit joins it. A handler returning every write as a description, dropped: a command's result (a new id) is read by the next line in most of them, and 165 of 192 writes already sit where a step is open. |
+| A step is one unit of the database, which the kernel knows as its `transact` and nothing else: rows, data and what is sent are kept together, and a handler that changes nothing has written nothing and said nothing. A handler writes with its repository as now; after an `await` it returns the writes. | What a handler sent before it threw still sent, as a process that crashes has sent what it sent: a state was told of a change that was never made, and nothing told it so. Writes made as the handler runs, outside the step: a refused ask had written, and 24 of 25 handlers with several writes could leave part of them. A store of the kernel's own with marks to go back to, dropped: the engine's `transact` inside itself is that already, and a command's own unit joins it. A handler returning every write as a description, dropped: a command's result (a new id) is read by the next line in most of them, and 165 of 192 writes already sit where a step is open. |
 | A link is written to entities that are there, in a unit as outside one, so a handler that links to nothing fails alone. | elmdb left a relation's ends to the unit's commit, where one that failed took the whole step and stopped the system. Asking a unit inside another for the check as it ended (spankyed/elmdb#214, `checked`), dropped: a flag every caller has to pass, for an order nothing uses. |
 | Whether what was handled was made is what handling it returns, so a path that does not say does not compile. | A flag set where a handler threw or was refused, in ten places. A path that forgot it kept the rows and dropped the data, and nothing made the eleventh set it. |
 | Rows that cannot be kept stop every state and answer every ask: one in the step, one being answered, one waiting, one made after. | Taking no more steps, and telling only whoever asked in the step that failed. An ask whose handler was waiting on something was never answered. |
@@ -843,6 +851,7 @@ reporting its own count:
 | `checks/draft-check.mts` | 19 | The draft a nested change is edited in |
 | `checks/answer-check.mts` | 13 | An answer and the change it comes with |
 | `checks/failure-check.mts` | 13 | What a handler or a state's work throws |
+| `checks/unsaid-check.mts` | 19 | What a handler said, when it was not made |
 | `checks/leaving-check.mts` | 8 | An ask whose asker has gone |
 | `checks/interleaving-check.mts` | 8 | Scenarios under every ordering |
 | `checks/progress-check.mts` | 6 | Progress gathered, and its place among other messages |
@@ -914,8 +923,8 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   way not made twice, and made again once it has ended; giving one up telling the one answering; how one ended having
   it made again; progress heard as a list; made when the step commits, with the data as the handler left it; one at
   a time under way or not; leaving the state giving up what it was making and telling whoever reads that, and
-  entering it again making nothing, where a read would be asked afresh; and a handler that throws having still said
-  what it said. Under a seed's worth (3,000 each, of more than can all be run), two files staged at once are both
+  entering it again making nothing, where a read would be asked afresh; and a handler that throws having had nothing
+  made. Under a seed's worth (3,000 each, of more than can all be run), two files staged at once are both
   staged with the status shown the last one read, and a push stopped at any moment leaves none under way and no
   failure.
 
@@ -1036,6 +1045,13 @@ Five examples run beside them and compare what each step leaves: `examples/searc
   a state that tells itself without end is cut short after ten thousand things, reported, and takes events
   afterwards; and an async `run` without `failed` does not compile. Before this a `run` or a handler that threw at once escaped the step
   and left the kernel refusing everything after it.
+- **What was not made has said nothing** (`checks/unsaid-check.mts`, 19 checks): a handler that throws, or whose
+  change cannot be made, has told no state, sent itself nothing and broadcast to no window, and what was said before
+  and after it keeps its order; an ask whose handler throws or refuses, or whose change throws, refuses or cannot be
+  made, has also reported no progress and asked nothing, the ask it made is ended so that nothing waits on it, and
+  what leaves its step is its answer alone; work that fails at once and a `failed` that throws have said nothing; and
+  in a window, where no database is behind the system, the backend is told nothing and an ask across the link is
+  never asked. The model the rows property is held against says the same of every run (`checks/rows-property.mts`).
 - **Leaving mid-ask unwinds, and nothing hangs or crashes** (`checks/leaving-check.mts`, 8 checks): a `run` awaiting an ask
   when its state is left has its `finally` run and its lock released, and nothing after the ask runs; the trace says an
   ask was left and reports no failure; an ask inside `Promise.all` ends too; the answerer's `signal` aborts, and a
@@ -1195,16 +1211,6 @@ projects. Each would loosen the fit to this app.
   an agent's loop is one thing leading to the next for as long as it runs, and so is reading results a page at a
   time, so a limit would stop what the app is for. A circle of views is different, and is refused (rule 14), because
   what a view is asked for is declared and a circle among declarations is a mistake whatever its length.
-- **What a handler said before it was not made.** A handler that throws, or whose change is refused, has its
-  rows and its change taken back, and what it told and what it sent to leave are still told and still leave
-  (`checks/failure-check.mts`, "what was sent is sent"; `checks/makes-check.mts`; the model in
-  `checks/rows-property.mts`). So within a step a state can be told of something whose change was never made, and
-  a peer can be handed an entry for it. **To be decided, and recommended:** what a handler says joins its unit, so
-  that one not made has said nothing, as a mutation that throws has scheduled nothing in Convex, an `update` that
-  throws has returned no command in Elm, and a rolled-back transaction has written nothing to its outbox. It is
-  the queues a handler adds to, cut back to where they stood when it began. What goes on being heard from a
-  handler that threw is the trace, which is not something a state said. The other way is Erlang's, where a
-  message is sent as it is sent and a crash takes nothing back, and it is what the checks hold today.
 - **A peer that is not a window.** What leaves a backend's system leaves to its windows and to nothing else. A
   name bound by the host to something outside, told with `{ peer }` and handed what a step told it at the commit,
   is what the run history needs ([What it does not cover](#what-it-does-not-cover)).

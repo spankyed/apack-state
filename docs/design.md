@@ -232,7 +232,7 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **One message and everything it causes is one step.** Nothing leaves until the step commits, so nobody sees a
   half-made change, and what runs is matched to the data once, as the step ends.
 - **A step is one database transaction.** A handler's rows, its data and what it sends are kept together, a handler
-  that changes nothing has written nothing, a link is written to rows that are there, and a write outside a step is
+  that changes nothing has written nothing and said nothing, a link is written to rows that are there, and a write outside a step is
   refused. A window hears of a step after its views show it. Rows that cannot be kept stop the system, and every ask
   is answered. Nothing outside the database is part of it: git, files and models are
   done first, and the row that records one is written in the step its result arrives in.
