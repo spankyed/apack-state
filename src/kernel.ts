@@ -460,7 +460,7 @@ export function system(host: {
     // Whoever asked has gone: the ask ends where it is awaited, with `Left`, so the code that asked unwinds.
     const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Left(name)) }
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
-    const question = new Question((outcome) => { signal?.removeEventListener('abort', left); handOver(); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
+    const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
     // Which ask it is, for what is logged of how it ends: here or across the link, it may end without being taken.
     askedOf.set(question, { ref, name })
     if (signal?.aborted) { left(); return }
