@@ -52,5 +52,10 @@ signature uses and no entry exports is listed there as a forgotten export.
 check in it a case with its own name (`checks/checks.mts` makes them). No case is given a time to finish in.
 `npm run measure` runs the measurements, each as its own process (`scripts/measure.mjs`). A check that starts a process stops it and waits for it to exit.
 
+Each `master` commit whose CI passed is packed and published as the prerelease `pkg-<commit>`
+(`.github/workflows/packages.yml`), which apack installs by URL and pins by commit. Nothing publishes to npm, and
+`npm run workflows:check` fails a workflow or script that could. `npm run package:smoke` installs the packed
+package into a project of its own and imports each entry, as CI does on every push.
+
 elmdb's packages are installed from a release's tarballs, named by commit in `package.json`. Moving them is
 editing both URLs to another release and `npm install`.
