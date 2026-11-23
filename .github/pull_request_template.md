@@ -35,3 +35,4 @@ never on code that kills, signals or runs a process.
 - [ ] `npm run api:check`, `npm run graph:check`, `npm run errors:check`
 - [ ] `npm test` and `npm run test:browser`
 - [ ] `npm run build`, `npm run package:smoke` and `npm run package:lint`
+- [ ] `npm run workflows:check` and `npm run deps:check`
