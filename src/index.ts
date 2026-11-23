@@ -50,7 +50,7 @@ export {
 } from './types.ts'
 
 // What runs it: a system, its steps, and what it is given.
-export { Left, system, type Changes, type System, type Transact } from './kernel.ts'
+export { Left, system, type Changes, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
 export type { Lane } from './port.ts'
 
 // What a frame is in a window.

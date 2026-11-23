@@ -229,6 +229,17 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
     readonly ref: string;
 }
 
+// @public
+export interface Handled {
+    readonly key?: string;
+    // (undocumented)
+    readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'ended' | 'progressed' | 'make' | 'drop' | 'answer';
+    readonly name?: string;
+    readonly own?: true;
+    // (undocumented)
+    readonly ref: string;
+}
+
 // @public (undocumented)
 export type HandleOf<T> = T extends Each<infer X> ? HandleOf<X> : T extends State<infer S2, infer E2, infer A2, any> ? Started<Value<S2>, E2, A2, AllStarts<S2>> : never;
 
@@ -390,6 +401,17 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
 }
 
 // @public
+export interface Sent {
+    // (undocumented)
+    readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
+    // (undocumented)
+    readonly name?: string;
+    readonly outcome?: string;
+    // (undocumented)
+    readonly to?: string;
+}
+
+// @public
 export type Shape = {
     data?: object;
     states?: Record<string, Shape>;
@@ -431,6 +453,20 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
     readonly def: unknown;
 }
 
+// @public
+export interface StepLog {
+    readonly changed: Readonly<Record<string, {
+        readonly fields: readonly string[];
+        readonly moved: boolean;
+        readonly at: string;
+        readonly making: boolean;
+    }>>;
+    readonly ended: 'committed' | 'lost' | 'cut short';
+    readonly handled: readonly Handled[];
+    readonly left: readonly Sent[];
+    readonly number: number;
+}
+
 // @public (undocumented)
 export interface System {
     // (undocumented)
@@ -463,6 +499,7 @@ export function system(host: {
     later?(lane: Lane, run: () => void): void;
     frame?(run: () => void): void;
     trace?(line: string): void;
+    log?(step: StepLog): void;
     limit?: number;
 }): System;
 
