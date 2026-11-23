@@ -757,7 +757,8 @@ frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-bui
   a commit and before that can outlive its row through a power cut. A handler whose answer must not says
   `durable: true`, as `transact` takes today, and its step waits.
 - **What a state holds is lost when the process ends; its rows are not.** After a restart a state is rebuilt from
-  rows and what it was given, so anything a backend state must not lose is a row.
+  rows and what it was given, so anything a backend state must not lose is a row. A state that is kept is the
+  exception to come ([Not built](#not-built)).
 - **One writer.** LMDB takes one write transaction at a time, across processes. A step holds it from its first
   write to its end, which is one run of code with no wait in it.
 
@@ -1202,15 +1203,26 @@ projects. Each would loosen the fit to this app.
   is what the run history needs ([What it does not cover](#what-it-does-not-cover)).
 - **Field names unique along a path** are assumed and not enforced.
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
-- **Saving a state to disk** is not wanted. A saved state is a stored format that would then have to be kept stable.
-  And restoring starts a state's work again, which is right for a search a moment after a reload and wrong for a
-  message that was being sent a day ago.
-- **A flow that goes on after the app starts again** is expected, and is not designed. It does not ask for a
-  saved state: what a run must not lose is rows, and a run is rebuilt from them as any backend state is. What is
-  open is which rows those are, what a step that was under way does when it is rebuilt (a model that was being
-  called, an action half run), and what the run had said that was not yet delivered, which is an outbox kept on
-  disk ([deferred](deferred/durable-outbox.md)). The brain is ported first, with runs that end with the process
-  as they do now.
+- **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
+  able to outlive its process: where it is and its data, as they stood at its last step. It is not designed.
+  What is decided is its outline:
+  - *A state says it is kept; the rest are not.* A run is. A surface is not, and neither is a backend state that
+    only follows its rows, which is rebuilt from them as now.
+  - *It is kept in the step's unit.* Where a state is and its data are written with the rows the step wrote, so
+    the three are kept together or not at all, and what the step said can be kept beside them
+    ([deferred](deferred/durable-outbox.md)). Kept anywhere else, a crash leaves a state that disagrees with its
+    rows.
+  - *A kept state says what it does when it is brought back.* Starting its work again is right for a search and
+    wrong for a message that was being sent a day ago, a model that was being called or an action half run. So
+    work that was under way is not started again unasked: the state is told it was brought back and returns what
+    happens next, as `failed` does for work that threw.
+  - *What is kept is a stored format.* It is the state's declared data, and a change to that is a change to what
+    is stored. Nothing is kept stable until a release has users; from then a kept state's data changes with a
+    step that brings the stored one forward.
+
+  Open: what brings a kept state back and in what order among those it started and those it asked; what an ask
+  it was answering is told; and what its views and its makes are on the way back. The brain is ported first,
+  with runs that end with the process as they do now.
 - **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left:
   - *A step that must be on disk before it answers.* `transact` takes `durable: true`; a handler has no way to ask
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.

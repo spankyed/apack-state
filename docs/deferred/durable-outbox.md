@@ -50,10 +50,9 @@ Not designed. What is known:
   process ended. That is delivery at least once.
 - **Receivers that can take the same thing twice**: an entry in the run history by the id the brain stamped on
   it, a step by a key.
-- **What a resumed run is rebuilt from.** The plan does not want a state saved to disk, and a run that resumes
-  does not ask for one: what it must not lose is rows, and it is rebuilt from them ([the plan](../plan.md), Not
-  built). Which rows, and what a step that was under way does when it is rebuilt, is the larger design, and the
-  outbox is one part of it.
+- **A state that is kept.** A run that resumes is brought back where it was, with its data: a state kept in the
+  step's unit, beside the rows the step wrote ([the plan](../plan.md), Not built). What the step said is kept in
+  the same unit, which is this outbox. The kept state is the larger design, and the outbox is one part of it.
 - **A write in every step that says something that is kept**, measured against the steps a flow takes.
 
 ## What it does not decide
