@@ -31,6 +31,36 @@ and API are the prototype's, not yet a package's: files are `.mts`, and checks a
 It is one of three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps the rows a step writes, and
 [apack-link](https://github.com/spankyed/apack-link) carries what states say between a backend and its windows.
 
+## Checking a pack's states
+
+`@apackdev/state/testing` is what a pack's checks are written with. A scenario builds systems on a schedule and says
+what must hold once everything has come to rest; the schedule chooses the order of everything put off, and runs
+every one:
+
+```ts
+import { system } from '@apackdev/state'
+import { everyOrdering, fromEvents, onSchedule } from '@apackdev/state/testing'
+
+await everyOrdering((schedule) => {
+  const window = system({ side: 'window', ...onSchedule(schedule) })
+  const counter = window.start('counter', counterState)
+  schedule.does('one user', ['adds', () => window.send(counter, { type: 'ADD', by: 1 })])
+  schedule.does('another', ['resets', () => window.send(counter, { type: 'RESET' })])
+  // Waits on nothing but the schedule: `schedule.clock.sleep(60_000)` is an hour that passes when it is chosen.
+  return () => { /* what holds, whichever went first */ }
+})
+
+// Runs of events the state declares, drawn from a seed, with what always holds checked after every step.
+await fromEvents({
+  state: counterState,
+  events: { ADD: (random) => ({ type: 'ADD', by: random.int(3) }), RESET: () => ({ type: 'RESET' }) },
+  always: (value) => { /* … */ },
+  steps: 12, runs: 50, seed: 1,
+})
+```
+
+A failure names the ordering, or the seed and the events sent, that make it again.
+
 ## Installing it
 
 Each commit on `master` whose CI passed is a prerelease, `pkg-<commit>`, holding the package as `npm pack` packs it

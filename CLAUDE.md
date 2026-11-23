@@ -7,8 +7,8 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 - `src/index.ts` is the door: what it exports, each by name, is the package. `src/types.ts` is what a state's code
   is checked against, `src/kernel.ts` the systems that run states, `src/port.ts` what joins two systems,
   `src/draft.ts` data edited in place, `src/mirror.ts` and `src/vue.ts` what a component reads a running state with
-  (`@apackdev/state/vue`), `src/schedule.ts` the schedule a check runs under every ordering
-  (`@apackdev/state/testing`), `src/window-frame.ts` what a frame is in a window. What a module exports that the
+  (`@apackdev/state/vue`), `src/schedule.ts` the schedule a check runs under every ordering, and its
+  clock, `src/testing.ts` what a pack's checks are written with (`@apackdev/state/testing`), `src/window-frame.ts` what a frame is in a window. What a module exports that the
   doors do not is marked `@internal`: the package's own, which checks may reach and nothing else should.
 - `type-tests/` is what must not compile, and some of what must: each `@ts-expect-error` is a case, and one whose
   line compiles fails `npm run typecheck` as an unused directive. `vue-templates/` is the same in a component's

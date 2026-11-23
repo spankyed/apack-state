@@ -29,6 +29,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `type-tests/vue-templates/` | A component file with a template, and the states it reads, for `vue-tsc` to check: what a template may read, and six lines that have to be errors |
 | `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
+| `src/testing.ts` | `@apackdev/state/testing`: every ordering (`everyOrdering`), a system on a schedule (`onSchedule`), scenarios made from the events a state declares (`fromEvents`), and the schedule's clock |
+| `checks/testing-check.mts` | That kit, held to what it says |
 | `src/turn.ts` | The next turn of the event loop, in Node and in a window: what the kernel puts off with when it is given nothing, and what every check waits a turn with |
 | `src/schedule.ts` | A schedule given to the kernel in place of the event loop: runs a scenario under every ordering, or a seed's worth, and replays one |
 | `checks/schedule-check.mts` | The schedule itself: each ordering run once, a limit that says it stopped short, a failure that names its ordering and replays, and a run that never comes to rest stopped. Runs |
