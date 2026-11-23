@@ -22,7 +22,7 @@ const read = host.getSourceFile.bind(host)
 // A type test's directives become empty comments of the same line, so each error lands on the line it was held to.
 host.getSourceFile = (name, version, onError, fresh) => {
   if (!files.includes(resolve(name))) return read(name, version, onError, fresh)
-  const text = readFileSync(name, 'utf8').split('\n').map((line) => (DIRECTIVE.test(line) ? line.replace(DIRECTIVE, '$1//') : line)).join('\n')
+  const text = readFileSync(name, 'utf8').replaceAll('\r\n', '\n').split('\n').map((line) => (DIRECTIVE.test(line) ? line.replace(DIRECTIVE, '$1//') : line)).join('\n')
   return ts.createSourceFile(name, text, version)
 }
 const program = ts.createProgram(files, config.options, host)
@@ -44,7 +44,8 @@ const sections = []
 let unexplained = 0
 const vacuous = []
 for (const file of files) {
-  const lines = readFileSync(file, 'utf8').split('\n')
+  // As written, whatever line endings a checkout gave it.
+  const lines = readFileSync(file, 'utf8').replaceAll('\r\n', '\n').split('\n')
   const topic = (lines[0] ?? '').replace(/^\/\/\s*/, '')
   const rows = []
   lines.forEach((line, at) => {
