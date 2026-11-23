@@ -31,9 +31,10 @@ export interface Rows {
   failNext(why: string): void
   /**
    * Reads now, and again after each keeping, telling `heard` the first result and each one after that differs: what
-   * a view is. It is told later, never as the rows are written. Returns what stops it.
+   * a view is. It is told later, never as the rows are written. Returns what stops it, and what calls `then` once it
+   * has been told of what was kept before the call.
    */
-  watch<T>(read: () => T, heard: (value: T) => void): () => void
+  watch<T>(read: () => T, heard: (value: T) => void): { stop(): void; caughtUp(then: () => void, soon: boolean): void }
   /** Calls `then` once every watch has been told of what was kept before this call. */
   settled(then: () => void): void
   close(): void
@@ -118,7 +119,8 @@ export function memory(later: (run: () => void) => void = (run) => { setImmediat
       } }
       watches.add(watch)
       later(watch.again)
-      return () => { watches.delete(watch) }
+      // What it is to be told of a keeping is put off in `later` behind the keeping: so is being caught up with it.
+      return { stop: () => { watches.delete(watch) }, caughtUp: (then) => later(then) }
     },
     settled: (then) => later(then),
     close: () => { watches.clear() },

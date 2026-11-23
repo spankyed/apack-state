@@ -45,6 +45,7 @@ export {
   type State,
   type Value,
   type ViewHost,
+  type Viewing,
   type ViewUpdate,
 } from './types.ts'
 

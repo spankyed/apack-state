@@ -586,11 +586,12 @@ and are not counted. Outside the repositories, 136 functions in the built-in pac
 
 #### How it is joined
 
-The kernel is given the database's `transact`, and on a backend that runs views for its windows, a way to learn
-that the views have been sent what was kept:
+The kernel is given the database's `transact`, and on a backend that runs views for its windows, views that can
+say when each has been handed what was kept: a `ViewHost` whose views are each a `Viewing` with `caughtUp`, which
+on elmdb is a watch's own `Watching.caughtUp({ soon: true })`:
 
 ```ts
-system({ side: 'backend', transact: engine.transact, views, viewsSent })
+system({ side: 'backend', transact: engine.transact, views })
 ```
 
 The engine's `transact` runs a function as one unit, kept when it returns and undone when it throws. One inside
@@ -670,23 +671,29 @@ On elmdb, 2026-11-22, an M1 Pro under a load of 7.6, temporary databases with sy
 | has ten handlers write a row each | 206 µs, or 239 µs with each write in a unit of its own | 299 µs |
 | ten rows, a step each | | 576 µs |
 
-| A window asks its backend | Answered when the rows are kept | Answered when its views show them |
-|---|---|---|
-| to write a row, straight after the last | 0.12 ms | 17.3 ms |
-| to write a row, 20 ms after the last was answered | 1.2 ms | 1.6 ms |
-| something that writes nothing | 0.05 ms | 0.05 ms |
+| A window asks its backend | Answered when the rows are kept | When its views show them: each caught up, `soon` | As it was: no watch behind |
+|---|---|---|---|
+| to write a row, straight after the last | 0.11 ms | 0.15 ms | 16.7 ms |
+| to write a row, 20 ms after the last was answered | 0.44 ms | 0.49 ms | 0.50 ms |
+| something that writes nothing | 0.05 ms | 0.05 ms | 0.05 ms |
+
+Those three columns are 2026-11-23, an M1 Pro under a load of 6.5, elmdb at `efdfa228`, the median of seven runs
+(`measure/rows-cost.mts`). Under a steady stream of writes, a row every 2 ms to each of twelve views in turn, with
+a window following all twelve and asking for a row one ask after another (`measure/hold-stall.mts`, 40 asks, three
+runs): answered in a median of 0.5 to 0.8 ms and at most 1.3 ms when each view has caught up, against 17 ms and at
+most 35 ms when no watch is behind. Measured on an elmdb before it, spankyed/elmdb#217 had waiting for no watch to
+be behind take up to 1.3 s, and three times not end within 2 s; at `efdfa228`, which also keeps the process alive
+while that waits, it ends within two frames.
 
 A step that writes nothing pays nothing, since the writer is never taken. A unit around a handler is about 3 µs
 once the step has written. The commit is what costs: ten rows in ten steps are 2.8 times ten rows in one, so a
 stream is written a batch to a step.
 
-The hold costs a third of a millisecond on an ask that writes, and nothing on one that does not. What costs more
-is elmdb's own limit on a watch: it runs one again no sooner than a frame, 16 ms, after it last ran
-(`WATCH_SCHEDULE`), so an ask that writes straight after another that wrote into the same view waits out what is
-left of that frame. One thing a person does is never that close to the last. A run of asks, each made when the one
-before is answered and each writing, is: it costs a frame a link, and is the case to put in one ask. Asks made
-together are told together, after one frame for all of them. Running a waited-for watch at once, and not when its
-frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-built)).
+The hold asks each view a window follows whether it has caught up, `soon`, since something is blocked on it. elmdb
+runs a watch again no sooner than a frame, 16 ms, after it last ran (`WATCH_SCHEDULE`), unless something is
+blocked on it: then it is due after what the read costs alone. So a run of asks, each made when the one before is
+answered and each writing, costs about a twentieth of a millisecond a link over not holding, where it cost a frame
+a link while the hold waited for no watch to be behind.
 
 #### What it does not cover
 

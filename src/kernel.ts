@@ -19,7 +19,7 @@
 // Those are standing: while the data says so, they go on. An ask to make once is not, and is made by saying so.
 
 import { produce } from './draft.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
 import { PORT, type Heard, type Lane, type Link, type Port } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -167,12 +167,6 @@ export function system(host: {
    */
   transact?: Transact
   /**
-   * On a backend that runs views for its windows: calls `then` once every view has been sent what was kept before
-   * this call. With it, what a step sends a window leaves after the views that window follows have been sent the
-   * step's rows, down the same link, so a window is never told of something its views do not show yet.
-   */
-  viewsSent?(then: () => void): void
-  /**
    * Runs something later, after whatever is ahead of it in its lane. The default is the next turn of the event loop.
    * A check gives a schedule here, which decides the order between lanes and can run every one of them.
    */
@@ -218,28 +212,58 @@ export function system(host: {
   const NOT_MADE = false
   /** Set when a step's rows could not be kept. The states are ahead of the rows then, and no more steps are taken. */
   let broken = false
+  /** The views this backend runs for its windows that can say when they have caught up: what the hold asks. */
+  const forWindows = new Set<Viewing>()
   /**
-   * What is waiting to go to windows, in the order it was sent, until the views have been sent what its step kept.
+   * What is waiting to go to windows, in the order it was sent, until the views have been handed what its step kept.
    * One list for every window: what a backend sends them keeps its order across them too.
    */
   const toWindows: Array<() => void> = []
   /** How many of those have been asked after: what was sent since is still to be. */
   let askedAfter = 0
-  /** Sends something to a window: now, or once the views it follows have been sent the rows of the step it leaves in. */
-  const toAWindow = (send: () => void): void => { if (host.viewsSent) toWindows.push(send); else send() }
-  /** After a step has left: has what it sent windows go once the views have caught up with it. */
+  /**
+   * Each asking of the views, oldest first: how many of what waits it lets go, and the views that have not called
+   * back. A round leaves when it and every round before it are done, so what is sent keeps its order.
+   */
+  const rounds: Array<{ count: number; waiting: Set<Viewing> }> = []
+  /** Sends something to a window: once the views it follows have been handed the rows of the step it leaves in. */
+  const toAWindow = (send: () => void): void => { toWindows.push(send) }
+  const letGo = (): void => {
+    while (rounds.length && rounds[0]!.waiting.size === 0) {
+      const { count } = rounds.shift()!
+      askedAfter -= count
+      // What was sent before the views were asked, and so before everything kept by then was handed to them.
+      for (const send of toWindows.splice(0, count)) safely('what is sent to a window', send)
+    }
+  }
+  /**
+   * After a step has left: has what it sent windows go once each view run for a window has caught up with it. A view
+   * that cannot say is not waited on, and with none to wait on what was sent goes at once, behind what waits before it.
+   */
   const release = (): void => {
-    const wait = host.viewsSent
-    if (!wait || toWindows.length === askedAfter) return
+    if (toWindows.length === askedAfter) return
     const count = toWindows.length - askedAfter
     askedAfter = toWindows.length
-    pending++
-    wait(() => {
+    const round = { count, waiting: new Set(forWindows) }
+    rounds.push(round)
+    // Counted as the round is made: a view taken out of it before it is asked, stopped by another's call, is counted
+    // out as it was counted in.
+    pending += round.waiting.size
+    /** The view is caught up for this round: once, whether it says so, stops, or cannot be asked. */
+    const caught = (viewing: Viewing): void => {
+      if (!round.waiting.delete(viewing)) return
       pending--
-      askedAfter -= count
-      // What was sent before this was asked, and so before everything kept by then was sent to the views.
-      for (const send of toWindows.splice(0, count)) safely('what is sent to a window', send)
-    })
+      letGo()
+    }
+    for (const viewing of [...round.waiting]) {
+      // Something is blocked on it: an asker, or a window to be told. A view that throws when asked cannot say, and
+      // is not waited on.
+      try { viewing.caughtUp!(() => { caught(viewing) }, true) } catch (error) {
+        trace(`DEFECT: a view threw when asked whether it had caught up: ${said(error)}`)
+        caught(viewing)
+      }
+    }
+    letGo()
   }
   /** An answer leaves when the step's rows are kept. If they cannot be, whoever asked is told that it failed. */
   const answer = (question: Question, outcome: AnyOutcome): void => {
@@ -586,16 +610,18 @@ export function system(host: {
         return () => {
           stopped = true
           const ended = stop
-          if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended)) }
+          // It stays among what the link's closing ends until it has crossed: closed first, it is ended then, once.
+          if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }))
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => settle(at.following, id, seen, (live) => {
           let asked: object
           try { asked = args() as object } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return undefined }
-          return views(declared.feature, declared.view, asked, (update) => {
+          const running = views(declared.feature, declared.view, asked, (update) => {
             if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, update })
           })
+          return typeof running === 'function' ? running : () => running.stop()
         })
         if (declared.each !== undefined) {
           for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key))
@@ -989,9 +1015,11 @@ export function system(host: {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
+      // What a window asked is answered on its way to the window, which waits for nothing now.
+      release()
       return
     }
-    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); return }
+    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); release(); return }
     stepping = true
     // Whether everything was handled. A throw before that is the kernel's own; one after is the database not keeping it.
     let handled = false
@@ -1047,7 +1075,18 @@ export function system(host: {
     },
     view: (feature, view, args, heard) => {
       if (!host.views) { heard({ ok: false, error: `${called} runs no views` }); return () => {} }
-      return host.views(feature, view, args, heard)
+      const running = host.views(feature, view, args, heard)
+      const viewing: Viewing = typeof running === 'function' ? { stop: running } : running
+      // A view run for a window is what the hold waits on, while it runs: one stopped has nothing more to hand over,
+      // and counts as caught up for every round waiting on it, whether or not whatever ran it says so.
+      if (viewing.caughtUp) forWindows.add(viewing)
+      return () => {
+        forWindows.delete(viewing)
+        for (const round of rounds) if (round.waiting.delete(viewing)) pending--
+        // Whatever stopping it does, what waited on it is let go.
+        safely('stopping a view', () => viewing.stop())
+        letGo()
+      }
     },
   }
 
