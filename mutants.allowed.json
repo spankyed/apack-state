@@ -215,16 +215,6 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) if (leave.lost) safely('what leaves at the commit', leave.lost) | \"\"",
-    "original": "'what leaves at the commit'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves as it stops', leave) | \"\"",
-    "original": "'what leaves as it stops'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
     "key": "src/kernel.ts | StringLiteral | for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
@@ -232,11 +222,6 @@
   {
     "key": "src/kernel.ts | StringLiteral | leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) }) | \"\"",
     "original": "'a subscriber'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves at the commit', leave) | \"\"",
-    "original": "'what leaves at the commit'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
@@ -660,11 +645,6 @@
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
-    "original": "`the backend to ${called}`",
-    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | idle: () => pending === 0 && !due && !stepping && outside.length === 0, | true",
     "original": "outside.length === 0",
     "why": "outside is empty whenever no step is running: pump takes from it until it is, and a step that takes nothing more turns it away"
@@ -673,16 +653,6 @@
     "key": "src/kernel.ts | BlockStatement | ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } } | {}",
     "original": "{ down.delete(window) }",
     "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
-    "original": "ended",
-    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
-    "original": "linked.gone.delete(ended)",
-    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
   },
   {
     "key": "src/schedule.ts | OptionalChaining | hold.onmessage = () => { const resolve = onTurn; onTurn = undefined; resolve?.() } | resolve()",
@@ -763,5 +733,45 @@
     "key": "src/testing.ts | StringLiteral | schedule.does('the user', ...events.map((event) => [event.type, () => { | \"\"",
     "original": "'the user'",
     "why": "The lane the events are sent from is named in a list of what was run, which fromEvents does not report: a failure says its seed and the events it sent"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | for (const leave of now) safely('what leaves at the commit', leave) | \"\"",
+    "original": "'what leaves at the commit'",
+    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | case 'view': case 'ended': case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) } | case 'progressed':",
+    "original": "case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }",
+    "why": "Switch cases with one body: a case whose test can never match falls through to the next case, which has the same body, so every kind still gets it"
+  },
+  {
+    "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number: ++logged, ...told })) | log || told",
+    "original": "log && told",
+    "why": "What a step logs is made at its start when there is a log and only then, so there is a log exactly when there is something to tell it"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }), { kind: 'unfollow', to: feature, name: view }) | true",
+    "original": "linked.gone.delete(ended)",
+    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | safely('what leaves at the commit', leave.lost) | \"\"",
+    "original": "'what leaves at the commit'",
+    "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | safely('what leaves as it stops', leave) | \"\"",
+    "original": "'what leaves as it stops'",
+    "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (item.kind === 'answer' && abandoned.has(item.question)) return MADE | true",
+    "original": "item.kind === 'answer'",
+    "why": "Only an ask's question is ever abandoned, and an answer is the only thing that comes back to one: an ask that arrives is a question nobody has answered, so the abandoned check finds nothing for anything but an answer"
+  },
+  {
+    "key": "src/kernel.ts | OptionalChaining | const gone = (): void => { leave?.() } | leave()",
+    "original": "leave?.()",
+    "why": "What lets the ask go is called when the link closes or whoever asked leaves, both after the port has been asked and has returned what to call; it is there whenever this runs"
   }
 ]

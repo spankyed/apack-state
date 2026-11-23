@@ -60,6 +60,10 @@ and what looks wrong. `npm run graph:check` holds them to the source, and `npm r
 offers fails `api:check` until `npm run api:update` has written it, so it shows in the diff. A type a public
 signature uses and no entry exports is listed there as a forgotten export.
 
+`npm run pre-push` runs lint, the typecheck, the API reports, the specs, and Stryker over the files under `src/` the
+branch changed since it left `master` (`--no-mutants` leaves that out, `--dry` says what it would run). `npm run
+hooks:install` has git run it before each push; it is opt-in, and nothing installs it otherwise.
+
 `npm run test:browser` runs the same checks in Chromium (vitest's browser mode, Playwright), all but those that need
 Node itself: elmdb's binding and the examples run as processes. `src/turn.ts` is how the kernel, and every check,
 waits a turn in either.

@@ -9,6 +9,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `docs/deferred/` | What is left out of the plan on purpose, each with what it is, what it would take, and what would make it worth starting |
 | `src/index.ts` | The door: every export of the package, by name |
 | `etc/*.api.md` | What each entry offers, as API Extractor reads it: `npm run api:check` holds the source to them, `npm run api:update` writes them |
+| `.github/pull_request_template.md` | What a pull request says: what holds, how it is known, the mutants, and what is the owner's to decide |
 | `.github/workflows/packages.yml` | Packs each `master` commit whose CI passed and publishes it as the prerelease `pkg-<commit>` |
 | `scripts/package-smoke.mjs` | Installs the packed package into a project of its own, imports each entry and runs a state from it |
 | `scripts/workflows-check.mjs` | Fails a workflow or package script that could publish to npm or hold a token for it |
@@ -32,6 +33,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
 | `src/testing.ts` | `@apackdev/state/testing`: every ordering (`everyOrdering`), a system on a schedule (`onSchedule`), scenarios made from the events a state declares (`fromEvents`), and the schedule's clock |
+| `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, and that nothing carried is in it |
 | `checks/testing-check.mts` | That kit, held to what it says |
 | `src/turn.ts` | The next turn of the event loop, in Node and in a window: what the kernel puts off with when it is given nothing, and what every check waits a turn with |
 | `src/schedule.ts` | A schedule given to the kernel in place of the event loop: runs a scenario under every ordering, or a seed's worth, and replays one |
@@ -54,8 +56,11 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
 | `checks/graph-check.mts` | The graph tool (`tools/graph.mts`) run on states that are hard to read, in `checks/graphs/`: a state entered at one inside it before itself, and what is written short; and its command line |
+| `checks/link-check.mts` | A backend and a window joined by `@apackdev/link` in place of the kernel's link in memory, held to what a window is promised: answered and told after its view shows the step, under a seed's worth of orderings of the two packages; a link that goes ends what was asked as disconnected, and the backend goes on |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
+| `scripts/pre-push.mjs` | What runs before a push: lint, typecheck, API reports, specs, and mutants in the files under `src/` the branch changed |
+| `scripts/hooks-install.mjs` | Has git run it before each push from this checkout, if asked to: `npm run hooks:install` |
 | `scripts/bench.mjs` | Runs every measurement, prints each reading beside the recorded one, and records them with their conditions (`--record`) |
 | `bench/*.json` | The recorded readings: each measurement's, with the date, commit, machine, load, Node and elmdb they were read under |
 | `measure/hold-stall.mts` | What the hold costs a window under a steady stream of writes, twelve views each touched in turn, for the hold as it was and as it is. A measurement: it prints, and refuses nothing |
