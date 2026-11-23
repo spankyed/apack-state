@@ -2,7 +2,7 @@
   A component written as the app writes one, for `vue-tsc` to check. Nothing runs it: what it holds is what a
   template may and may not read, and each line marked as an error has to be one.
 
-    npx vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json
+    npx vue-tsc --noEmit -p type-tests/vue-templates/tsconfig.json
 -->
 <script setup lang="ts">
 import { within } from '../../src/index.ts'

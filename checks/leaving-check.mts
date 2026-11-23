@@ -13,7 +13,7 @@ type SlowAsks = {
   RELAY: { args: { turns: number }; answer: string }
 }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
-const state = reaching<App>()
+export const state = reaching<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
 
@@ -39,8 +39,8 @@ const slow = state<{}, never, SlowAsks>()({
 })
 
 type How = 'await' | 'all' | 'floating' | 'relay' | 'fetch'
-type PanelEvent = { type: 'START'; how: How } | { type: 'LEAVE' }
-type Panel = { states: { idle: {}; working: { data: { how: How } } } }
+export type PanelEvent = { type: 'START'; how: How } | { type: 'LEAVE' }
+export type Panel = { states: { idle: {}; working: { data: { how: How } } } }
 
 const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEvent>()({
   start: 'idle',
@@ -162,16 +162,5 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.stop()
   }],
 ]
-
-// An event's handler is not given `ask`: it could only start one, with nothing around it to take a `Left`.
-state<Panel, PanelEvent>()({
-  start: 'idle',
-  on: {
-    // @ts-expect-error asking is for `run` and for an ask's handler
-    START: (_, { ask }) => { void ask },
-    LEAVE: () => ({ at: 'idle' }),
-  },
-  states: { idle: {}, working: { data: { how: given } } },
-})
 
 await run(checks)

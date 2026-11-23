@@ -34,8 +34,8 @@ type BrainAsks = {
 }
 
 /** The threads system takes no events: everything that changes it is an ask, which answers. */
-type ThreadsEvent = never
-type ThreadsAsks = {
+export type ThreadsEvent = never
+export type ThreadsAsks = {
   CREATE_THREAD: { args: { title: string }; answer: { threadId: string } }
   /** Answered once the message is accepted. The reply is written afterwards, and broadcast. */
   USER_MSG: {
@@ -75,7 +75,7 @@ type App = {
   views: {}
 }
 
-const state = reaching<App>()
+export const state = reaching<App>()
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Backend 1: library. Answers one ask.
@@ -121,7 +121,7 @@ type Thread = {
 }
 
 /** One thread. It owns its messages and the writing of its reply, which goes on whoever asked for it. */
-function thread(inference: Inference) {
+export function thread(inference: Inference) {
   return state<Thread, never, ThreadAsks>()({
     // Which thread it is is given by whoever starts it.
     data: { threadId: given, messages: [] },
@@ -164,7 +164,7 @@ function thread(inference: Inference) {
   })
 }
 
-type Threads = {
+export type Threads = {
   data: { titles: Record<string, string> }
   // A thread for each title. Which threads run is not kept anywhere else: it follows from the titles.
   starts: { thread: Each<ReturnType<typeof thread>> }
@@ -229,7 +229,7 @@ const draft = state<{ data: { text: string } }, DraftEvent>()({
 // Window: the threads surface. One runs in each window.
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-type ThreadsSurface = {
+export type ThreadsSurface = {
   data: { titles: Record<string, string>; unseen: string[]; problem: string | null }
   states: {
     list: {}
@@ -349,39 +349,6 @@ function threadsSurface(log: (line: string) => void) {
   })
 }
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// What must not compile: a refusal's data is part of the ask's declaration
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-/** Never called: it exists to be typechecked. */
-function mustNotCompile(): void {
-
-  state<Threads, ThreadsEvent, ThreadsAsks>()({
-    data: { titles: {} },
-    starts: (start) => ({ thread: start(thread(undefined as never), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    asks: {
-      CREATE_THREAD: () => ({ threadId: 'THR-1' }),
-      // @ts-expect-error `attachment-missing` carries the document's id, so it cannot be refused without one
-      USER_MSG: async (_, { refuse }) => { throw refuse('attachment-missing', 'no') },
-    },
-  })
-
-  state<Threads, ThreadsEvent, ThreadsAsks>()({
-    data: { titles: {} },
-    starts: (start) => ({ thread: start(thread(undefined as never), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    asks: {
-      CREATE_THREAD: () => ({ threadId: 'THR-1' }),
-      // @ts-expect-error `no-such-thread` carries nothing, so it takes no document id
-      USER_MSG: async (_, { refuse }) => { throw refuse('no-such-thread', 'no', { documentId: 'DOC-1' }) },
-    },
-  })
-
-  const failure = undefined as unknown as AskFailure<ThreadsAsks['USER_MSG']>
-  // @ts-expect-error the document's id exists only once the kind is known to be `attachment-missing`
-  void failure.documentId
-  if (failure.kind === 'attachment-missing') void failure.documentId
-}
-void mustNotCompile
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Running it: one backend, two windows.
@@ -496,16 +463,3 @@ if (process.argv[1]?.endsWith('threads.mts')) {
   a.window.stop(); b.window.stop(); backend.stop()
 }
 
-// ── `within`: what must not compile ─────────────────────────────────────────────────────────────────────────────────
-
-function withinMustNotCompile(value: import('../src/index.ts').Value<ThreadsSurface>): void {
-  // @ts-expect-error a thread's id exists only somewhere inside `thread`
-  void value.data.threadId
-  if (within(value, 'thread')) void value.data.threadId
-  if (within(value, 'thread.sending')) void value.data.documentId
-  // @ts-expect-error there is no such state to be inside
-  within(value, 'board')
-  // @ts-expect-error inside `thread` is not enough to know it is sending
-  if (within(value, 'thread')) void value.data.documentId
-}
-void withinMustNotCompile

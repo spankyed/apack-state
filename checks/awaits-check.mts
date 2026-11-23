@@ -12,7 +12,7 @@ const turns = (count: number): Promise<void> => new Promise((resolve) => { let l
 
 type LibraryAsks = { LOOKUP: { args: { query: string }; progress: string; answer: string } }
 type App = { systems: { library: { events: never; asks: LibraryAsks } }; surfaces: {}; views: {} }
-const state = reaching<App>()
+export const state = reaching<App>()
 
 /** What the library was asked and what it was told to give up, in order. */
 const library = (did: string[]) => state<{}, never, LibraryAsks>()({
@@ -28,14 +28,14 @@ const library = (did: string[]) => state<{}, never, LibraryAsks>()({
   },
 })
 
-type ReaderEvent =
+export type ReaderEvent =
   | { type: 'SET_QUERY'; query: string }
   | { type: 'RENAME'; title: string }
   | { type: 'AGAIN' }
   | { type: 'WATCH'; ids: string[] }
   | { type: 'TURN'; on: boolean }
   | { type: 'CIRCLE' }
-type Reader = {
+export type Reader = {
   data: { title: string; query: string; again: number; found: string | null; heard: string[]; watched: string[]; labels: Record<string, string>; circling: number; problem: string | null }
   states: { on: {}; off: {} }
 }
@@ -198,27 +198,6 @@ const selecting = (schedule: Schedule): (() => void) => {
   schedule.does('the user', ['selects a', () => send({ type: 'commit.VIEW_DIFF', path: 'a.ts', staged: false })], ['selects c', () => send({ type: 'commit.VIEW_DIFF', path: 'c.ts', staged: false })])
   return () => { deepStrictEqual({ diff: window.read(surface).data.gitDiff, error: window.read(surface).data.gitError }, { diff: 'diff of c.ts', error: null }) }
 }
-
-// What must not compile.
-state<Reader, ReaderEvent>()({
-  data: { title: '', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null },
-  start: 'on',
-  awaits: (asking) => ({
-    // @ts-expect-error there is no such system to ask
-    nobody: asking('printer', 'LOOKUP', { args: () => ({ query: '' }), ended: () => {} }),
-    // @ts-expect-error the library answers no such ask
-    nothing: asking('library', 'SLEEP', { args: () => ({}), ended: () => {} }),
-    // @ts-expect-error a lookup is asked for a query, not an id
-    wrong: asking('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), ended: () => {} }),
-    // @ts-expect-error a title is neither a list nor keyed, so it cannot say which to look up
-    titled: asking('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), ended: () => {} }),
-    // @ts-expect-error it reads the title, which it did not name
-    unnamed: asking('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: title }), ended: () => {} }),
-    // @ts-expect-error what a lookup answers is a string, so it cannot be put where the list goes
-    misplaced: asking('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), ended: (outcome) => (outcome.ok ? { data: { watched: outcome.value } } : undefined) }),
-  }),
-  states: { on: {}, off: {} },
-})
 
 await run(checks, async (tally) => {
   await tally.every('the diff shown is of the file selected last, whichever read ends first', () => explore(selecting))

@@ -9,7 +9,7 @@ import { given, reaching } from '../src/index.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
-const state = reaching<App>()
+export const state = reaching<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
 
@@ -21,14 +21,14 @@ const slow = state<{}, never, SlowAsks>()({
 })
 
 type How = 'later' | 'at once' | 'while asking' | 'in failed too' | 'not at all'
-type PanelEvent =
+export type PanelEvent =
   | { type: 'START'; how: How }
   | { type: 'SET_UP' }
   | { type: 'LEAVE' }
   | { type: 'COUNT' }
   | { type: 'BREAK' }
   | { type: 'SPIN' }
-type Panel = {
+export type Panel = {
   data: { count: number; problem: string | null }
   states: {
     idle: {}
@@ -202,17 +202,5 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.stop()
   }],
 ]
-
-// Work that awaits has to say where the state goes if it fails. Work that does not, need not.
-state<Panel, PanelEvent>()({
-  data: { count: 0, problem: null },
-  start: 'idle',
-  states: {
-    idle: {},
-    // @ts-expect-error its work awaits, and it does not say where it goes when that fails
-    working: { data: { how: given }, async run() { await turns(1) } },
-    ready: { run() {} },
-  },
-})
 
 await run(checks)

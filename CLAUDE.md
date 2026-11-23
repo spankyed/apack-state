@@ -10,9 +10,12 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
   (`@apackdev/state/vue`), `src/schedule.ts` the schedule a check runs under every ordering
   (`@apackdev/state/testing`), `src/window-frame.ts` what a frame is in a window. What a module exports that the
   doors do not is marked `@internal`: the package's own, which checks may reach and nothing else should.
+- `type-tests/` is what must not compile, and some of what must: each `@ts-expect-error` is a case, and one whose
+  line compiles fails `npm run typecheck` as an unused directive. `vue-templates/` is the same in a component's
+  template, for `vue-tsc`. `npm run typecheck:floor` runs it all on TypeScript 5.7, the oldest held to.
 - `checks/` is every check, each file a vitest spec: `checks.mts` is what they are written with, `examples-check.mts`
   runs the examples, `store.mts` and
-  `store-elmdb.mts` the rows a step writes, in memory and on elmdb, and `vue-fixture/` a component `vue-tsc` checks.
+  `store-elmdb.mts` the rows a step writes, in memory and on elmdb.
 - `examples/`, `measure/`, `surveys/` and `tools/` are as `docs/files.md` says.
 - `docs/design.md` is the design with no history; `docs/plan.md` the record, with what is not built and the order
   of work.
@@ -34,6 +37,7 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 
 ```bash
 npm run typecheck
+npm run typecheck:floor
 npm run api:check
 npm test
 npm run build

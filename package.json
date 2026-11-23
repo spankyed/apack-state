@@ -33,12 +33,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit && vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit -p type-tests/vue-templates/tsconfig.json",
     "test": "vitest run",
     "measure": "node scripts/measure.mjs",
     "test:watch": "vitest",
     "api:check": "node scripts/api.mjs",
-    "api:update": "node scripts/api.mjs --local"
+    "api:update": "node scripts/api.mjs --local",
+    "typecheck:floor": "node node_modules/typescript-5.7/bin/tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
@@ -62,6 +63,7 @@
     "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-89c77cd299929233b1c9d7deee811065320a20a4/elmdb-0.1.0.tgz",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
+    "typescript-5.7": "npm:typescript@~5.7.3",
     "vitest": "^4.1.12",
     "vue": "^3.5.0",
     "vue-tsc": "^3.0.0"

@@ -91,7 +91,7 @@ const card = state<Card, { type: 'BUMP' }>()({
 })
 type Board = { data: { items: Record<string, string> }; starts: { card: Each<typeof card> } }
 type BoardEvent = { type: 'ADD'; id: string; label: string } | { type: 'REMOVE'; id: string } | { type: 'BUMP'; id: string }
-const board = state<Board, BoardEvent>()({
+export const board = state<Board, BoardEvent>()({
   data: { items: {} },
   starts: (start) => ({ card: start(card, { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }) }),
   on: {
@@ -119,17 +119,6 @@ const boarded = () => {
   const since = { ...runs }
   const ran = (): string[] => { const names = (Object.keys(runs) as Array<keyof typeof runs>).filter((name) => runs[name] !== since[name]); Object.assign(since, runs); return names }
   return { send, ran, seen, sys, handle }
-}
-
-// What must not compile: reaching a started state from outside is checked against what its starter declares.
-{
-  const sys = system({ side: 'window' })
-  const handle = sys.start('typed', board)
-  // @ts-expect-error a card is one of many, so reaching one takes its key
-  void sys.child(handle, 'card')
-  // @ts-expect-error the board starts no such state
-  void sys.child(handle, 'deck', 'a')
-  sys.stop()
 }
 
 const checks: Array<[string, () => void]> = [
