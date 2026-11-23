@@ -142,6 +142,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const ran = (): string[] => { const names = (Object.keys(runs) as Array<keyof typeof runs>).filter((name) => runs[name] !== since[name]); Object.assign(since, runs); return names }
     send({ type: 'ADD', id: 'a' })
     deepStrictEqual(ran(), ['a'])
+    strictEqual(held.value.making.run.a, true)
     send({ type: 'SAVE' })
     deepStrictEqual(ran(), ['save'])
     send({ type: 'ADD', id: 'b' })

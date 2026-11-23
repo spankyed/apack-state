@@ -289,7 +289,39 @@ const templateOnly: Array<[string, () => Promise<void>]> = [
   }],
 ]
 
+/** What does not depend on how a component is written. */
+const either: Array<[string, () => Promise<void>]> = [
+  ['a component that reads a state where no system was provided is told to provide one', async () => {
+    const errors: unknown[] = []
+    const app = createApp(defineComponent(() => { useState('board'); return () => h('p') }))
+    app.config.errorHandler = (error) => { errors.push(error) }
+    app.config.warnHandler = () => {}
+    app.mount(node('page'))
+    strictEqual(errors.length, 1)
+    ok(/provide/.test(String(errors[0])), String(errors[0]))
+    app.unmount()
+  }],
+  ['a handle changed in a handler, outside a render, is read at once', async () => {
+    const sys = system({ side: 'window' })
+    const handle = sys.start('board', board)
+    sys.send(handle, { type: 'ADD', id: 'a', label: 'Alpha' })
+    sys.send(handle, { type: 'ADD', id: 'b', label: 'Beta' })
+    let pick: (id: string) => string | undefined = () => undefined
+    const app = createApp(defineComponent(() => {
+      const { child } = useState('board')
+      const which = ref('a')
+      const { state } = useState(() => child('card', which.value))
+      pick = (id) => { which.value = id; return state.value?.data.label }
+      return () => h('p', state.value?.data.label)
+    }))
+    provide(app, sys)
+    app.mount(node('page'))
+    strictEqual(pick('b'), 'Beta')
+    app.unmount()
+  }],
+]
+
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>
   list.map(([name, check]) => [`${form}: ${name}`, async () => { written = form; await check() }])
 
-await run([...written_as('render functions', checks), ...written_as('templates', [...checks, ...templateOnly])])
+await run([...written_as('render functions', checks), ...written_as('templates', [...checks, ...templateOnly]), ...either])
