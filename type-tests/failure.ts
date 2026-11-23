@@ -15,7 +15,7 @@ state<Panel, PanelEvent>()({
   states: {
     idle: {},
     // @ts-expect-error its work awaits, and it does not say where it goes when that fails
-    working: { data: { how: given }, async run() { await turns(1) } },
+    working: { data: { how: given }, async run() { await Promise.resolve() } },
     ready: { run() {} },
   },
 })

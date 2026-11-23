@@ -10,6 +10,9 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
   (`@apackdev/state/vue`), `src/schedule.ts` the schedule a check runs under every ordering, and its
   clock, `src/testing.ts` what a pack's checks are written with (`@apackdev/state/testing`), `src/window-frame.ts` what a frame is in a window. What a module exports that the
   doors do not is marked `@internal`: the package's own, which checks may reach and nothing else should.
+- `docs/errors.md` is what each compile error the type tests hold means, generated from them (`errors:update`) and
+  held to the compiler (`errors:check`). A type test met by a name that is not there, and not by its mistake, fails
+  the check.
 - `type-tests/` is what must not compile, and some of what must: each `@ts-expect-error` is a case, and one whose
   line compiles fails `npm run typecheck` as an unused directive. `vue-templates/` is the same in a component's
   template, for `vue-tsc`. `npm run typecheck:floor` runs it all on TypeScript 5.7, the oldest held to.
