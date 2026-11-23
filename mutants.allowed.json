@@ -390,11 +390,6 @@
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
-    "key": "src/kernel.ts | Regex | const frame = frames.find((line) => !/[/\\\\](kernel|draft|types|port)\\.[cm]?[jt]s\\b/.test(line) && /\\.[cm]?[jt]s/.test(line)) | /\\.[cm][jt]s/",
-    "original": "/\\.[cm]?[jt]s/",
-    "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return | true",
     "original": "now.seen.length === seen.length",
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
@@ -704,5 +699,25 @@
   {
     "key": "src/schedule.ts | OptionalChaining | hold.ref?.() | hold.ref()",
     "why": "In Node, where mutants run, a MessagePort always has ref and unref, so the optional call always calls; the ?. is for a window's port, which has neither, and the checks run there in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | : (() => { | {}",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | ArrayDeclaration | const waiting: Array<() => void> = [] | [\"Stryker was here\"]",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | channel.port1.onmessage = () => { const run = waiting.shift(); run?.() } | {}",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | OptionalChaining | channel.port1.onmessage = () => { const run = waiting.shift(); run?.() } | run()",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | return (run: () => void) => { waiting.push(run); channel.port2.postMessage(0) } | {}",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
   }
 ]
