@@ -53,6 +53,19 @@ const panel = state<Panel, PanelEvents, PanelAsks>()({
   },
 })
 
+/** What a promise settles to within a few turns, or that it did not: a case that would wait for good fails instead. */
+const soon = async <T,>(made: Promise<T>): Promise<T | 'never settled'> => {
+  let settled: { value: T } | undefined
+  void made.then((value) => { settled = { value } })
+  for (let turns = 0; turns < 50 && !settled; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
+  return settled ? settled.value : 'never settled'
+}
+
+/** A window's state that says how its ask of the backend ended: what was made, or the kind of failure. */
+const asker = state<{}, never, { MAKE: { args: { id: string }; answer: string } }>()({
+  asks: { MAKE: async ({ id }, { ask }) => { const outcome = await ask('threads', 'CREATE', { id }); return outcome.ok ? 'made' : outcome.failure.kind } },
+})
+
 /** The views a backend runs over its rows, which say when they have caught up; or, taken away, which cannot. */
 const viewsOf = (store: Rows, held: boolean): ViewHost => (_feature, _view, _args, heard) => {
   const running = store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
@@ -109,9 +122,13 @@ const across = (window: System, backend: System, later?: Schedule['later']) => {
   const ofWindow = window as unknown as { [PORT]: Port }
   // The backend sees the window as a port that sends frames, and the window the backend so.
   const toWindow = join(backendEnd, onLink(ofBackend[PORT]))
-  ofBackend.attach({ link: { open: true, up: { label: 'to the backend, as it arrives' }, down: { label: 'to the window, as it leaves' } }, port: onKernel(toWindow) })
+  const toTheWindow = { open: true, up: { label: 'to the backend, as it arrives' }, down: { label: 'to the window, as it leaves' } }
+  const detach = ofBackend.attach({ link: toTheWindow, port: onKernel(toWindow) })
+  // When its end of the link has ended, the backend sends that window nothing more, as when a window closes.
+  backendEnd.onEnd(() => { toTheWindow.open = false; detach() })
   const toBackend = join(windowEnd, onLink(ofWindow[PORT]))
-  const connected = window.connect({ [PORT]: onKernel(toBackend), attach: () => () => {} } as unknown as System)
+  // The window closing its connection closes its end of the link.
+  const connected = window.connect({ [PORT]: onKernel(toBackend), attach: () => () => { windowEnd.close() } } as unknown as System)
   return { windowEnd, backendEnd, connected }
 }
 
@@ -162,7 +179,7 @@ await run([
     deepStrictEqual({ atAnswer, atEvent }, { atAnswer: [1, 2, 3], atEvent: [1, 2, 3] })
     deepStrictEqual(defects(), [])
   }],
-  ['a link that goes while an ask is held ends the ask as disconnected, and the backend goes on', async () => {
+  ['a link that goes while an ask is held ends the ask as disconnected, and the backend goes on for another window', async () => {
     const store = memory()
     // The views say they have caught up when this check says so, and not before: the answer is held until then.
     const waiting: Array<() => void> = []
@@ -171,24 +188,37 @@ await run([
       return { stop: () => (typeof running === 'function' ? running() : running.stop()), caughtUp: (then) => { waiting.push(then) } }
     }
     const traced: string[] = []
-    const backend = system({ side: 'backend', transact: store.transact, views, trace: (line) => { traced.push(line) }, later: putOff() })
+    const trace = (line: string): void => { traced.push(line) }
+    const backend = system({ side: 'backend', transact: store.transact, views, trace, later: putOff() })
     backend.start('threads', threads(store))
-    const window = system({ side: 'window', name: WINDOW, later: putOff() })
+    const window = system({ side: 'window', name: WINDOW, trace, later: putOff() })
     const { windowEnd } = across(window, backend)
-    const handle = window.start('panel', panel)
-    await rest().catch(() => {})
-    const asked = window.ask(handle, 'ADD', { id: 'a' })
-    while (store.count('thread') === 0) await new Promise<void>((resolve) => { nextTurn(resolve) })
+    window.start('panel', panel)
+    const asking = window.start('asker', asker)
+    await rest()
+    const asked = window.ask(asking, 'MAKE', { id: 'a' })
+    for (let turns = 0; turns < 50 && store.count('thread') === 0; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
+    strictEqual(store.count('thread'), 1)
     ok(waiting.length > 0, 'nothing was held')
     windowEnd.close()
-    const outcome = await asked
-    // The ask of the backend ended disconnected, which the window's own ask answered with.
-    ok(outcome.ok && outcome.value === false)
+    // The ask of the backend ended disconnected, and the window's state was told so.
+    deepStrictEqual(await soon(asked), { ok: true, value: 'disconnected' })
+    // Asked again with the link gone, it is told at once, and nothing breaks.
+    deepStrictEqual(await soon(window.ask(asking, 'MAKE', { id: 'b' })), { ok: true, value: 'disconnected' })
     for (const then of waiting.splice(0)) then()
     await rest()
-    deepStrictEqual(window.read(handle).data.atEvent, [])
+    // The backend goes on: another window, on a link of its own, asks and is answered.
+    const another = system({ side: 'window', name: WINDOW, trace, later: putOff() })
+    across(another, backend)
+    const again = another.start('asker', asker)
+    await rest()
+    const answered = another.ask(again, 'MAKE', { id: 'c' })
+    for (let turns = 0; turns < 50 && waiting.length === 0; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
+    for (const then of waiting.splice(0)) then()
+    deepStrictEqual(await soon(answered), { ok: true, value: 'made' })
+    await rest()
+    strictEqual(store.count('thread'), 2)
     deepStrictEqual(traced.filter((line) => line.startsWith('DEFECT')), [])
-    strictEqual(store.count('thread'), 1)
   }],
 ], async (tally) => {
   for (const how of ['one after the other', 'both at once'] as const) {
