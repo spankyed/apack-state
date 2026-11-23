@@ -24,7 +24,8 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const conditions = () => ({
   date: new Date().toISOString(),
   commit: git('rev-parse', 'HEAD'),
-  changed: git('status', '--porcelain') !== '',
+  // Whether the code differs from the commit: the readings this writes into bench/ are not a change to it.
+  changed: git('status', '--porcelain', '--', '.', ':(exclude)bench') !== '',
   cpu: cpus()[0]?.model ?? 'unknown',
   cores: cpus().length,
   memory: `${Math.round(totalmem() / 2 ** 30)} GB`,
