@@ -3,6 +3,9 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert'
 import { run } from './checks.mts'
 import { reaching } from '../src/index.ts'
+
+/** What seed 7 draws: four events of one type, each handed `int(1000)`. */
+const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
 import { everyOrdering, explore, fromEvents, onSchedule, replay, type Scenario } from '../src/testing.ts'
 import { system } from '../src/kernel.ts'
 
@@ -15,6 +18,21 @@ const counter = state<{ data: { count: number; resets: number } }, CounterEvent>
     RESET: (_, { data }) => ({ data: { count: 0, resets: data.resets + 1 } }),
   },
 })
+
+/** What makers were handed and sent, run by run, for a state that takes these events. */
+const drawn = async (types: readonly string[], seed: number, runs = 1): Promise<string[]> => {
+  const seen: string[] = []
+  const shape = state<{}, { type: string }>()({ on: Object.fromEntries(types.map((type) => [type, () => {}])) as never })
+  await fromEvents({
+    state: shape,
+    events: Object.fromEntries(types.map((type) => [type, (random: { int(below: number): number }) => { seen.push(`${type} ${random.int(1000)}`); return { type } }])) as never,
+    always: () => {},
+    steps: 4,
+    runs,
+    seed,
+  })
+  return seen
+}
 
 /** Two lanes of two steps each, and what they ran, in order. */
 const twoByTwo = (ran: string[][]): Scenario => (schedule) => {
@@ -142,6 +160,107 @@ await run([
       states: { shut: { on: { OPEN: () => ({ at: 'open' }) } }, open: { on: { KNOCK: () => {} } } },
     })
     await rejects(fromEvents({ state: door, events: { OPEN: () => ({ type: 'OPEN' }) } as never, always: () => {}, steps: 1, runs: 1, seed: 1 }), /No way to make KNOCK/)
+  }],
+  ['a seed draws the same numbers wherever it is run, another seed others, and they fall all over what is asked for', async () => {
+    // These are the draws: a run made again from its seed has to be the run it was, on any machine, in any version.
+    deepStrictEqual(await drawn(['ADD'], 7), DRAWS_FROM_SEVEN)
+    ok(JSON.stringify(await drawn(['ADD'], 8)) !== JSON.stringify(DRAWS_FROM_SEVEN))
+    const ints = new Set<number>()
+    await fromEvents({ state: counter, events: { ADD: (random) => { ints.add(random.int(3)); return { type: 'ADD', by: 1 } }, RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 30, runs: 2, seed: 1 })
+    deepStrictEqual([...ints].sort(), [0, 1, 2])
+  }],
+  ['a seed sends the same events whatever order a state declares them in', async () => {
+    deepStrictEqual(await drawn(['A', 'B', 'C'], 3, 3), await drawn(['C', 'A', 'B'], 3, 3))
+  }],
+  ['each run is one more from the seed, and as many are run as asked', async () => {
+    let runs = 0
+    await fromEvents({ state: counter, events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'RESET' }) }, around: () => { runs++ }, always: () => {}, steps: 1, runs: 4, seed: 1 })
+    strictEqual(runs, 4)
+    // A run that fails names itself and its seed: run n is from the seed plus n less one.
+    const error = await fromEvents({
+      state: counter,
+      events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'RESET' }) },
+      always: (value) => { ok((value as { data: { count: number } }).data.count < 3, 'three') },
+      steps: 3, runs: 50, seed: 40,
+    }).then(() => undefined, (thrown: unknown) => thrown as Error)
+    const [, run, seed] = /^Run (\d+), from seed (\d+),/.exec(error?.message ?? '') ?? []
+    ok(run !== undefined, error?.message)
+    strictEqual(Number(seed), 40 + Number(run) - 1)
+    // And says why with what was thrown, which it is caused by.
+    ok(error!.cause instanceof Error && error!.cause.message.includes('three'))
+  }],
+  ['the first thing that does not hold in a run is what it fails with', async () => {
+    let told = 0
+    const error = await fromEvents({
+      state: counter,
+      events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'ADD', by: 1 }) as never },
+      always: () => { throw new Error(`not held, time ${++told}`) },
+      steps: 3, runs: 1, seed: 1,
+    }).then(() => undefined, (thrown: unknown) => thrown as Error)
+    ok(error?.message.endsWith('not held, time 1'), error?.message)
+  }],
+  ['a maker that picks from nothing is told so', async () => {
+    await rejects(fromEvents({ state: counter, events: { ADD: (random) => ({ type: 'ADD', by: random.pick<number>([]) }), RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 5, runs: 1, seed: 1 }), /There is nothing to pick from/)
+  }],
+  ['a state that declares no events has nothing to be sent, and is refused', async () => {
+    await rejects(fromEvents({ state: state<{ data: { n: number } }, never>()({ data: { n: 0 } }), events: {} as never, always: () => {}, steps: 1, runs: 1, seed: 1 }), /declares no events it takes/)
+  }],
+  ['every declared event with no way to make it is named', async () => {
+    type Three = { type: 'A' } | { type: 'B' } | { type: 'C' }
+    const three = state<{}, Three>()({ on: { A: () => {}, B: () => {}, C: () => {} } })
+    await rejects(fromEvents({ state: three, events: { A: () => ({ type: 'A' }) } as never, always: () => {}, steps: 1, runs: 1, seed: 1 }), /No way to make B, C,/)
+  }],
+  ['the state is run in a window: a surface it tells there is told', async () => {
+    type Windowed = { systems: {}; surfaces: { panel: { events: { type: 'PINGED' } } }; views: {} }
+    const windowed = reaching<Windowed>()
+    const heard: string[] = []
+    const panel = windowed<{}, { type: 'PINGED' }>()({ on: { PINGED: () => { heard.push('pinged') } } })
+    const pinger = windowed<{}, { type: 'PING' }>()({ on: { PING: (_, { tell }) => { tell({ surface: 'panel' }, { type: 'PINGED' }) } } })
+    await fromEvents({ state: pinger, events: { PING: () => ({ type: 'PING' }) }, around: (sys) => { sys.start('panel', panel) }, always: () => {}, steps: 2, runs: 1, seed: 1 })
+    strictEqual(heard.length, 2)
+  }],
+  ['a failure says it was an ordering, every choice made, and what was thrown, which it is caused by', async () => {
+    const thrown = new Error('x went first, then y')
+    const error = await everyOrdering((schedule) => {
+      const order: string[] = []
+      schedule.does('x', ['1', () => { order.push('x1') }], ['2', () => { order.push('x2') }])
+      schedule.does('y', ['1', () => { order.push('y1') }])
+      return () => { if (order.join(' ') === 'x1 y1 x2') throw thrown }
+    }).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(/^Failed in ordering \d+ \(replay with \[0, 1\]\):/.test(error?.message ?? ''), error?.message)
+    strictEqual(error!.cause, thrown)
+  }],
+  ['a system\'s frames are named for it in what a failure lists, and what it puts off goes into the lane it names', async () => {
+    for (const [name, says] of [[undefined, "a system's frame"], ['the window', "the window's frame"]] as const) {
+      const error = await everyOrdering((schedule) => {
+        const { frame, later } = onSchedule(schedule, ...(name ? [name] : []))
+        frame(() => {})
+        later({ label: 'put off' }, () => {})
+        return () => { throw new Error('fails') }
+      }).then(() => undefined, (caught: unknown) => caught as Error)
+      ok(error?.message.includes(says) && error.message.includes('put off'), error?.message)
+    }
+  }],
+  ['a timer is named for its time in what a failure lists', async () => {
+    const error = await everyOrdering((schedule) => {
+      void schedule.clock.sleep(60_000)
+      return () => { throw new Error('fails') }
+    }).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(error?.message.includes('the clock: 60000 ms'), error?.message)
+  }],
+  ['a timer called off is the one called off: the first set, or one that has already fired, leaves the rest', async () => {
+    const heard: string[] = []
+    await everyOrdering((schedule) => {
+      const { clock } = schedule
+      const first = clock.after(5, () => heard.push('first'))
+      clock.after(15, () => heard.push('second'))
+      first()
+      const early = clock.after(10, () => heard.push('early'))
+      clock.after(20, () => { early(); heard.push('after calling off what had fired') })
+      clock.after(30, () => heard.push('last'))
+      return () => {}
+    })
+    deepStrictEqual(heard, ['early', 'second', 'after calling off what had fired', 'last'])
   }],
   ['explore is there for a pack to read how many orderings it ran', async () => {
     const explored = await explore(twoByTwo([]))

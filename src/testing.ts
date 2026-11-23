@@ -57,15 +57,15 @@ const seeded = (seed: number): Random => {
 }
 
 /** Every event a definition takes under `on`, at any depth: what the state declares it may be sent. */
+type Declared = { readonly on?: Record<string, unknown>; readonly states?: Record<string, Declared> }
 const declared = (def: unknown): Set<string> => {
   const found = new Set<string>()
-  const walk = (at: unknown): void => {
-    if (typeof at !== 'object' || at === null) return
-    const { on, states } = at as { on?: Record<string, unknown>; states?: Record<string, unknown> }
+  // A definition, and every state in it, is an object: what the types let a state be.
+  const walk = ({ on, states }: Declared): void => {
     for (const type of Object.keys(on ?? {})) found.add(type)
     for (const inner of Object.values(states ?? {})) walk(inner)
   }
-  walk(def)
+  walk(def as Declared)
   return found
 }
 
