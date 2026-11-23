@@ -77,5 +77,5 @@ if (unexplained) {
   process.exit(1)
 }
 if (process.argv.includes('--write')) { writeFileSync(out, text); console.log('docs/errors.md written') }
-else if (readFileSync(out, 'utf8') !== text) { console.error('docs/errors.md is not what the compiler says: run npm run errors:update and commit it'); process.exit(1) }
+else if (readFileSync(out, 'utf8').replaceAll('\r\n', '\n') !== text) { console.error('docs/errors.md is not what the compiler says: run npm run errors:update and commit it'); process.exit(1) }
 else console.log(`docs/errors.md as the compiler says, ${sections.length} topics`)

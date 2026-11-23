@@ -1,2 +1,3 @@
 # What tools write and check is written with LF, and a checkout keeps it so on every system.
 etc/** text eol=lf
+docs/errors.md text eol=lf
