@@ -6,7 +6,7 @@
 // the schedule chooses the order between them; `everyOrdering` runs every one, and `sample` a seed's worth.
 import type { Lane } from './port.ts'
 import { explore, sample, type Explored, type Schedule } from './schedule.ts'
-import type { AnyEvent, Asks, Shape, State } from './types.ts'
+import type { AnyEvent, Asks, Shape, State, Value } from './types.ts'
 import { system as kernel, type System } from './kernel.ts'
 
 export { explore, replay, sample, type Clock, type Explored, type Schedule } from './schedule.ts'
@@ -79,7 +79,7 @@ export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks>
   /** Sets up what the state runs in: the systems it reaches, started on this one. Optional. */
   readonly around?: (system: System, schedule: Schedule) => void
   /** Holds after every step that changed anything: what is read of the state then, and the events sent so far. */
-  readonly always: (value: unknown, sent: readonly AnyEvent[]) => void
+  readonly always: (value: Value<S>, sent: readonly E[]) => void
   /** How many events a run sends, how many runs, and the seed they are drawn from. */
   readonly steps: number
   readonly runs: number
@@ -99,22 +99,40 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
   for (let run = 0; run < options.runs; run++) {
     const seed = (options.seed + run) >>> 0
     const random = seeded(seed)
-    const sent: AnyEvent[] = []
-    const events = Array.from({ length: options.steps }, () => (options.events as Record<string, (random: Random) => AnyEvent>)[random.pick(types)]!(random))
-    const explored = await sample((schedule) => {
-      const sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') })
-      options.around?.(sys, schedule)
-      const handle = sys.start('under test', options.state)
-      let failure: unknown
-      const unsubscribe = sys.subscribe(() => { if (failure === undefined) { try { options.always(sys.read(handle), sent) } catch (error) { failure = error } } })
-      schedule.does('the user', ...events.map((event) => [event.type, () => { sent.push(event); sys.send(handle, event as never) }] as const))
-      return () => {
-        // What stopping does is not a step of the state's.
-        unsubscribe()
-        sys.stop()
-        if (failure !== undefined) throw failure
-      }
-    }, { seed, runs: 1 })
+    const sent: E[] = []
+    const events = Array.from({ length: options.steps }, () => (options.events as Record<string, (random: Random) => E>)[random.pick(types)]!(random))
+    // The ordering is drawn from a seed of its own, drawn from the run's after its events: drawn from the run's seed
+    // itself, its first choices would be the events' first draws, and some pairings of event and order never made.
+    const ordering = random.int(0x100000000)
+    let sys: System | undefined
+    let explored
+    try {
+      explored = await sample((schedule) => {
+        sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') })
+        const running = sys
+        options.around?.(running, schedule)
+        const handle = running.start('under test', options.state)
+        let failure: unknown
+        const unsubscribe = running.subscribe(() => {
+          if (failure !== undefined) return
+          try { options.always(running.read(handle) as Value<S>, sent) } catch (error) { failure = error }
+        })
+        // Once something has not held, nothing more is sent: what the run sent is what it failed after.
+        schedule.does('the user', ...events.map((event) => [event.type, () => {
+          if (failure !== undefined) return
+          sent.push(event)
+          running.send(handle, event as never)
+        }] as const))
+        return () => {
+          // What stopping does is not a step of the state's.
+          unsubscribe()
+          if (failure !== undefined) throw failure
+        }
+      }, { seed: ordering, runs: 1 })
+    } finally {
+      // However the run ended, what it started is stopped.
+      sys?.stop()
+    }
     if (explored.failure) {
       const error = explored.failure.error
       throw new Error(`Run ${run + 1}, from seed ${seed}, failed after sending ${sent.map((event) => event.type).join(', ') || 'nothing'}:\n${error instanceof Error ? error.message : String(error)}`, { cause: error })

@@ -39,7 +39,8 @@ export interface Explored {
 //
 // @public (undocumented)
 export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks> {
-    readonly always: (value: unknown, sent: readonly AnyEvent[]) => void;
+    // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+    readonly always: (value: Value<S>, sent: readonly E[]) => void;
     // Warning: (ae-forgotten-export) The symbol "System" needs to be exported by the entry point testing.d.ts
     readonly around?: (system: System, schedule: Schedule) => void;
     // (undocumented)

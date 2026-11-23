@@ -756,22 +756,27 @@
   },
   {
     "key": "src/testing.ts | StringLiteral | const sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') }) | \"\"",
+    "original": "'the window'",
     "why": "Two mutants on this line share this key. 'window' as the side is killed: the state is run in a window, and a surface it tells there is told. 'the window' names that system's frames in a list of what was run, and fromEvents reports a failure by its seed and the events it sent, not by what was run, so the name is never seen"
   },
   {
     "key": "src/testing.ts | StringLiteral | const handle = sys.start('under test', options.state) | \"\"",
+    "original": "'under test'",
     "why": "The ref the state under test is started by: nothing a run reports names it, and a state's handlers are not told their own ref, so any ref runs it the same"
   },
   {
     "key": "src/testing.ts | StringLiteral | schedule.does('the user', ...events.map((event) => [event.type, () => { sent.push(event); sys.send(handle, event as never) }] as const)) | \"\"",
+    "original": "'the user'",
     "why": "The lane the events are sent from is named in a list of what was run, which fromEvents does not report: a failure says its seed and the events it sent"
   },
   {
     "key": "src/schedule.ts | StringLiteral | const clockLane: Lane = { label: 'the clock' } | \"\"",
+    "original": "'the clock'",
     "why": "The clock's lane is told apart from others by being this object, and what a failure lists for each timer is the timer's own name, 'the clock: <ms> ms'; the lane's label is printed nowhere"
   },
   {
     "key": "src/schedule.ts | ObjectLiteral | const clockLane: Lane = { label: 'the clock' } | {}",
+    "original": "{ label: 'the clock' }",
     "why": "The clock's lane is told apart from others by being this object, and what a failure lists for each timer is the timer's own name, 'the clock: <ms> ms'; the lane's label is printed nowhere"
   }
 ]

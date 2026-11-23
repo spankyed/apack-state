@@ -208,6 +208,53 @@ await run([
       steps: 2, runs: 1, seed: 1,
     }), /failed after sending nothing:\ncould not set up/)
   }],
+  ['the order a run is sent in is drawn apart from what it sends: every pairing of the two is made', async () => {
+    const pairs = new Set<string>()
+    let order: string[] = []
+    type Two = { type: 'A' } | { type: 'B' }
+    const two = state<{}, Two>()({ on: { A: () => { order.push('A') }, B: () => { order.push('B') } } })
+    for (let seed = 0; seed < 40; seed++) {
+      await fromEvents({
+        state: two,
+        events: { A: () => ({ type: 'A' }), B: () => ({ type: 'B' }) },
+        // Something else that happens, in a lane of its own: before or after what is sent is the ordering's to say.
+        around: (_, schedule) => { order = []; schedule.does('elsewhere', ['happens', () => { order.push('elsewhere') }]) },
+        always: () => {},
+        steps: 1, runs: 1, seed,
+      })
+      pairs.add(order.join(' then '))
+    }
+    deepStrictEqual([...pairs].sort(), ['A then elsewhere', 'B then elsewhere', 'elsewhere then A', 'elsewhere then B'])
+  }],
+  ['a run that fails names what it had sent when it failed, and sends nothing more', async () => {
+    let received = 0
+    const counting = state<{ data: { count: number } }, { type: 'ADD' } | { type: 'NONE' }>()({
+      data: { count: 0 },
+      on: { ADD: (_, { data }) => { received++; return { data: { count: data.count + 1 } } }, NONE: () => {} },
+    })
+    const error = await fromEvents({
+      state: counting,
+      events: { ADD: () => ({ type: 'ADD' }), NONE: () => ({ type: 'ADD' }) as never },
+      always: (value) => { ok(value.data.count < 2, 'two') },
+      steps: 6, runs: 1, seed: 1,
+    }).then(() => undefined, (thrown: unknown) => thrown as Error)
+    ok(/failed after sending ADD, ADD:\ntwo/.test(error?.message ?? ''), error?.message)
+    strictEqual(received, 2)
+  }],
+  ['a system a run made is stopped however the run ends', async () => {
+    let made: { read(handle: never): unknown } | undefined
+    let handle: unknown
+    await rejects(fromEvents({
+      state: counter,
+      events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'RESET' }) },
+      around: (sys) => { made = sys; handle = sys.start('beside', counter); throw new Error('could not set up') },
+      always: () => {},
+      steps: 1, runs: 1, seed: 1,
+    }), /could not set up/)
+    // A system that has stopped holds no state: what it had started reads as nothing.
+    ok(made !== undefined)
+    strictEqual(made.read(handle as never), undefined)
+  }],
   ['a maker that picks from nothing is told so', async () => {
     await rejects(fromEvents({ state: counter, events: { ADD: (random) => ({ type: 'ADD', by: random.pick<number>([]) }), RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 5, runs: 1, seed: 1 }), /There is nothing to pick from/)
   }],
