@@ -1,1 +1,30 @@
-[]
+[
+  {
+    "key": "src/draft.ts | BooleanLiteral | if (typeof value !== 'object' || value === null) return false | true",
+    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
+  },
+  {
+    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
+    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
+  },
+  {
+    "key": "src/draft.ts | LogicalOperator | if (typeof value !== 'object' || value === null) return false | typeof value !== 'object' && value === null",
+    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
+  },
+  {
+    "key": "src/draft.ts | ArrayDeclaration | return new Proxy(isArray ? [] : {}, { | [\"Stryker was here\"]",
+    "why": "The proxy's target is never read: every trap answers from the node, and an array target is only there so that Array.isArray and the length's descriptor hold. An element on it is seen by nothing"
+  },
+  {
+    "key": "src/draft.ts | ConditionalExpression | if (typeof key === 'symbol' || typeof value !== 'object' || value === null) return value | false",
+    "why": "State data is plain and has no symbol keys, so nothing a state reads is an object under a symbol: whether a draft hands one out as itself or as a draft is seen by nothing"
+  },
+  {
+    "key": "src/draft.ts | StringLiteral | if (typeof key === 'symbol' || typeof value !== 'object' || value === null) return value | \"\"",
+    "why": "State data is plain and has no symbol keys, so nothing a state reads is an object under a symbol: whether a draft hands one out as itself or as a draft is seen by nothing"
+  },
+  {
+    "key": "src/draft.ts | ConditionalExpression | if (held && held.node.base === value) return held.proxy | true",
+    "why": "A held draft whose base is no longer what its parent holds happens only after the parent was itself placed elsewhere in the same edit, which settles it into one object shared by both places. Handing out the old draft then differs only in which of two aliases a later edit reaches, which no state can rely on either way"
+  }
+]

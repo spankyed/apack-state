@@ -60,6 +60,11 @@ const checks: Array<[string, () => void]> = [
     deepStrictEqual(base.list, [3, 1, 2])
     ok(Array.isArray(value.list))
   }],
+  ['shortening an array drops what was past its end, edited or not', () => {
+    const base = freeze({ rows: [{ n: 1 }, { n: 2 }, { n: 3 }] })
+    const { value } = produce(base, (draft) => { draft.rows[2]!.n = 9; draft.rows.length = 2 })
+    deepStrictEqual(value.rows, [{ n: 1 }, { n: 2 }])
+  }],
   ['array reading: map, filter, includes, spread and for-of see the edits', () => {
     produce(freeze({ list: [1, 2, 3] }), (draft) => {
       draft.list.push(4)
@@ -72,6 +77,16 @@ const checks: Array<[string, () => void]> = [
       ok(Array.isArray(draft.list))
     })
   }],
+  ['a draft lists its keys and describes them as an object or array of its own would', () => {
+    produce(freeze({ list: [1, 2], titles: { a: 'A' } }), (draft) => {
+      deepStrictEqual(Object.keys(draft.list), ['0', '1'])
+      deepStrictEqual(Object.entries(draft.titles), [['a', 'A']])
+      deepStrictEqual({ ...draft.list }, { 0: 1, 1: 2 })
+      // The data it was made from is frozen; the draft is what is written to.
+      strictEqual(Object.getOwnPropertyDescriptor(draft.titles, 'a')?.writable, true)
+      strictEqual(Object.getOwnPropertyDescriptor(draft.list, 'length')?.value, 2)
+    })
+  }],
   ['adding and deleting keys, and Object.keys and `in` see it', () => {
     const base = freeze({ tabs: { a: 1, b: 2 } as Record<string, number> })
     const { value } = produce(base, (draft) => {
@@ -82,6 +97,35 @@ const checks: Array<[string, () => void]> = [
     })
     deepStrictEqual(value.tabs, { b: 2, c: 3 })
     deepStrictEqual(base.tabs, { a: 1, b: 2 })
+  }],
+  ['deleting a key that is not there changes nothing', () => {
+    const base = freeze({ tabs: { a: 1 } as Record<string, number> })
+    const same = produce(base, (draft) => { delete draft.tabs.b })
+    strictEqual(same.value, base)
+    deepStrictEqual(same.touched, [])
+  }],
+  ['a field can be set to null or undefined', () => {
+    const { value } = produce(freeze({ a: { n: 1 } as { n: number } | null, b: 1 as number | undefined }), (draft) => { draft.a = null; draft.b = undefined })
+    deepStrictEqual(value, { a: null, b: undefined })
+  }],
+  ['an object made with no prototype is plain data, and is edited as a draft', () => {
+    const tabs = Object.assign(Object.create(null) as Record<string, number>, { a: 1 })
+    const base = freeze({ tabs })
+    const { value, touched } = produce(base, (draft) => { draft.tabs.b = 2 })
+    deepStrictEqual({ ...value.tabs }, { a: 1, b: 2 })
+    deepStrictEqual({ ...base.tabs }, { a: 1 })
+    deepStrictEqual(paths(touched), ['tabs.b'])
+  }],
+  ['what is kept under a symbol is not data: setting one is refused, and removing one changes nothing', () => {
+    const mark = Symbol('mark')
+    const base = freeze({ a: { [mark]: 1, n: 1 } })
+    throws(() => produce(base, (draft) => { (draft.a as Record<symbol, number>)[mark] = 2 }))
+    const same = produce(base, (draft) => { delete (draft.a as Record<symbol, number>)[mark] })
+    strictEqual(same.value, base)
+    deepStrictEqual(same.touched, [])
+  }],
+  ['a draft takes assignments, and says so to what defines a property on it', () => {
+    throws(() => produce({ a: { n: 1 } }, (draft) => { Object.defineProperty(draft.a, 'm', { value: 1 }) }), /assign/)
   }],
   ['assigning a new object, and then editing it through the draft', () => {
     const { value } = produce(freeze({ a: { n: 1 } as { n: number; m?: number } }), (draft) => { draft.a = { n: 5 }; draft.a.m = 6 })
@@ -135,6 +179,7 @@ const checks: Array<[string, () => void]> = [
     produce({ a: { n: 1 } }, (draft) => { kept = draft.a })
     throws(() => kept!.n, /after the handler/)
     throws(() => { kept!.n = 2 }, /after the handler/)
+    throws(() => { delete (kept as { n?: number }).n }, /after the handler/)
   }],
   ['an edit that throws leaves nothing behind', () => {
     const base = freeze({ a: { n: 1 } })
