@@ -761,22 +761,22 @@
   },
   {
     "key": "src/kernel.ts | StringLiteral | for (const leave of now) safely('what leaves at the commit', leave) | \"\"",
+    "original": "'what leaves at the commit'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended), { kind: 'unfollow', to: feature, name: view }) } | \"\"",
+    "original": "'up'",
     "why": "Which lane a view's stop goes up in: the backend takes a stop whenever it comes, and the window stopped hearing that view when it gave it up, so its place among what else goes up changes nothing either side sees"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | case 'make': case 'drop': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) } | false",
-    "why": "Switch cases with one body: a case whose test can never match falls through to the next case, which has the same body, so every kind still gets it"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | case 'view': case 'ended': case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) } | case 'progressed':",
+    "original": "case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }",
     "why": "Switch cases with one body: a case whose test can never match falls through to the next case, which has the same body, so every kind still gets it"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number: ++logged, ...told })) | log || told",
+    "original": "log && told",
     "why": "What a step logs is made at its start when there is a log and only then, so there is a log exactly when there is something to tell it"
   }
 ]

@@ -243,6 +243,9 @@ export function system(host: {
   const leaving: Array<(() => void) & { lost?: () => void; said?: Sent }> = []
   /** For each ask a state here was asked, which it was: what its answer is said to be to. */
   const askedOf = new WeakMap<Question, { readonly ref: string; readonly name: string }>()
+  /** The state answering each ask it answers later, until the answer is taken; and each ask it left unanswered. */
+  const answeringOf = new WeakMap<Question, Active>()
+  const abandoned = new WeakSet<Question>()
   /** The step being logged: what it has handled, and, once it ends, what changed and what left. */
   let logging: { handled: Handled[]; changed: StepLog['changed']; left: Sent[]; ended: StepLog['ended'] } | undefined
   let logged = 0
@@ -516,6 +519,8 @@ export function system(host: {
     for (const ref of [...active.started].reverse()) end(ref)
     active.started.clear()
     for (const question of active.questions) {
+      // Ended as abandoned: an answer its handler gives later has nobody to go to, and is not one.
+      abandoned.add(question)
       const asked = askedOf.get(question)
       leaving.push(Object.assign(() => question.end(refusal('abandoned', 'It stopped before answering')), { said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent }))
     }
@@ -891,7 +896,11 @@ export function system(host: {
   }
   const take = (item: Item): boolean => {
     if (item.kind === 'out') { leaving.push(Object.assign(item.leave, { said: item.said })); return MADE }
-    if (logging) logging.handled.push(handledOf(item))
+    // An answer to an ask its state left unanswered: whoever asked was told it was abandoned, and nothing happens.
+    if (item.kind === 'answer' && abandoned.has(item.question)) return MADE
+    // What is handled is logged as it is taken: an event or ask held for a state not running yet is taken later.
+    const note = (): void => { if (logging) logging.handled.push(handledOf(item)) }
+    if (item.kind !== 'event' && item.kind !== 'ask') note()
     if (item.kind === 'result') return apply(item.of, item.value)
     if (item.kind === 'failure') return fail(item.of, item.error)
     if (item.kind === 'view') {
@@ -963,6 +972,7 @@ export function system(host: {
       try { return apply(item.of, declared.ended(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw taking how ${item.id} ended, and nothing changed: ${said(error)}`); return NOT_MADE }
     }
     if (item.kind === 'answer') {
+      answeringOf.get(item.question)?.questions.delete(item.question)
       // An answer that came with a change: the change is made here, in the step the answer leaves in. If the state
       // that answered was left meanwhile, its ask was ended as abandoned when it was, and nothing is changed.
       const outcome = item.change && !item.change.of.controller.signal.aborted ? withChange(item.change.of, item.change.next, item.outcome) : item.outcome
@@ -974,6 +984,7 @@ export function system(host: {
     // Sent to a state that is not running. It may be one this step is about to start, so it waits until what runs
     // has been matched to the data.
     if (!top && !settling) { held.push(item); return MADE }
+    note()
     if (item.kind === 'event') {
       // What a state sends itself is looked for among what only it sends, and then among what anyone may. What
       // comes from outside is looked for among what anyone may send, and nowhere else.
@@ -1015,6 +1026,7 @@ export function system(host: {
       })
       if (made instanceof Promise) {
         found.of.questions.add(question)
+        answeringOf.set(question, found.of)
         under(made,
           (value) => arrive(isAnswered(value) ? { kind: 'answer', question, outcome: { ok: true, value: value.answer }, change: { of: found.of, next: value.next } } : { kind: 'answer', question, outcome: { ok: true, value } }),
           (error) => arrive({ kind: 'answer', question, outcome: failed(error) }),
@@ -1048,14 +1060,21 @@ export function system(host: {
     trace(`DEFECT: ${called} could not keep what a step wrote, and has stopped: its states were ahead of its rows. ${said(error)}`)
     changed.clear(); fields.clear(); places.clear()
     // Whoever asked in this step is told it failed. Nothing else the step would have sent leaves.
-    for (const leave of leaving.splice(0)) if (leave.lost) safely('what leaves at the commit', leave.lost)
+    for (const leave of leaving.splice(0)) {
+      if (!leave.lost) continue
+      safely('what leaves at the commit', leave.lost)
+      if (logging && leave.said) logging.left.push({ ...leave.said, outcome: 'failed' })
+    }
     if (logging) logging.ended = 'lost'
     turnAway(inside, STOPPED); turnAway(outside, STOPPED); turnAway(held, STOPPED)
     for (const ref of [...running.keys()].reverse()) end(ref)
     const refs = [...changed]
     changed.clear(); fields.clear(); places.clear()
     committed = {}
-    for (const leave of leaving.splice(0)) safely('what leaves as it stops', leave)
+    for (const leave of leaving.splice(0)) {
+      if (logging && leave.said) logging.left.push(leave.said)
+      safely('what leaves as it stops', leave)
+    }
     release()
     for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
   }
@@ -1127,7 +1146,8 @@ export function system(host: {
     try {
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {
-        if (!handled) throw error
+        // The kernel's own throw: not a step that ended any way a log says, and not logged.
+        if (!handled) { logging = undefined; throw error }
         lost(error)
         return
       }

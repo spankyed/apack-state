@@ -87,6 +87,25 @@ const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'ea
     },
   },
 })
+/** Answers a run while it is open, once its id is let go; closed, it has left what it was answering. */
+const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { open: {}; shut: {} } }, { type: 'CLOSE' }, WorkAsks>()({
+  start: 'open',
+  states: {
+    open: { asks: { RUN: async ({ id }) => { await letGo(id); return id } }, on: { CLOSE: () => ({ at: 'shut' }) } },
+    shut: {},
+  },
+})
+/** Makes one save at a time, of the id it was told. */
+const saver = kinds<{ data: { id: string }; states: { on: { makes: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
+  data: { id: '' },
+  start: 'on',
+  states: {
+    on: {
+      makes: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), ended: () => undefined }) }),
+      on: { SAVE: ({ id }, { make }) => { make('save'); return { data: { id } } } },
+    },
+  },
+})
 /** Work that ends, or throws. */
 const runs = (breaks: boolean) => kinds<{ states: { busy: {}; idle: {} } }, never>()({
   start: 'busy',
@@ -184,7 +203,44 @@ await run([
     window.send(handle, { type: 'TYPE', text: 'hello' })
     window.send(handle, { type: 'SEND' })
     await rest()
-    ok(logs.backend.some((step) => step.ended === 'lost'), JSON.stringify(logs.backend.map((step) => step.ended)))
+    const lost = logs.backend.find((step) => step.ended === 'lost')
+    ok(lost, JSON.stringify(logs.backend.map((step) => step.ended)))
+    // Whoever asked in it was told it failed, and the log says so.
+    has(lost.left, { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'failed' })
+  }],
+  ['what is sent to a state that is not running is logged once, as it is taken', async () => {
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', log: (step) => { logs.push(step) }, trace: () => {} })
+    backend.send({ ref: 'nobody' } as never, { type: 'PING' } as never)
+    await rest()
+    strictEqual(handledIn(logs).filter((one) => one.ref === 'nobody').length, 1)
+  }],
+  ['an ask its state left unanswered is logged as abandoned, and not as answered when its work ends after', async () => {
+    const logs: StepLog[] = []
+    const held = new Map<string, () => void>()
+    const letGo = (id: string): Promise<void> => new Promise((resolve) => { held.set(id, resolve) })
+    const backend = system({ side: 'backend', log: (step) => { logs.push(step) } })
+    const open = backend.start('shuttable', shuttable(letGo))
+    const asked = backend.ask(open, 'RUN', { id: 'x' })
+    await turns()
+    backend.send(open, { type: 'CLOSE' })
+    await turns()
+    const outcome = await asked
+    ok(!outcome.ok && outcome.failure.kind === 'abandoned')
+    held.get('x')!()
+    await rest()
+    has(leftIn(logs), { kind: 'abandoned', to: 'shuttable', name: 'RUN' })
+    ok(!handledIn(logs).some((one) => one.kind === 'answer'), JSON.stringify(handledIn(logs)))
+    ok(!leftIn(logs).some((sent) => sent.kind === 'answer'), JSON.stringify(leftIn(logs)))
+  }],
+  ['one made of one at a time is logged without a key', async () => {
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', log: (step) => { logs.push(step) } })
+    backend.start('worker', worker(() => Promise.resolve()))
+    const made = backend.start('saver', saver)
+    backend.send(made, { type: 'SAVE', id: 'a' })
+    await rest()
+    has(handledIn(logs), { kind: 'make', ref: 'saver', name: 'save' })
   }],
   ['nothing any of it carried is in a log', async () => {
     const { window, handle, logs } = wired()
@@ -231,10 +287,12 @@ await run([
     deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, making: false, at: 'idle' })
     for (const resolve of held.values()) resolve()
     await rest()
+    // Every run was answered: nothing is abandoned when the system stops.
     // A state that ended is nowhere.
     backend.stop()
     await rest()
     strictEqual(logs.at(-1)!.changed.ends?.at, '')
+    ok(!leftIn(logs).some((sent) => sent.kind === 'abandoned'), JSON.stringify(leftIn(logs)))
   }],
   ['what left is said by kind, to whom and by name: a follow and an unfollow, a tell made outside a step, and an ask its state stopped before answering', async () => {
     const store = memory()
