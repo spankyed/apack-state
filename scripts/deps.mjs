@@ -56,30 +56,31 @@ const devDependencies = () => JSON.parse(readFileSync(MANIFEST, 'utf8')).devDepe
 /** The packages of `repo` this repository installs */
 const installed = (repo) => Object.keys(SIBLINGS[repo].packages).filter((name) => name in devDependencies())
 
+/** The manifest as it was before this changed it, to be put back if what it names cannot be installed. */
+let before
+
 /**
- * Rewrites the named devDependencies, line by line, so the rest of the manifest keeps its bytes. A package not yet
- * installed is added, and the entries kept in order.
+ * Sets the named devDependencies, or takes out each named `undefined`, as JSON: the manifest is written as `npm`
+ * writes it, two spaces, so nothing else in it changes. The entries are kept in order.
  */
 function writeSpecs(specs) {
-  const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
-  const missing = Object.keys(specs).filter((name) => !(name in (manifest.devDependencies ?? {})))
-  if (missing.length) {
-    manifest.devDependencies = Object.fromEntries(Object.entries({ ...manifest.devDependencies, ...specs }).sort(([a], [b]) => a.localeCompare(b)))
-    writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`)
-    return
-  }
-  let text = readFileSync(MANIFEST, 'utf8')
-  for (const [name, spec] of Object.entries(specs)) {
-    const line = new RegExp(`^(    ${JSON.stringify(name).replace(/[/]/g, '\\/')}: )"[^"]*"`, 'm')
-    if (!line.test(text)) refuse(`package.json names ${name} in a way this cannot rewrite.`)
-    text = text.replace(line, `$1${JSON.stringify(spec)}`)
-  }
-  writeFileSync(MANIFEST, text)
+  before ??= readFileSync(MANIFEST, 'utf8')
+  const manifest = JSON.parse(before)
+  const all = { ...manifest.devDependencies, ...specs }
+  manifest.devDependencies = Object.fromEntries(Object.entries(all).filter(([, spec]) => spec !== undefined).sort(([a], [b]) => a.localeCompare(b)))
+  writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
+/** npm's own script, run by this Node, with no shell to read a path or a version on Windows. */
+const npmCli = process.env.npm_execpath?.endsWith('.js') ? process.env.npm_execpath : path.join(path.dirname(process.execPath), process.platform === 'win32' ? '' : '..', process.platform === 'win32' ? '' : 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+
 function install() {
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const ran = spawnSync(npm, ['install', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' })
+  const ran = spawnSync(process.execPath, [npmCli, 'install', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit' })
+  if (ran.status !== 0 && before !== undefined) {
+    // What it named could not be installed: the manifest is as it was, and the lockfile was not written.
+    writeFileSync(MANIFEST, before)
+    console.error('npm install failed, so package.json is as it was.')
+  }
   process.exit(ran.status ?? 1)
 }
 
@@ -112,7 +113,9 @@ function released(repos) {
   const specs = {}
   for (const repo of repos) {
     for (const name of installed(repo)) {
-      if (releaseOf(committed[name] ?? '')?.repo !== repo) refuse(`HEAD's package.json does not name a release of ${repo} for ${name}: ${committed[name]}`)
+      // One HEAD does not install, deps:local added: it goes again.
+      if (!(name in committed)) { specs[name] = undefined; continue }
+      if (releaseOf(committed[name])?.repo !== repo) refuse(`HEAD's package.json does not name a release of ${repo} for ${name}: ${committed[name]}`)
       specs[name] = committed[name]
     }
   }
@@ -123,6 +126,13 @@ function released(repos) {
 /** Every sibling package named by a release URL from the table, with its own file, and one commit a sibling */
 function check() {
   const problems = []
+  // A sibling's package is a devDependency: one named anywhere else is not one this pins or checks.
+  const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+    for (const repo of Object.keys(SIBLINGS)) for (const name of Object.keys(SIBLINGS[repo].packages)) {
+      if (name in (manifest[field] ?? {})) problems.push(`${name} is in ${field}: a sibling's package is a devDependency, which deps:pin writes`)
+    }
+  }
   for (const repo of Object.keys(SIBLINGS)) {
     const commits = new Set()
     for (const name of installed(repo)) {
