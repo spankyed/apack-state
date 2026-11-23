@@ -255,6 +255,21 @@ await run([
     ok(made !== undefined)
     strictEqual(made.read(handle as never), undefined)
   }],
+  ['the first thing not held is what a run fails with, whatever changes after it', async () => {
+    let told = 0
+    const error = await fromEvents({
+      state: counter,
+      events: { ADD: () => ({ type: 'ADD', by: 1 }), RESET: () => ({ type: 'ADD', by: 1 }) as never },
+      // Something beside it keeps changing after the run has failed, and each change is a step always is held to.
+      around: (sys, schedule) => {
+        const beside = sys.start('beside', counter)
+        schedule.does('elsewhere', ...[1, 2, 3].map((n) => [`adds ${n}`, () => { sys.send(beside, { type: 'ADD', by: 1 }) }] as const))
+      },
+      always: () => { throw new Error(`not held, time ${++told}`) },
+      steps: 1, runs: 1, seed: 1,
+    }).then(() => undefined, (thrown: unknown) => thrown as Error)
+    ok(error?.message.endsWith('not held, time 1'), error?.message)
+  }],
   ['a maker that picks from nothing is told so', async () => {
     await rejects(fromEvents({ state: counter, events: { ADD: (random) => ({ type: 'ADD', by: random.pick<number>([]) }), RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 5, runs: 1, seed: 1 }), /There is nothing to pick from/)
   }],
