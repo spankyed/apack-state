@@ -337,6 +337,18 @@ await run([
     await turns()
     ok(logs.some((step) => step.ended === 'cut short'), JSON.stringify(logs.map((step) => step.ended)))
   }],
+  ['a window that stops following before what it follows has crossed logs no unfollow: nothing was followed there', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', transact: store.transact, views: countOf(store) })
+    const window = system({ side: 'window', log: (step) => { logs.push(step) } })
+    window.connect(backend)
+    // Started and stopped in one turn: the follow is turned away where it would cross.
+    window.start('watcher', watcher)
+    window.stop()
+    await rest()
+    ok(!leftIn(logs).some((sent) => sent.kind === 'unfollow'), JSON.stringify(leftIn(logs)))
+  }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
     const traced: string[] = []
     const window = system({ side: 'window', log: () => { throw new Error('the log broke') }, trace: (line) => { traced.push(line) } })

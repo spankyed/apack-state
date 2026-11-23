@@ -670,16 +670,6 @@
     "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
-    "original": "ended",
-    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
-    "original": "linked.gone.delete(ended)",
-    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
-  },
-  {
     "key": "src/schedule.ts | OptionalChaining | hold.onmessage = () => { const resolve = onTurn; onTurn = undefined; resolve?.() } | resolve()",
     "original": "resolve?.()",
     "why": "One message is posted for each wait, after the wait has set what it resolves, and runs do not overlap; so the handler always finds something to call, and the optional call never skips"
@@ -778,5 +768,10 @@
     "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number: ++logged, ...told })) | log || told",
     "original": "log && told",
     "why": "What a step logs is made at its start when there is a log and only then, so there is a log exactly when there is something to tell it"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }), { kind: 'unfollow', to: feature, name: view }) | true",
+    "original": "linked.gone.delete(ended)",
+    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
   }
 ]
