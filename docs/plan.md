@@ -1,55 +1,27 @@
 # apack-state: one state primitive in place of XState
 
 Status: accepted as the direction, 2026-11-22, and from 2026-11-23 built here, in a repository of its own. Nothing
-in apack runs on it: what exists is the prototype's kernel in [`src/`](../src/) with its checks beside it
-([files.md](files.md)), and this record of the design it reached, what proves it, and the work it implies. Paths
-under `packages/` are apack's. The app's code was brought to this design's vocabulary on XState first
-([What is already done on XState](#what-is-already-done-on-xstate)), and the next work is the kernel in the tree
-([Order of work](#order-of-work)).
+in apack runs on it: what exists is the kernel in [`src/`](../src/) with its checks beside it ([files.md](files.md)),
+and this record of the design it reached, what proves it, and the work it implies. Paths under `packages/` are
+apack's. What moving the app onto it changes in apack's tree, and what is already done there, is apack's own plan:
+`docs/plans/apack-state.md` in spankyed/apack (spankyed/apack#626). What is left out of this one on purpose is in
+[deferred/](deferred/).
 
 **The design on one page, with a complete example: [design.md](design.md).** This file is
 the longer record, in this order: why, the design and its rules, rows and the database, every decision with what it
-replaced, what the prototype proves, what is done, what to build around it, what is not built, what it costs, and
-the order of work.
+replaced, what the prototype proves, what to build around it, what is not built, what it costs, and the order of
+work.
 
 ## Why
 
-The app builds every system and surface on XState and uses a small part of it. Measured on `7a09f823e8`, 2026-11-20, by
-reading every package source file's AST (`surveys/xstate-survey.mts`):
-
-| | |
-|---|---|
-| Machines | 49 |
-| With one state or none | 33 |
-| With nested states | 2 |
-| Transitions that name a target | 113 |
-| Transitions that only run a handler | 1,175 |
-| Parallel or history states | 0 |
-| `fromPromise` | 3 |
-| `assign` / `useSelector` call sites | 605 / 439 |
-
-Two more counts are from text search and so approximate: about 510 places where a handler narrows its own event by hand
-(`typeOf(…)`, `event.type ===`), and about 70 where an answer is matched to its request by hand (`answersCall`,
-`newCall`, …).
-
-What the app needs most is not in XState, so each piece is built on top of it: request and answer (`reply`,
-`answerWith`, result events), cancellation, live views, and owned resources. XState is also part of the pack contract:
-it is a shared-instance package (`SHARED_INSTANCE_PACKAGES`) and is named in seven of the SDK's recorded API reports.
-
-Specific costs recorded in the source today:
-
-- **State and data are two things that can disagree.** `entity-opening.ts` holds `request: Request | null` beside its
-  states and asserts `request!` 13 times.
-- **A handler receives every event.** Each one starts by casting: `const ev = event as { type: …; id: string }`.
-- **An action cannot await and its return value is ignored**, so an answer is a second event and a failed handler can
-  leave its asker waiting.
-- **No `exit` action runs on `actor.stop()`**, which is why a listener has to be a child actor
-  (`code/fe/state.ts`).
-- **An event no state takes is dropped silently.**
+apack builds every system and surface on XState and uses a small part of it: of its 49 machines, 33 have one state
+or none, and 1,175 of its transitions only run a handler (read on `7a09f823e8` by `surveys/xstate-survey.mts`, which
+takes a checkout). What the app needs that XState does not give, it checks by pack rules and conventions. Why the
+app moves, and what XState costs it today, is apack's plan's to say.
 
 **What is left for the kernel, now that the app's vocabulary is this design's.** On `97ee092630`, 2026-11-22, the
 app's components read through `useState`, its machines make their asks by name, and a send is `tell` or
-`broadcast`, all on XState ([What is already done on XState](#what-is-already-done-on-xstate)). That took the daily cost out: the selectors,
+`broadcast`, all on XState (apack's plan, "What is already done here"). That took the daily cost out: the selectors,
 the ids of asks, the events an answer arrived as. What XState with those helpers still cannot do is what the kernel
 is for:
 
@@ -794,14 +766,6 @@ Persistence and Orleans make the stored thing the truth and the actor's memory a
 Mnesia forbid waiting inside a transaction, which the rule about `await` is. What each of them declines is the same
 thing declined here: one transaction over two stores.
 
-#### Left for after: one store for either kind of data
-
-A state's `data` could be kept in memory or in the database behind one interface, so that a backend state's data
-were rows and a window followed them by view. It is worth having for exactly that, a backend state with data
-several windows show. It is not a way to make everything a row: a window has no database, a row is typed by a
-pack's manifest where data is typed by the state, and a write a second is what a draft of text costs in memory and
-far more in a log. It needs the step to be a transaction first, and nothing above needs it.
-
 ## Decisions, and what each replaced
 
 | Decision | What was tried first, and why it was dropped |
@@ -1135,54 +1099,14 @@ Five examples run beside them and compare what each step leaves: `examples/searc
 - **Steps were measured against plain actor delivery** on an earlier version of the prototype: an observer saw states
   disagree twice without steps and never with them. That measurement is not in this folder.
 
-## What is already done on XState
-
-The app's code was brought to this design's vocabulary before any kernel was written, so that code written now reads
-as it will after the move and the move rewrites as little as it can. All of it is merged.
-
-| What | Where | State |
-|---|---|---|
-| An ask is declared `{ args, answer, refuses, progress }`, refused with `throw refuse(kind, message, data?)`, and its handler's `signal` aborts when whoever asked goes | spankyed/apack#591, #593 | Done, in the SDK and every contract |
-| An asker awaits: no surface handles an answer as an event | #591 | Done. A state invokes `fromAsk`, which is this design's `run` |
-| A component reads its machine with `useState`, as `{ at, data }`, and names no actor | #596 | Done: about 350 `useSelector` calls in 75 files. The `machine-selectors` pack rule refuses `@xstate/vue` in a pack |
-| What `useState` hands a component is typed read-only | #606 | Done: 57 files, with no write to a machine's data found |
-| An ask that is not a state's own work is declared under `makes` and made by name, and which are under way is `making` | #597, #599 | Done, in all thirteen machines that had such asks. `useAsk` is gone: a component does not ask |
-| A send is `tell` or `broadcast` | #600 | Done |
-| A spec drives a feature at its boundary | | Partly: specs of asks ask, and many still read an actor's context |
-
-Two things were considered and left out. **A machine defined through the SDK**, re-exporting XState's `setup` and
-`assign`: it would put XState's way of writing a machine under this design's name, and every machine written through
-it would be in the shape the move is away from. A machine stays XState's, named as XState's, until its feature is
-ported whole. **Taking the commit and pull-request machines apart by concern**: that carries over one for one, a
-state for each concern, and done on XState first it is done twice.
-
-What it taught, which this design now has:
-
-- **A mirror hands out the state's own values, or it breaks identity.** The first `useState` copied the context
-  into a deep reactive mirror. On real components a machine that drops what it is told by `includes` never matched
-  the copies sent back, `structuredClone` refused a proxy, component definitions held in data were copied, and a
-  watch did not run when a result was replaced by an equal one. [What a component reads](#what-a-component-reads)
-  is written for what shipped.
-- **A read made on an event is a `makes`.** The helper does not tell a read from a write. What was not built on
-  XState is a read that asks again when a field changes, which is `awaits`.
-- **A read asked again replaces the one before, by construction.** Where a machine kept a map from an ask's id to
-  what it was about, the ask is keyed by that and the map is gone.
-- **XState's wildcard can break it silently.** A state's `'*'` is tried before its parent's transitions, so it
-  takes an ask's end and the ask stays under way for good. A pack rule holds it. This design has no such
-  fall-through to guard.
-
-What is on `master` and is not to be built on: XState's `makes` keeps which asks are under way in the machine's
-context and hears how one ended as `xstate.done.actor.made.*`. Here that record is the kernel's, and there is no
-event for how an ask ended. It goes with each surface as it is ported.
-
 ## What to build around it
 
 The design is the smaller half of the value. In the order they would pay:
 
 1. **The Vue binding, in a window.** `useState` is the app's own, with the same things promised over either kernel
    ([What a component reads](#what-a-component-reads)), and it is checked by rendering, by a compiled template and
-   by `vue-tsc`. What a check cannot say is what the step log would give Vue's devtools, as Pinia gives them its
-   stores, and what the read-only types cost the app's components (Not built).
+   by `vue-tsc`, and runs in a browser. What a check cannot say is what Vue's devtools would show of it, as Pinia's
+   do of its stores: [deferred](deferred/vue-devtools.md).
 2. **Tests that replay interleavings.** The risk in this design is ordering: a result that arrives after its state was
    left. The prototype has this: `src/schedule.ts`, under What the prototype proves. What is left is its place in the
    harness, so that a pack's spec runs a scenario under every ordering the way it runs a case today, and a reduction
@@ -1197,6 +1121,9 @@ The design is the smaller half of the value. In the order they would pay:
    schedule, when delays exist. What the prototype already does that fast-check does not: it runs every ordering
    where fast-check samples, and it waits a turn of the event loop to know that everything has settled where
    fast-check waits fifty microtask ticks and takes the quiet for it.
+
+   Built: `@apackdev/state/testing` has every ordering (`everyOrdering`), scenarios generated from the events a
+   state declares (`fromEvents`), and a clock the schedule owns (`schedule.clock`). The reduction is not built.
 3. **The graph as a recorded file.** `tools/graph.mts` is a script. As a recorded file per feature, with `:check` and
    `:update` halves like the API reports, a change to a state's graph shows in the diff. The same data gives pack rules:
    a state never entered, an event nothing takes, an ask nobody asks, and **a cycle of asks**. A answering an ask by
@@ -1207,6 +1134,9 @@ The design is the smaller half of the value. In the order they would pay:
    Exploring the graph for a state with no way out, or an event a state does not take, was considered and left out:
    the first reports every state that is meant to be an end, and the second every event handled further up, which is
    where most handlers sit.
+
+   Built: each example's graph is recorded in `etc/graphs/`, held to the source by `graph:check`. The pack rules and
+   the check for a cycle of asks are not built.
 4. **The step log.** A step is already one whole unit: its cause, the handlers that ran, the data that changed, and
    what left the system. Recorded, it gives a bug report that replays to the same state, a test made from a recording,
    and a timeline in the Logs surface that shows what one click caused across every state it reached. What crosses a
@@ -1214,6 +1144,10 @@ The design is the smaller half of the value. In the order they would pay:
    Effect's `Machine` parents the span that handles a request to the span that sent it. The log holds which event and
    which fields changed, never what an event or an ask carried: Effect copies a request's fields into its span, and a
    payload is where a key or a document's text would be.
+
+   Built: a system given `log` is told of each step as it ends ([design.md](design.md), "A step's log"). Recording
+   one to replay, and a step on the backend naming the window's step that caused it, are not built: the second is a
+   cause carried across the link, which `@apackdev/link` already carries.
 5. **A pack rule against a promise nobody awaits.** The kernel keeps a dropped ask from taking the process down, but
    the code that dropped it also never sees its answer or its refusal. `no-floating-promises` over pack sources, as a
    pack rule beside the others, refuses it for every pack.
@@ -1235,74 +1169,6 @@ projects. Each would loosen the fit to this app.
 
 ## Not built
 
-- **What the second step of the cutover waits on.** The host's bus and shell are ported before any feature
-  ([Order of work](#order-of-work)). Four things they need were not designed. Two are now, and two are left for
-  that step, by one test: **does it change what a state's definition looks like?** One that does is cheap to settle
-  before anything is ported and has to be redone in every machine after. One that does not is something added
-  beside the definitions, and is better settled against the real bus and shell than guessed at here.
-  - *Settled, since each changes a definition:* events only the state itself may send, and one surface telling
-    another in its window ([Communication](#communication)).
-  - **Roles**: `tell({ role: 'brain' }, …)`, a name the host resolves to whichever system plays it. The app writes
-    it this way already, and the address is the shape `{ surface }` has. Which system plays a role is the host's to
-    say, from a pack's manifest. Three rules are settled, and what is left is the host's side of them:
-    - a role is resolved when what was sent is delivered, and not when it is sent, so the pack that plays it can be
-      replaced between the two;
-    - a `tell` to a role nobody plays is ignored, and that is said;
-    - an `ask` of a role nobody plays is answered `unavailable`.
-  - **Restoring a state after a reconnect or a code reload.** A state is plain data, `{ at, data }`, so it can be
-    handed back to a fresh copy of itself, which is what `useSurfaceDraft` does by hand today for what a component
-    holds. Restoring is entering: the state is entered at `at` with `data` given, so its `run` starts again, and a
-    state restored at `searching` searches. Effect's `Machine` restores the same way, by starting afresh with the
-    previous state handed in, and saves nothing that was in flight. What a state started is started again, since
-    it follows from the data, but with nothing of its own: a restored threads system has every thread running and
-    none of their messages. What is saved to restore from has to hold what each started state held as well. What
-    it must carry is what the shell does on a reconnect today, which is why it waits for the shell. Three rules are
-    settled:
-    - **what is restored is looked at before anything is entered**, as a move is (rule 8): a state there is not, a
-      field missing or a field no state has, and it is refused whole, the state starts afresh, and that is said. A
-      definition that changed since the value was saved is the ordinary case of this, and is what React's fast
-      refresh does with a component whose shape changed;
-    - **what is saved is a state and every state it started**, each with what it held;
-    - **reads are asked again and writes are not made again**, which is what `awaits` and `makes` already are.
-- **The app's components against read-only data.** A component reads through `useState` and is not rewritten in
-  the move, so it has to compile against what this kernel hands it. Measured twice on `908a41d41b`, 2026-11-21,
-  with only the type of the `data` that `useState` gives changed. The typecheck of the SDK and of the host passes
-  either way. Typed read-only at every depth (Vue's `DeepReadonly`), the built-in pack reports 125 errors in 26 files
-  and the renderer's 44 lines in 4 files. Typed one level in, a field and a list a field holds, the pack reports 54 in
-  21 files and the renderer's 4 lines in 2 files, which are 2 errors each reported twice. Typed as the kernel types
-  it, every field at every depth as well, both report those same errors and no other: a read-only object is taken
-  wherever a writable one is asked for. **None is a write, under any of the three.** There is no assignment to a read-only field
-  and no list changed in place among them. Every one is a value read from a machine handed to something that says it
-  may write to it: a prop, a helper's parameter, a `Ref<string[]>`. Of the 58 lines that remain, most are a read-only list
-  handed where a writable one is asked for, which is the one thing TypeScript holds a caller to and the thing worth
-  saying: a prop or a parameter that only reads a list says `readonly string[]`. What the deep type added to that was
-  mostly a `Thread` handed on as its entity type declares it, whose lists are writable and whose type is not to be
-  widened to make a caller compile (`packages/apack-sdk/TYPED-EARS.md`). That no write was found is not that there
-  is none: a list further in changed in place, or a write through a helper typed as writable, is what the compiler
-  cannot see. A type that takes an object apart has to ask first whether it is a string: one marked as a kind of id
-  (`FeatureRef`) is a string and an object at once, and taken apart it is refused everywhere a string is asked for,
-  which the first measurement of this showed as 28 lines in the renderer. What remains is
-  to be put right as each feature is ported.
-- **A pack rule for a write to what was read.** The types refuse a field assigned at any depth and a field's list
-  changed in place, and a write that runs is reported with what to write. Between them is a list further in changed
-  in place, which compiles and is found only when its line runs. A rule closes the form of it that is written where
-  the value was read, and needs no types to: it refuses an assignment, a `delete` or a method that changes a list in
-  place (`push`, `pop`, `shift`, `unshift`, `splice`, `sort`, `reverse`, `fill`) whose target begins at the `data` a
-  handler is handed or at the `state.data` a component reads. `data.open.tags.push(x)` is refused; the same list
-  taken into a `const` first, or handed to a helper, is not seen, and is what the report at run time is for. It
-  belongs with the pack rules, so that `apack pack validate` and `check:specifiers` both run it, and it is written
-  when the first feature is ported (Order of work, step 5), since until then there is no handler in the tree for it
-  to read. `eslint-plugin-functional`'s `immutable-data` and unicorn's `no-array-sort`, `no-array-reverse` and
-  `no-array-splice` are the kind. Seeing through the `const` or the helper would take the types or the whole
-  program, and is not to be built: a check that runs the handler finds it, and says what to write.
-- **The Vue binding in a window.** One thing about it is not known, and cannot be found out here:
-  - **Devtools.** Pinia shows its stores in Vue's devtools, with what changed them and when. A step is already that
-    record here: its cause, the handlers that ran, the fields that changed. Giving it to the devtools belongs with
-    the step log (What to build around it), and is worth doing only against the components people will inspect.
-- **A machine's context is not frozen on XState**, so a component that writes to what `useState` handed it changes
-  the machine's own object, with no event. `useSelector` handed out the same objects before. It is left as it is:
-  freezing what a component is handed freezes the machine's context, and a machine that writes to its context in
-  place, or keeps an actor there, would throw. It goes when a surface is ported, since this kernel freezes.
 - **The rest of the commit surface.** Reads and writes are built and checked on a slice of it: five of its 54 asks,
   two reads and three writes. What the slice does not show is the other 49, and whether "a state when what the surface takes
   changes, an awaited ask otherwise" stays a clear rule across them. The asks the panel reads as under way by id
@@ -1336,21 +1202,7 @@ projects. Each would loosen the fit to this app.
 - **Saving a state to disk** is not wanted. A saved state is a stored format that would then have to be kept stable.
   And restoring starts a state's work again, which is right for a search a moment after a reload and wrong for a
   message that was being sent a day ago.
-- **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left is not the kernel's:
-  - *In the SDK:* the engine a pack is handed refuses a bare write outside a unit. In the prototype that is a count
-    kept around `transact` (`checks/store-elmdb.mts`), and it is the same there.
-  - *A pack rule:* a handler that opens a `transact` after an `await` is refused by `apack pack validate`, beside
-    the rules that are there. It has no subject until a handler is written against the kernel.
-  - *The host saying when the views have been sent what was kept.* The hold rests on what a view delivers and what
-    a step sends coming down one ordered connection. They do: a window has one socket (`createWSClient`,
-    `packages/renderer/src/transport/index.ts`), and its view subscriptions (`views.watch`) and its bus subscription
-    (`bus.sub`) are both tRPC subscriptions over it, read on `origin/master` at `e8cfccf4a5`. What the host has to
-    add is the word that the views have been sent: for elmdb, its `watchesSettled`.
-  - *A watch somebody is waiting on.* elmdb runs a watch again no sooner than a frame after it last ran, which
-    bounds what a churning view costs and is what a run of asks that each write pays, a frame a link. A way to have
-    the watches a held answer waits on run at once, within the slice a flush already keeps to, would make that the
-    time the view takes to read. It is a change to elmdb's scheduler, designed in elmdb's
-    `docs/roadmap/waited-watches.md` (spankyed/elmdb#216) and not built.
+- **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left:
   - *A step that must be on disk before it answers.* `transact` takes `durable: true`; a handler has no way to ask
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.
   - *Restart.* Nothing here kills a system between something done outside and the row that records it. That is
@@ -1367,17 +1219,14 @@ projects. Each would loosen the fit to this app.
 
 ## Costs
 
-- **Size.** Files that define a machine total about 27,500 lines, and 132 spec files import XState.
-- **The move is made in one piece.** There is no bridge between the two kernels ([Order of work](#order-of-work)),
-  so the app does not run on the branch until every machine is across. A design fault shows part-way through and is
-  paid for in everything ported by then, which is why the hardest surface goes first. A change to a machine on
-  `master` in the meantime is made again on the branch. And nothing of it lands until all of it does.
 - **No ecosystem.** No visualizer and no community knowledge; models and people know XState.
 - **Edge cases.** XState has years of fixes that a new kernel would rediscover.
 - **Compile errors are deep.** A missing `failed` is reported as the whole state not being assignable, with the line
   that says so, "Property 'failed' is missing", third after two of printed types. Every rule the types hold is reported
-  this way. Nobody has yet met these errors while writing a feature, and the first port is where their cost shows. How
-  long the compiler takes over 49 machines' worth of these types is not measured either.
+  this way. Nobody has yet met these errors while writing a feature, and the first port is where their cost shows.
+  [errors.md](errors.md) says what each one the type tests hold means. What the compiler takes over many states is
+  measured (`measure/compile-cost.mts`, recorded in `bench/`): about 11 ms and 800 types a state, linear to 300
+  states, where it uses about 460 MB.
 - **Static analysis needs the compiler**, and is as precise as the helper types: a loosely typed helper blurs the graph.
 - **A discipline XState avoids by forbidding it.** After an `await` in `run` or an ask, code should only return. The
   kernel drops what a stale task sends through it, and cannot stop a side effect that bypasses it.
@@ -1389,41 +1238,19 @@ projects. Each would loosen the fit to this app.
 
 ## Order of work
 
-Step 1 is done. No later step is started.
+1. **The app's code brought to this design's vocabulary on XState.** Done, in apack, and merged (apack's plan,
+   "What is already done here").
+2. **The kernel built here**, as `@apackdev/state`, with no dependencies at run time, from the prototype and with its
+   checks: the schedule and every ordering, the refusals, what must not compile. It takes the `transact` a step is
+   run in ([Rows](#rows)) as something it is given, so that it names no database. Done, with what holds it to that:
+   checks as specs, run in Node and in a browser, type tests held to TypeScript 5.7, an API report, mutation testing,
+   a release of each commit as `pkg-<commit>`, and a kit for packs' checks (`@apackdev/state/testing`).
+3. **The kernel on a link.** A backend and its windows joined by `@apackdev/link` in place of the kernel's in-memory
+   port, with the hold held over it. It waits on the link's peer and hold being merged.
+4. **What is left of the kernel itself**: [Not built](#not-built).
 
-**There is no bridge.** A bridge would run states and XState machines on one bus so that features could move one at
-a time, with the app running throughout. It is not built, and is not to be: it is a second kernel's worth of joins to
-write, test and then delete, at the boundary where a step meets something that has none. What makes going without
-one reasonable is step 1. A component names neither XState nor an actor, a send is `tell` or `broadcast`, and an
-ask is the SDK's, so what the move rewrites is the files that define a machine and their specs, and no component.
-
-1. **Bring the XState code to the shared vocabulary and seams.** Done, and merged: spankyed/apack#591 and #593 for
-   asks, #596 for `useState`, #597 and #599 for `makes`, #600 for `tell` and `broadcast`
-   ([What is already done on XState](#what-is-already-done-on-xstate)). A machine goes on naming XState until it
-   is ported.
-2. **Build the kernel here**, as `@apackdev/state`, with no dependencies at run time, from the prototype and with
-   its checks: the schedule and every ordering, the refusals, what must not compile. apack installs it as it does
-   its other sibling repositories' packages, from a release pinned by commit. It takes the `transact` a step is run in ([Rows](#rows)) as something it is given, so
-   that it names no database.
-3. **Port the host's bus and shell**, which everything else runs inside. Two things they need are settled here,
-   against the real ones ([Not built](#not-built)): roles, and restoring a state. The host gives the
-   kernel the app's engine's `transact`, and the engine a pack is handed refuses a write outside a unit.
-4. **Put the test harness on it**, so that a feature's specs run against the kernel. From here to the end the app
-   does not start, and this is how each port is known to work: a feature is across when its specs pass, unchanged in
-   what they assert.
-5. **Port the commit surface and the code system it asks, first.** It is the hardest: 54 asks, none of them a
-   state's own work. If `awaits` and `makes` fall short, or a state turns out to need more than one place to be at,
-   it shows here and costs one surface. On XState with `makes` its machine is about 1,620 lines; what it comes to
-   here is the measure of what the kernel is worth, to be written down and not acted on. The commit and
-   pull-request surfaces are taken apart by concern as they are ported, each concern a state the surface starts.
-   The pack rule for a write to what was read is written with it ([Not built](#not-built)), so that every later
-   port is held to it.
-6. **Port the rest**, the hardest of what is left each time: the brain, the surfaces with states, then the 13
-   single-state surfaces and the 20 single-state backend systems, which are the least likely to surprise.
-7. **Remove XState**, start the app, run the chain, and regenerate the recorded API reports.
-
-While the branch is open, a change to a file that defines a machine on `master` is made again on the branch, so
-such changes are kept few, and the branch is brought up to `master` often enough that each is small.
+What the move changes in apack's tree, in order, from installing the packages to removing XState, is apack's plan:
+`docs/plans/apack-state.md` in spankyed/apack. There is no bridge: the two kernels never run on one bus.
 
 ## The name
 

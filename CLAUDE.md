@@ -18,7 +18,8 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
   `store-elmdb.mts` the rows a step writes, in memory and on elmdb.
 - `examples/`, `measure/`, `surveys/` and `tools/` are as `docs/files.md` says.
 - `docs/design.md` is the design with no history; `docs/plan.md` the record, with what is not built and the order
-  of work.
+  of work; `docs/deferred/` what is left out of it on purpose, and why. What moving apack onto it changes in apack's
+  tree is apack's own plan, not this one.
 
 ## Rules
 
