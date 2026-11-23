@@ -1,6 +1,6 @@
 // What a draft has to get right. Each check is a way a hand-built one goes wrong.
 //
-//   npx tsx checks/draft-check.mts
+//   npx vitest run draft
 import { deepStrictEqual, notStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run } from './checks.mts'
 import { produce } from '../src/draft.mts'

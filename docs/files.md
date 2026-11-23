@@ -22,7 +22,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |
 | `checks/awaits-check.mts` | The reads a state awaits: from the fields it names, or one for each key of a field. Runs |
 | `checks/makes-check.mts` | The writes a state makes: said once with `make`, with which are under way kept by the kernel. Runs, for about 10 seconds |
-| `checks/checks.mts` | What every check file runs its checks with: each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
+| `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
+| `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |
 | `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data. Runs |
 | `checks/answer-check.mts` | An ask that changes something as it answers: the change is there with the answer, a refused change fails the ask, nothing is lost across a wait. Runs |
@@ -45,99 +46,25 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `tools/graph.mts` | Derives each state's graph from its types, running nothing |
 | `surveys/xstate-survey.mts` | The survey of how the app uses XState that the plan's figures come from |
 
-Run from the repo root, or all of them with `npm test`.
+Every check runs with `npm test`, each file a spec and each check a case. One file, or the cases named with some
+words:
 
 ```bash
-npx tsx examples/search.mts
+npx vitest run draft
 ```
+
+```bash
+npx vitest run -t "under every ordering"
+```
+
+An example runs on its own too:
 
 ```bash
 npx tsx examples/threads.mts
 ```
 
-```bash
-npx tsx examples/views.mts
-```
-
-```bash
-npx tsx checks/draft-check.mts
-```
-
-```bash
-npx tsx checks/kernel-check.mts
-```
-
-```bash
-npx tsx checks/binding-check.mts
-```
-
-```bash
-npx tsx checks/vue-check.mts
-```
+The component `vue-tsc` checks:
 
 ```bash
 npx vue-tsc --noEmit -p checks/vue-fixture/tsconfig.json
-```
-
-```bash
-npx tsx checks/progress-check.mts
-```
-
-```bash
-npx tsx checks/leaving-check.mts
-```
-
-```bash
-npx tsx checks/failure-check.mts
-```
-
-```bash
-npx tsx checks/answer-check.mts
-```
-
-```bash
-npx tsx checks/starts-check.mts
-```
-
-```bash
-npx tsx examples/commit.mts
-```
-
-```bash
-npx tsx checks/awaits-check.mts
-```
-
-```bash
-npx tsx checks/internal-check.mts
-```
-
-```bash
-npx tsx checks/makes-check.mts
-```
-
-```bash
-npx tsx checks/follows-check.mts
-```
-
-```bash
-npx tsx checks/interleaving-check.mts
-```
-
-```bash
-npx tsx measure/append-cost.mts
-```
-
-```bash
-npx tsx tools/graph.mts examples/threads.mts
-```
-
-```bash
-npx tsx surveys/xstate-survey.mts "$PWD"
-```
-
-Typecheck, every `.mts` file here. The options are `tsconfig.json`'s, which the fixture's extends, and the files are
-whichever are in the directory, so one added is checked without being named:
-
-```bash
-npm run typecheck
 ```

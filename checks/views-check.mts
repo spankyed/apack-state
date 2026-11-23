@@ -3,7 +3,7 @@
 // the order they arrive in is the order they were sent in. Checked against rows in memory under every ordering, and
 // against elmdb, whose views run on its own clock.
 //
-//   npx tsx checks/views-check.mts
+//   npx vitest run views
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { explore, type Schedule } from '../src/schedule.mts'
