@@ -1,6 +1,6 @@
 // What the kernel does with a change to data. Each check drives a running state and reads what came of it.
 //
-//   npx tsx checks/kernel-check.mts
+//   npx vitest run kernel
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run as runChecks, system } from './checks.mts'
 import { given, reaching, said, WROTE_TO_WHAT_WAS_READ } from '../src/state.mts'

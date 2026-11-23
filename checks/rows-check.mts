@@ -2,7 +2,7 @@
 // none of the three is. Every check is run twice: against rows kept in memory, and against the app's engine, elmdb,
 // on a temporary database. The kernel is given the `transact` of each and nothing else.
 //
-//   npx tsx checks/rows-check.mts
+//   npx vitest run rows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { explore, type Schedule } from '../src/schedule.mts'

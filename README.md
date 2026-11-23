@@ -45,4 +45,6 @@ npm test
 npm run build
 ```
 
-`npm test -- rows` runs the checks whose path has `rows` in it. `npm run measure` runs the measurements.
+`npm test` runs every check with vitest, each file a spec and each check a case of it. `npx vitest run rows` runs
+the files whose path has `rows` in it, `npx vitest run -t "<words>"` the cases named with them, and
+`npm run test:watch` runs again what a change touches. `npm run measure` runs the measurements.

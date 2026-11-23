@@ -6,7 +6,7 @@
 // A run is generated from a seed and held against a model that knows nothing of the kernel: a few lines that say what
 // the rule says. A run that differs is reported with its seed, and `SEED=<n>` runs that one alone.
 //
-//   npx tsx checks/rows-property.mts
+//   npx vitest run rows-property
 import { deepStrictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { sample, type Schedule } from '../src/schedule.mts'

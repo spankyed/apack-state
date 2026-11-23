@@ -2,7 +2,7 @@
 // declared apart, as `internal`, and nothing outside it reaches them. And one surface tells another in its own
 // window what that surface says it takes.
 //
-//   npx tsx checks/internal-check.mts
+//   npx vitest run internal
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { reaching } from '../src/state.mts'

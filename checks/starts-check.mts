@@ -1,7 +1,7 @@
 // The states a state starts. They are declared, and which of them run follows from the data: nothing starts or
 // stops one by hand. So starting is part of a change, in its step, and what runs cannot disagree with the data.
 //
-//   npx tsx checks/starts-check.mts
+//   npx vitest run starts
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { explore, type Schedule } from '../src/schedule.mts'
 import { rest, run, system } from './checks.mts'
