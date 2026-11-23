@@ -1,7 +1,8 @@
 // What the kernel does with a change to data. Each check drives a running state and reads what came of it.
 //
 //   npx vitest run kernel
-import { readFileSync } from 'node:fs'
+// This file's own source, as written: what a report's line is counted in. Read the same way in Node and in a window.
+import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run as runChecks, system } from './checks.mts'
 import { given, reaching } from '../src/index.ts'
@@ -147,8 +148,9 @@ const checks: Array<[string, () => void]> = [
   ['the report says which line of the handler tried', () => {
     const it = run()
     it.send({ type: 'ADD_A_FIELD' })
-    const line = readFileSync(import.meta.filename, 'utf8').split('\n').findIndex((each) => each.includes('ADD_A_FIELD:       () =>')) + 1
-    ok(it.defects[0]!.endsWith(`There is no field extra to change (kernel-check.mts:${line})`), it.defects[0])
+    // In Node a stack counts the lines of the file as written; in a window, those of the module Vite made of it.
+    const line = typeof window === 'undefined' ? String(source.split('\n').findIndex((each) => each.includes('ADD_A_FIELD:       () =>')) + 1) : '\\d+'
+    ok(new RegExp(`There is no field extra to change \\(kernel-check\\.mts:${line}\\)$`).test(it.defects[0]!), it.defects[0])
   }],
   ['an edit cannot remove a field', () => {
     const it = run()
