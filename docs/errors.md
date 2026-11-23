@@ -12,9 +12,9 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `ADD_LATER: async (_, { data }) => answered('added' as const, { data: { count: data.coun…` | TS2322: Type '(_: { after: string; }, { data }: AskScope<Counter, "open", CounterEvent, Nothing, { args: { after: string; }; answer: "added"; }>) => Promise<Answered<"added", { ...; }>>… | after a wait, data is changed by editing a draft, not by giving fields worked out before it |
-| `CLOSE: () => answered('closed' as const, { at: 'closed' }),` | TS2322: Type '() => Answered<"closed", { at: "closed"; }>' is not assignable to type '(args: { reason: string; }, scope: AskScope<Counter, "open", CounterEvent, Nothing, { args: { reaso… | a move into `closed` has to give its reason |
-| `ADD: () => answered('one', { data: { count: 1 } }),` | TS2322: Type '() => Answered<string, { data: { count: number; }; }>' is not assignable to type '(args: {}, scope: AskScope<Counter, "open", CounterEvent, Nothing, { args: {}; answer: nu… | the answer is still checked: this ask answers with a number |
+| `ADD_LATER: async (_, { data }) => answered('added' as const, { data: { count: data.coun…` | TS2322: Type '(_: { after: string; }, { data }: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: { after: string; }; answer: "added"; }>) => Promise&lt;Answered&lt;"added", { ...; }>>… | after a wait, data is changed by editing a draft, not by giving fields worked out before it |
+| `CLOSE: () => answered('closed' as const, { at: 'closed' }),` | TS2322: Type '() => Answered&lt;"closed", { at: "closed"; }>' is not assignable to type '(args: { reason: string; }, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: { reaso… | a move into `closed` has to give its reason |
+| `ADD: () => answered('one', { data: { count: 1 } }),` | TS2322: Type '() => Answered&lt;string, { data: { count: number; }; }>' is not assignable to type '(args: {}, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: {}; answer: nu… | the answer is still checked: this ask answers with a number |
 
 ## The reads a state awaits: what can be asked, and what it is asked from.
 
@@ -25,9 +25,9 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `nobody: asking('printer', 'LOOKUP', { args: () => ({ query: '' }), ended: () => {} }),` | TS2345: Argument of type '"printer"' is not assignable to parameter of type '"library"'. | there is no such system to ask |
 | `nothing: asking('library', 'SLEEP', { args: () => ({}), ended: () => {} }),` | TS2345: Argument of type '"SLEEP"' is not assignable to parameter of type '"LOOKUP"'. | the library answers no such ask |
 | `wrong: asking('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), ended: ()…` | TS2741: Property 'query' is missing in type '{ id: string; }' but required in type '{ query: string; }'. | a lookup is asked for a query, not an id |
-| `titled: asking('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), end…` | TS2322: Type '"title"' is not assignable to type 'KeysField<{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record<strin… | a title is neither a list nor keyed, so it cannot say which to look up |
+| `titled: asking('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), end…` | TS2322: Type '"title"' is not assignable to type 'KeysField&lt;{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record&lt;strin… | a title is neither a list nor keyed, so it cannot say which to look up |
 | `unnamed: asking('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: …` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
-| `misplaced: asking('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next<Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
+| `misplaced: asking('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -59,7 +59,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `working: { data: { how: given }, async run() { await turns(1) } },` | TS2322: Type '{ data: { how: unique symbol; }; run(): Promise<void>; }' is not assignable to type 'Def<Panel, { data: { how: How; }; }, "working", PanelEvent, {}, App>'. | its work awaits, and it does not say where it goes when that fails |
+| `working: { data: { how: given }, async run() { await Promise.resolve() } },` | TS2322: Type '{ data: { how: unique symbol; }; run(): Promise&lt;void>; }' is not assignable to type 'Def&lt;Panel, { data: { how: How; }; }, "working", PanelEvent, {}, App>'. | its work awaits, and it does not say where it goes when that fails |
 
 ## The views a state follows: what can be followed, and what it is followed from.
 
@@ -69,10 +69,10 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `stock: follow('shop', 'stock', { from: [], args: () => ({}), heard: () => {} }),` | TS2345: Argument of type '"stock"' is not assignable to parameter of type '"total" \| "price"'. | there is no such view |
 | `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2741: Property 'currency' is missing in type '{ id: string; }' but required in type '{ currency: string; }'. | the total is asked for a currency, not an id |
-| `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), heard: () =>…` | TS2322: Type '"currency"' is not assignable to type 'KeysField<{ currency: string; total: number \| null; watching: string[]; prices: Record<string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
+| `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), heard: () =>…` | TS2322: Type '"currency"' is not assignable to type 'KeysField&lt;{ currency: string; total: number \| null; watching: string[]; prices: Record&lt;string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
 | `noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: n…` | TS2339: Property 'note' does not exist on type '{ readonly currency: string; }'. | it reads the note, which it did not name: a field it does not name is not there to read |
 | `missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), he…` | TS2322: Type '"locale"' is not assignable to type '"problem" \| "total" \| "currency" \| "watching" \| "prices" \| "note"'. | the shop has no such field to read from |
-| `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (upda…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next<Shop, "">'. | a price is a number, so it cannot be put where the note goes |
+| `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (upda…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
 
 ## Who may send a state what: the events it sends itself, and the surfaces it tells.
 
@@ -81,11 +81,11 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | What was written | What TypeScript says | Why |
 |---|---|---|
 | `window.send(theList, { type: 'TICK' })` | TS2322: Type '"TICK"' is not assignable to type '"PICK" \| "REFRESH" \| "PICK_AGAIN" \| "TELL_THE_STORE"'. | only the list sends itself a tick |
-| `TICK: () => ({ data: { ticks: 1 } }),` | TS2353: Object literal may only specify known properties, and 'TICK' does not exist in type 'On<List, "", ListEvent, ListEvent, App>'. | a tick is what it sends itself, and is taken under `internal` |
+| `TICK: () => ({ data: { ticks: 1 } }),` | TS2353: Object literal may only specify known properties, and 'TICK' does not exist in type 'On&lt;List, "", ListEvent, ListEvent, App>'. | a tick is what it sends itself, and is taken under `internal` |
 | `PICK: (_, { tell }) => { tell({ surface: 'detail' }, { type: 'HIDE' }) },` | TS2769: No overload matches this call. | the detail surface takes no such event |
 | `REFRESH: (_, { tell }) => { tell({ surface: 'sidebar' }, { type: 'SHOW', id: 'a' }) },` | TS2769: No overload matches this call. | there is no such surface |
 | `PICK_AGAIN: (_, { send }) => { send({ type: 'TOCK' }) },` | TS2322: Type '"TOCK"' is not assignable to type '"PICK" \| "REFRESH" \| "PICK_AGAIN" \| "TELL_THE_STORE" \| "TICK"'. | it sends itself a tick, or what others may send it, and nothing else |
-| `PICK: () => ({ data: { picked: null } }),` | TS2353: Object literal may only specify known properties, and 'PICK' does not exist in type 'On<List, "", { type: "TICK"; }, ListEvent, App>'. | what others may send it is taken under `on` |
+| `PICK: () => ({ data: { picked: null } }),` | TS2353: Object literal may only specify known properties, and 'PICK' does not exist in type 'On&lt;List, "", { type: "TICK"; }, ListEvent, App>'. | what others may send it is taken under `on` |
 
 ## Asking is for a state's work and an ask's handler, where a `Left` can be taken.
 
@@ -93,7 +93,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `START: (_, { ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope<Panel, "", PanelEvent, App>'. | asking is for `run` and for an ask's handler |
+| `START: (_, { ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope&lt;Panel, "", PanelEvent, App>'. | asking is for `run` and for an ask's handler |
 
 ## The writes a state makes: where one may be said, and with which key.
 
@@ -105,9 +105,9 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `ADD: (_, { make }) => { make('run') },` | TS2554: Expected 2 arguments, but got 1. | a job is one of many, so making one takes its key |
 | `STOP_SAVING: (_, { drop }) => { drop('save', 'a') },` | TS2554: Expected 1 arguments, but got 2. | there is one save at a time, so it takes no key |
 | `DROP: (_, { make }) => { make('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"run" \| "save"'. | it makes no such thing |
-| `run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),` | TS2322: Type 'MadeOne<Jobs, "on", JobsEvent, App>' is not assignable to type 'MadeEach<Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is made with `each` |
-| `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) =…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next<Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
-| `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def<Jobs, { makes: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it makes these has to say how |
+| `run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),` | TS2322: Type 'MadeOne&lt;Jobs, "on", JobsEvent, App>' is not assignable to type 'MadeEach&lt;Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is made with `each` |
+| `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) =…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
+| `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { makes: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it makes these has to say how |
 
 ## A refusal's data is part of the ask's declaration.
 
@@ -117,7 +117,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `USER_MSG: async (_, { refuse }) => { throw refuse('attachment-missing', 'no') },` | TS2554: Expected 3 arguments, but got 2. | `attachment-missing` carries the document's id, so it cannot be refused without one |
 | `USER_MSG: async (_, { refuse }) => { throw refuse('no-such-thread', 'no', { documentId:…` | TS2554: Expected 2 arguments, but got 3. | `no-such-thread` carries nothing, so it takes no document id |
-| `void failure.documentId` | TS2339: Property 'documentId' does not exist on type 'AskFailure<{ args: { threadId: string; text: string; documentId?: string \| undefined; }; answer: { accepted: true; }; refuses: { 'n… | the document's id exists only once the kind is known to be `attachment-missing` |
+| `void failure.documentId` | TS2339: Property 'documentId' does not exist on type 'AskFailure&lt;{ args: { threadId: string; text: string; documentId?: string \| undefined; }; answer: { accepted: true; }; refuses: { 'n… | the document's id exists only once the kind is known to be `attachment-missing` |
 
 ## The states a state starts: what each is given, and from what.
 
@@ -129,10 +129,10 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `ADD: (_, { child }) => { void child('deck') },` | TS2554: Expected 2 arguments, but got 1. | there is no such state to reach |
 | `CLOSE: (_, { child }) => { void child('helper') },` | TS2554: Expected 2 arguments, but got 1. | the helper is started by `open`, so only a handler inside `open` can reach it |
 | `RETITLE: (_, { report }) => { report({ type: 'CARD_BUMPED', bumps: 1 }) },` | TS2345: Argument of type '{ type: string; bumps: number; }' is not assignable to parameter of type 'never'. | the board declares nothing it reports, so it has nothing to report |
-| `state<Board, BoardEvent, BoardAsks>()({ data: { title: '', items: {}, lastBump: null },…` | TS2345: Argument of type '{ data: { title: string; items: {}; lastBump: null; }; start: "open"; states: { open: { starts: (start: Start<{ title: string; items: Record<string, string>; l… | a state whose shape says it starts cards has to say which |
+| `state<Board, BoardEvent, BoardAsks>()({ data: { title: '', items: {}, lastBump: null },…` | TS2345: Argument of type '{ data: { title: string; items: {}; lastBump: null; }; start: "open"; states: { open: { starts: (start: Start&lt;{ title: string; items: Record&lt;string, string>; l… | a state whose shape says it starts cards has to say which |
 | `card: start(card([]), { each: 'title', given: (id) => ({ id, label: '' }) }),` | TS2769: No overload matches this call. | a title is neither a list nor keyed, so it cannot say which cards there are |
 | `card: start(card([]), { each: 'items', given: (id) => ({ id }) }),` | TS2769: No overload matches this call. | a card has to be given its label as well as which it is |
-| `open: { starts: (_start) => ({ helper: helper([]) }) },` | TS2739: Type 'State<{ data: { title: string; }; }, never, {}, "title">' is missing the following properties from type 'OneOf<{ title: string; items: Record<string, string>; lastBump: st… | the helper has to be given its title, so it cannot be named bare |
+| `open: { starts: (_start) => ({ helper: helper([]) }) },` | TS2739: Type 'State&lt;{ data: { title: string; }; }, never, {}, "title">' is missing the following properties from type 'OneOf&lt;{ title: string; items: Record&lt;string, string>; lastBump: st… | the helper has to be given its title, so it cannot be named bare |
 
 ## What a component may read of a running state and send it, as render functions.
 
@@ -144,7 +144,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `it.send({ type: 'SHUFFLE' })` | TS2322: Type '"SHUFFLE"' is not assignable to type '"ADD" \| "CLOSE" \| "REMOVE" \| "BUMP" \| "RETITLE"'. | the board takes no such event |
 | `it.child('card')` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so reaching one takes its key |
 | `void one.state.value.data.bumps` | TS18048: 'one.state.value' is possibly 'undefined'. | a card may not be running, so what it holds cannot be read without saying what if it is not |
-| `void it.ask` | TS2339: Property 'ask' does not exist on type 'Bound<Value<Board>, BoardEvent, { card: Each<State<Card, { type: "BUMP"; }, {}, "id" \| "label">>; }>'. | a component sends; it does not ask |
+| `void it.ask` | TS2339: Property 'ask' does not exist on type 'Bound&lt;Value&lt;Board>, BoardEvent, { card: Each&lt;State&lt;Card, { type: "BUMP"; }, {}, "id" \| "label">>; }>'. | a component sends; it does not ask |
 
 ## `within`: narrowing a state read from outside by where it is.
 

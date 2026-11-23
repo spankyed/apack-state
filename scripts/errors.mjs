@@ -5,7 +5,7 @@
 //
 //   npm run errors:check    fails when docs/errors.md is not what the compiler says
 //   npm run errors:update   writes it
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, join, resolve } from 'node:path'
 
@@ -34,6 +34,10 @@ const said = (diagnostic) => {
   return `TS${diagnostic.code}: ${first.length > 180 ? `${first.slice(0, 177)}…` : first}`
 }
 const cell = (text) => text.replaceAll('|', '\\|')
+/** What TypeScript says, as text and not as HTML: `Promise<void>` is a tag a renderer would drop. */
+const plain = (text) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+/** Any directive at all, in whatever form: one DIRECTIVE does not read is a case that drops out unseen. */
+const ANY_DIRECTIVE = /^\s*(\/\/|\/\*)\s*@ts-expect-error/
 
 /**
  * Errors that say a name is not there: a case met by one of these fails for a missing import or a typo, not for the
@@ -43,6 +47,7 @@ const MISSING = new Set([2304, 2305, 2307, 2552, 2724])
 const sections = []
 let unexplained = 0
 const vacuous = []
+const unread = []
 for (const file of files) {
   // As written, whatever line endings a checkout gave it.
   const lines = readFileSync(file, 'utf8').replaceAll('\r\n', '\n').split('\n')
@@ -50,13 +55,17 @@ for (const file of files) {
   const rows = []
   lines.forEach((line, at) => {
     const directive = DIRECTIVE.exec(line)
-    if (!directive) return
+    if (!directive || !directive[2].trim()) {
+      if (ANY_DIRECTIVE.test(line)) unread.push(`type-tests/${basename(file)}:${at + 1}: ${line.trim()}`)
+      return
+    }
     const why = directive[2].trim()
     const own = diagnostics.filter((d) => d.file && resolve(d.file.fileName) === file && d.file.getLineAndCharacterOfPosition(d.start).line === at + 1)
     const wrote = (lines[at + 1] ?? '').trim()
     if (!own.length) unexplained++
-    else if (MISSING.has(own[0].code)) vacuous.push(`type-tests/${basename(file)}:${at + 2}: ${said(own[0])}`)
-    rows.push(`| \`${cell(wrote.length > 90 ? `${wrote.slice(0, 87)}…` : wrote)}\` | ${own.length ? cell(said(own[0])) : '**nothing: this line compiles**'} | ${cell(why)} |`)
+    // Met, among the errors of its line, by a name that is not there: whatever else it says, that one is a mistake.
+    for (const missing of own.filter((d) => MISSING.has(d.code))) vacuous.push(`type-tests/${basename(file)}:${at + 2}: ${said(missing)}`)
+    rows.push(`| \`${cell(wrote.length > 90 ? `${wrote.slice(0, 87)}…` : wrote)}\` | ${own.length ? cell(plain(said(own[0]))) : '**nothing: this line compiles**'} | ${cell(why)} |`)
   })
   if (rows.length) sections.push(`## ${topic}\n\n\`type-tests/${basename(file)}\`\n\n| What was written | What TypeScript says | Why |\n|---|---|---|\n${rows.join('\n')}\n`)
 }
@@ -69,6 +78,10 @@ change in wording shows here. A template's mistakes, which \`vue-tsc\` reports i
 \`type-tests/vue-templates/Board.vue\`.
 
 ${sections.join('\n')}`
+if (unread.length) {
+  console.error(`Each directive is written \`// @ts-expect-error <what is wrong, and what to write>\`; these are not, and say nothing here:\n  ${unread.join('\n  ')}`)
+  process.exit(1)
+}
 if (vacuous.length) {
   console.error(`These cases fail for a name that is not there, not for the mistake they name, and hold nothing:\n  ${vacuous.join('\n  ')}`)
   process.exit(1)
@@ -78,5 +91,5 @@ if (unexplained) {
   process.exit(1)
 }
 if (process.argv.includes('--write')) { writeFileSync(out, text); console.log('docs/errors.md written') }
-else if (readFileSync(out, 'utf8').replaceAll('\r\n', '\n') !== text) { console.error('docs/errors.md is not what the compiler says: run npm run errors:update and commit it'); process.exit(1) }
+else if (!existsSync(out) || readFileSync(out, 'utf8').replaceAll('\r\n', '\n') !== text) { console.error('docs/errors.md is not what the compiler says: run npm run errors:update and commit it'); process.exit(1) }
 else console.log(`docs/errors.md as the compiler says, ${sections.length} topics`)
