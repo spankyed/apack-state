@@ -13,6 +13,7 @@ import { beforeAll, it } from 'vitest'
 import { type System } from '../src/index.ts'
 import { system as kernel } from '../src/kernel.ts'
 import type { Explored } from '../src/schedule.ts'
+import { nextTurn } from '../src/turn.ts'
 
 const made: System[] = []
 /** More steps than this in one check is a kernel that does not come to rest. */
@@ -25,7 +26,7 @@ export const system: typeof kernel = (host) => {
 }
 /** More turns than this without coming to rest is waiting on what never comes. */
 const TURNS = 5_000
-const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
 
 /**
  * Waits until everything a check started has come to rest: every system it made has nothing under way. That is what
@@ -62,7 +63,10 @@ export interface Tally {
 export async function run(checks: ReadonlyArray<readonly [string, () => void | Promise<void>]>, more?: (tally: Tally) => Promise<void>): Promise<void> {
   const unhandled: unknown[] = []
   const heard = (reason: unknown): void => { unhandled.push(reason) }
-  beforeAll(() => { process.on('unhandledRejection', heard) })
+  // Node says so to the process, and a window to itself.
+  const inWindow = (event: Event): void => { heard((event as PromiseRejectionEvent).reason) }
+  const node = typeof process !== 'undefined' && typeof process.on === 'function'
+  beforeAll(() => { if (node) process.on('unhandledRejection', heard); else globalThis.addEventListener('unhandledrejection', inWindow) })
   const check = (name: string, body: () => void | Promise<void>): Promise<void> => {
     it(name, async () => { try { await body() } finally { stopAll() } })
     return Promise.resolve()
@@ -85,8 +89,8 @@ export async function run(checks: ReadonlyArray<readonly [string, () => void | P
     },
   })
   it('none of it left a rejection unhandled', async () => {
-    await new Promise((resolve) => setImmediate(resolve))
-    process.off('unhandledRejection', heard)
+    await new Promise<void>((resolve) => nextTurn(resolve))
+    if (node) process.off('unhandledRejection', heard); else globalThis.removeEventListener('unhandledrejection', inWindow)
     if (unhandled.length) throw new Error(said(unhandled[0], 8))
   })
 }

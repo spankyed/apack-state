@@ -60,19 +60,9 @@
     "why": "A lane is told apart from others by being its own object; only a lane given to later is ever asked its label. The label of a lane made by does, work or breaks is read by nothing"
   },
   {
-    "key": "src/schedule.ts | OptionalChaining | turn.port1.on('message', () => { const resolve = onTurn; onTurn = undefined; resolve?.() }) | resolve()",
-    "original": "resolve?.()",
-    "why": "One message is posted for each wait, after the wait has set what it resolves, and runs do not overlap; so the handler always finds something to call, and the optional call never skips"
-  },
-  {
     "key": "src/schedule.ts | EqualityOperator | if (made.taken.length >= RUNAWAY) throw new Error(`Still going after ${RUNAWAY} things: something never comes to rest`) | made.taken.length > RUNAWAY",
     "original": "made.taken.length >= RUNAWAY",
     "why": "Where exactly the runaway limit falls, at ten thousand things run or one more: a spec can hold that a run that never comes to rest is stopped and says so, not the count it was stopped at"
-  },
-  {
-    "key": "src/schedule.ts | BlockStatement | } catch (error) { made.error = error } finally { turn.port1.unref() } | {}",
-    "original": "{ turn.port1.unref() }",
-    "why": "Unref after a run only lets the process exit without waiting on the channel; the specs' runner ends its workers itself, so whether the channel keeps one alive is seen by nothing a spec can check"
   },
   {
     "key": "src/schedule.ts | ConditionalExpression | while (last >= 0 && made.choices[last]! + 1 >= made.counts[last]!) last-- | true",
@@ -400,16 +390,6 @@
     "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
   },
   {
-    "key": "src/kernel.ts | Regex | const frame = frames.find((line) => !/[/\\\\](kernel|draft|types|port)\\.[cm]?[jt]s\\b/.test(line) && /\\.[cm]?[jt]s/.test(line)) | /\\.[cm][jt]s/",
-    "original": "/\\.[cm]?[jt]s/",
-    "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
-  },
-  {
-    "key": "src/kernel.ts | Regex | const found = frame?.match(/([^/\\\\(\\s]+\\.[cm]?[jt]s):(\\d+)/) | /([^/\\\\(\\s]+\\.[cm][jt]s):(\\d+)/",
-    "original": "/([^/\\\\(\\s]+\\.[cm]?[jt]s):(\\d+)/",
-    "why": "Where a DEFECT says the throw came from: the stack's first line is the message, which names no file; the kernel's files are .ts and built .js, never .mts; and every handler checked is in a .mts file. These change the pattern only for files that are not there"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return | true",
     "original": "now.seen.length === seen.length",
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
@@ -703,5 +683,75 @@
     "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() })) | true",
     "original": "linked.gone.delete(ended)",
     "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
+  },
+  {
+    "key": "src/schedule.ts | OptionalChaining | hold.onmessage = () => { const resolve = onTurn; onTurn = undefined; resolve?.() } | resolve()",
+    "original": "resolve?.()",
+    "why": "One message is posted for each wait, after the wait has set what it resolves, and runs do not overlap; so the handler always finds something to call, and the optional call never skips"
+  },
+  {
+    "key": "src/schedule.ts | BlockStatement | } catch (error) { made.error = error } finally { hold.unref?.() } | {}",
+    "original": "{ hold.unref?.() }",
+    "why": "Unref after a run only lets the process exit without waiting on the channel; the specs' runner ends its workers itself, so whether the channel keeps one alive is seen by nothing a spec can check"
+  },
+  {
+    "key": "src/schedule.ts | OptionalChaining | } catch (error) { made.error = error } finally { hold.unref?.() } | hold.unref()",
+    "original": "hold.unref?.()",
+    "why": "In Node, where mutants run, a MessagePort always has ref and unref, so the optional call always calls; the ?. is for a window's port, which has neither, and the checks run there in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/schedule.ts | OptionalChaining | hold.ref?.() | hold.ref()",
+    "original": "hold.ref?.()",
+    "why": "In Node, where mutants run, a MessagePort always has ref and unref, so the optional call always calls; the ?. is for a window's port, which has neither, and the checks run there in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | : (() => { | {}",
+    "original": "{ const waiting: Array<() => void> = [] const channel = new MessageChannel() channel.port1.onmessage = () => { const run = waiting.shift(); run?.() } return (run: () => void) => { waiting.push(run); channel.port2.postMessage(0) } }",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | ArrayDeclaration | const waiting: Array<() => void> = [] | [\"Stryker was here\"]",
+    "original": "[]",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | channel.port1.onmessage = () => { const run = waiting.shift(); run?.() } | {}",
+    "original": "{ const run = waiting.shift(); run?.() }",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | OptionalChaining | channel.port1.onmessage = () => { const run = waiting.shift(); run?.() } | run()",
+    "original": "run?.()",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | BlockStatement | return (run: () => void) => { waiting.push(run); channel.port2.postMessage(0) } | {}",
+    "original": "{ waiting.push(run); channel.port2.postMessage(0) }",
+    "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/turn.ts | ConditionalExpression | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | true",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | ConditionalExpression | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | false",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | EqualityOperator | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | typeof setImmediate !== 'function'",
+    "original": "typeof setImmediate === 'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/turn.ts | StringLiteral | export const nextTurn: (run: () => void) => void = typeof setImmediate === 'function' | \"\"",
+    "original": "'function'",
+    "why": "Which way to the next turn is chosen as the module loads: in Node both are there, setImmediate and a message posted to oneself, and either runs what it is given on the next turn after everything already queued, so the specs, which run in Node under mutation, see the same either way. The choice matters in a window, where there is no setImmediate, and the checks run there in the browser project"
+  },
+  {
+    "key": "src/schedule.ts | OptionalChaining | hold.unref?.() | hold.unref()",
+    "original": "hold.unref?.()",
+    "why": "In Node, where mutants run, a MessagePort always has ref and unref, so the optional call always calls; the ?. is for a window's port, which has neither, and the checks run there in the browser project, which Stryker does not run"
   }
 ]

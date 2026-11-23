@@ -6,9 +6,10 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { explore, type Schedule } from '../src/schedule.ts'
 import { run, system } from './checks.mts'
 import { answered, given, reaching, type Each } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 export const state = reaching()
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 // ── a card: one for each item on the board ──────────────────────────────────────────────────────────────────────────
 

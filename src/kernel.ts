@@ -19,6 +19,7 @@
 // Those are standing: while the data says so, they go on. An ask to make once is not, and is made by saying so.
 
 import { produce } from './draft.ts'
+import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
 import { PORT, type Heard, type Lane, type Link, type Port } from './port.ts'
 
@@ -189,7 +190,7 @@ export function system(host: {
     pending++
     made.then((value) => { try { done(value) } finally { pending-- } }, (error) => { try { failed(error) } finally { pending-- } })
   }
-  const putOff = host.later ?? ((_: Lane, run: () => void): void => { setImmediate(run) })
+  const putOff = host.later ?? ((_: Lane, run: () => void): void => { nextTurn(run) })
   const later = (lane: Lane, run: () => void): void => { pending++; putOff(lane, () => { pending--; run() }) }
   const frames: Lane = { label: `${called}'s frame` }
   const frame = host.frame ?? ((run: () => void): void => later(frames, run))
@@ -518,7 +519,8 @@ export function system(host: {
     const frames = error instanceof Error && error.stack ? error.stack.split('\n').slice(1) : []
     // The first frame not in the kernel's own files, as source or as built.
     const frame = frames.find((line) => !/[/\\](kernel|draft|types|port)\.[cm]?[jt]s\b/.test(line) && /\.[cm]?[jt]s/.test(line))
-    const found = frame?.match(/([^/\\(\s]+\.[cm]?[jt]s):(\d+)/)
+    // A window's frames name a file as it was served, with a query after it: `kernel-check.mts?import&t=1:139:37`.
+    const found = frame?.match(/([^/\\(\s?]+\.[cm]?[jt]s)(?:\?[^:\s)]*)?:(\d+)/)
     return found ? ` (${found[1]}:${found[2]})` : ''
   }
   /**

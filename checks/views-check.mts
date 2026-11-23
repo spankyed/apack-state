@@ -10,6 +10,7 @@ import { explore, type Schedule } from '../src/schedule.ts'
 import { answered, reaching, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
+import { nextTurn } from '../src/turn.ts'
 
 type ThreadAsks = { CREATE: { args: { id: string }; answer: { id: string } } }
 type PanelEvents = { type: 'CREATED'; id: string }
@@ -306,7 +307,7 @@ await run([
     const staying = system({ side: 'window', name: 'the window that stays', trace })
     staying.connect(backend)
     const stayed = staying.start('panel', panel)
-    const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+    const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 6; turns++) await turn()
     const asked = closing.ask(closed, 'ADD', { id: 'a' })
     // Until the thread is kept: its answer and the broadcast are held, with the views not yet said to be sent.
@@ -385,7 +386,7 @@ await run([
     strictEqual(waiting.length, 2)
     let answered = false
     void first.ask(asking, 'ADD', { id: 'a' }).then(() => { answered = true })
-    const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+    const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 50 && waiting.some((mine) => mine.length === 0); turns++) await turn()
     ok(waiting.every((mine) => mine.length > 0), 'each view was asked whether it had caught up')
     for (const then of waiting[0]!.splice(0)) then()
@@ -416,7 +417,7 @@ await run([
     const stayed = staying.start('panel', panel)
     await rest()
     const asked = staying.ask(stayed, 'ADD', { id: 'a' })
-    const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+    const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 50 && waiting.length === 0; turns++) await turn()
     for (const then of waiting.splice(0)) then()
     // The answer still waits on the first window's view. That window goes, and its view with it.

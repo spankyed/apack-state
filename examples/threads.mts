@@ -18,6 +18,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { answered, given, reaching, system, type Each } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // What can be reached by name. In the app a pack's generated facade would declare this.
@@ -354,8 +355,8 @@ function threadsSurface(log: (line: string) => void) {
 // Running it: one backend, two windows.
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if (process.argv[1]?.endsWith('threads.mts')) {
-  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+if (globalThis.process?.argv?.[1]?.endsWith('threads.mts')) {
+  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
   const lines: string[] = []
   const say = (line: string): void => { lines.push(line) }
   // What each step must leave behind. The lines printed at the end are for reading; these are what is checked.

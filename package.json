@@ -34,9 +34,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit && vue-tsc --noEmit -p type-tests/vue-templates/tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --project node",
     "measure": "node scripts/measure.mjs",
-    "test:watch": "vitest",
+    "test:watch": "vitest --project node",
     "api:check": "node scripts/api.mjs",
     "api:update": "node scripts/api.mjs --local",
     "typecheck:floor": "node node_modules/typescript-5.7/bin/tsc --noEmit -p tsconfig.json",
@@ -48,8 +48,9 @@
     "deps:local": "node scripts/deps.mjs local",
     "deps:released": "node scripts/deps.mjs released",
     "deps:check": "node scripts/deps.mjs check",
-    "lint": "oxlint --deny-warnings src checks examples measure surveys tools scripts type-tests stryker.config.mjs vitest.config.mts",
-    "package:lint": "node scripts/package-lint.mjs"
+    "lint": "oxlint --deny-warnings src checks examples measure surveys tools scripts type-tests stryker.config.mjs vitest.config.mts vitest.mutants.mts",
+    "package:lint": "node scripts/package-lint.mjs",
+    "test:browser": "vitest run --project browser"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",
@@ -70,11 +71,14 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^24.1.0",
+    "@vitest/browser-playwright": "^4.1.12",
     "@vue/compiler-dom": "^3.5.0",
     "@vue/reactivity": "^3.5.0",
     "@vue/runtime-core": "^3.5.0",
+    "assert": "^2.1.0",
     "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz",
     "oxlint": "^1.94.0",
+    "playwright": "^1.65.1",
     "publint": "^0.3.25",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",

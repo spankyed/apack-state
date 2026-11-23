@@ -20,6 +20,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { answered, reaching, system } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // What can be reached by name
@@ -189,8 +190,8 @@ export const git = (work: (what: string) => Promise<unknown>, said: string[] = [
 // Running it
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if (process.argv[1]?.endsWith('commit.mts')) {
-  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
+  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
   const lines: string[] = []
   const say = (line: string): void => { lines.push(line) }
   // What each step must leave behind. The lines printed at the end are for reading; these are what is checked.

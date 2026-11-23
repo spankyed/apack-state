@@ -6,7 +6,8 @@
 // the kernel can make one wait forever. That timeout is the tool's, and decides nothing a spec says.
 export default {
   testRunner: 'vitest',
-  vitest: { configFile: 'vitest.config.mts' },
+  // The checks in Node: a browser is not opened for each mutant.
+  vitest: { configFile: 'vitest.mutants.mts' },
   mutate: (process.env.MUTATE ?? 'src/**/*.ts').split(','),
   coverageAnalysis: 'perTest',
   // A mutant of what runs as a module loads (a constant, a pattern) is run against every spec, not only the ones it
