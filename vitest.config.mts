@@ -9,16 +9,24 @@ const checks = ['checks/*-check.mts', 'checks/rows-property.mts']
  */
 const nodeOnly = ['checks/rows-check.mts', 'checks/rows-property.mts', 'checks/views-check.mts', 'checks/examples-check.mts']
 
+/** What every run of the checks is given. */
+export const shared = {
+  // No case is given a time to finish in: one that does not come to rest fails saying so (`rest()`), and an
+  // exploration stops at its limit.
+  testTimeout: 0,
+  hookTimeout: 0,
+  // What an example prints as it goes is shown only when it fails.
+  silent: 'passed-only',
+} as const
+
+/** The checks in Node: what the suite runs on three systems, and all a mutant is run against (`vitest.mutants.mts`). */
+export const node = { extends: true as const, test: { name: 'node', include: checks } }
+
 export default defineConfig({
   test: {
-    // No case is given a time to finish in: one that does not come to rest fails saying so (`rest()`), and an
-    // exploration stops at its limit.
-    testTimeout: 0,
-    hookTimeout: 0,
-    // What an example prints as it goes is shown only when it fails.
-    silent: 'passed-only',
+    ...shared,
     projects: [
-      { extends: true, test: { name: 'node', include: checks } },
+      node,
       {
         extends: true,
         // A window has no `node:assert`; the checks are given the package that is the same for browsers.

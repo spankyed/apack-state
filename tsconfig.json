@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "checks/*.mts", "examples/*.mts", "measure/*.mts", "surveys/*.mts", "tools/*.mts", "vitest.config.mts", "type-tests/*.ts"]
+  "include": ["src/**/*.ts", "checks/*.mts", "examples/*.mts", "measure/*.mts", "surveys/*.mts", "tools/*.mts", "vitest.config.mts", "vitest.mutants.mts", "type-tests/*.ts"]
 }
