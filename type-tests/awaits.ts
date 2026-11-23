@@ -9,7 +9,7 @@ type ReaderEvent = from.ReaderEvent
 
 // What must not compile.
 state<Reader, ReaderEvent>()({
-  data: { title: '', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null },
+  data: { title: '', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null, pending: '', got: null },
   start: 'on',
   awaits: (asking) => ({
     // @ts-expect-error there is no such system to ask
