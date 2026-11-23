@@ -2,7 +2,7 @@ name: CI
 
 # Every push to master and every pull request typechecks, builds and runs every check on Linux, macOS and Windows:
 # a state runs in a window and in Node on all three. A newer push to the same branch or pull request cancels the
-# run before it.
+# run before it. A run on master that fails opens an issue (the last job).
 on:
   push:
     branches: [master]
@@ -61,7 +61,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Chromium is kept between runs for the Playwright that installs it; what it needs of the system is installed each time
+      - id: playwright
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run test:browser
 
   # The one check a merge, and the packages workflow, wait on: every suite passed
@@ -71,3 +82,21 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.browser.result }}" = "success"
+
+  # Master's result, said where it is seen (.github/scripts/master-status.sh)
+  master:
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    needs: [ci-pass]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/master-status.sh ${{ (needs.ci-pass.result == 'success') && 'passed' || 'failed' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
