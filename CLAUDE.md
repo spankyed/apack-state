@@ -53,6 +53,10 @@ tarball.
 offers fails `api:check` until `npm run api:update` has written it, so it shows in the diff. A type a public
 signature uses and no entry exports is listed there as a forgotten export.
 
+`npm run test:browser` runs the same checks in Chromium (vitest's browser mode, Playwright), all but those that need
+Node itself: elmdb's binding and the examples run as processes. `src/turn.ts` is how the kernel, and every check,
+waits a turn in either.
+
 `npm test` runs every check with vitest: each `checks/*-check.mts` is a spec, run without being listed, and each
 check in it a case with its own name (`checks/checks.mts` makes them). No case is given a time to finish in.
 `npm run measure` runs the measurements, each as its own process (`scripts/measure.mjs`). A check that starts a process stops it and waits for it to exit.

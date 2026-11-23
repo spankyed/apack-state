@@ -5,6 +5,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { given, Left, reaching } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = {
   WAIT: { args: { turns: number }; answer: string }
@@ -19,7 +20,7 @@ type SlowAsks = {
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
 export const state = reaching<App>()
 
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 /** What the panel's work was ended with, for the checks to read. */
 const thrown: unknown[] = []

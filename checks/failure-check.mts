@@ -6,12 +6,13 @@ import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
 import { given, reaching } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: { threads: { detail: { args: { id: string }; result: string } } } }
 export const state = reaching<App>()
 
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 const slow = state<{}, never, SlowAsks>()({
   asks: {

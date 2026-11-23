@@ -8,6 +8,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { reaching, system } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 // ── the app's types, unchanged ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ class FileSystemRepository {
     const files = ['a.ts', 'b.ts', 'c.ts']
     const results: SearchResult[] = []
     for (const [index, file] of files.entries()) {
-      await new Promise((resolve) => setImmediate(() => setImmediate(resolve)))
+      await new Promise<void>((resolve) => nextTurn(() => nextTurn(resolve)))
       if (signal?.aborted) throw signal.reason
       onProgress?.(index + 1, files.length, file)
       const result = { path: `${this.baseDirectory}/${file}`, matches: [{ line: 1, column: 1, lineText: options.query, matchStart: 0, matchEnd: options.query.length }] }
@@ -207,8 +208,8 @@ const searchSurface = state<SearchSurface, SearchSurfaceEvent>()({
 // Running both
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if (process.argv[1]?.endsWith('search.mts')) {
-  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+if (globalThis.process?.argv?.[1]?.endsWith('search.mts')) {
+  const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
   const lines: string[] = []
 
   const backend = system({ side: 'backend' })

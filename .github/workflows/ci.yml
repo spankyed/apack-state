@@ -45,10 +45,25 @@ jobs:
       # The packed package as published code: its manifest and files (publint), and each entry's types (attw)
       - run: npm run package:lint
 
+  # The kernel's checks in a window: Chromium, through vitest's browser mode and Playwright. Every check that does not
+  # need Node itself (elmdb's binding, or a process) runs here as it does in Node.
+  browser:
+    name: browser (chromium)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+
   # The one check a merge, and the packages workflow, wait on: every suite passed
   ci-pass:
     if: always()
-    needs: [suite]
+    needs: [suite, browser]
     runs-on: ubuntu-24.04
     steps:
-      - run: test "${{ needs.suite.result }}" = "success"
+      - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.browser.result }}" = "success"

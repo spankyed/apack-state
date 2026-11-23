@@ -10,8 +10,9 @@ import { mirror } from '../src/mirror.ts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '../src/schedule.ts'
 import { reaching } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 type WorkerAsks = {
   /** Runs a job. The one called `flaky` is refused the first time it is run. */

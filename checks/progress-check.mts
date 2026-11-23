@@ -5,6 +5,7 @@
 import { deepStrictEqual, strictEqual } from 'node:assert'
 import { run, system } from './checks.mts'
 import { given, reaching, type State } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 type Step = { progress: string } | { note: string }
 type StreamAsks = {
@@ -39,7 +40,7 @@ const stream = state<{}, never, StreamAsks>()({
   },
 })
 
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 /** Sends its progress and then takes a long while to answer, so the progress is left waiting for a frame. */
 const slowStream = state<{}, never, StreamAsks>()({

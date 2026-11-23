@@ -6,6 +6,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { explore, type Schedule } from '../src/schedule.ts'
 import { rest, run, system } from './checks.mts'
 import { answered, given, reaching } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 export type CounterAsks = {
   /** Reads, and changes nothing. */
@@ -74,7 +75,7 @@ const putAndRemove = (put: 'PUT' | 'PUT_CARELESSLY', seen: Set<string>) => (sche
   }
 }
 
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else setImmediate(tick) }; tick() })
+const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 const counter = (work: (label: string) => Promise<unknown>) => state<Counter, CounterEvent, CounterAsks>()({
   data: { count: 0 },

@@ -9,6 +9,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { given, reaching, system, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { nextTurn } from '../src/turn.ts'
 
 interface ThreadSummary { id: string; title: string }
 interface ThreadDetail { id: string; title: string; messages: number }
@@ -91,8 +92,8 @@ const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
 
 // ── running it ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-if (process.argv[1]?.endsWith('views.mts')) {
-  const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+if (globalThis.process?.argv?.[1]?.endsWith('views.mts')) {
+  const turn = (): Promise<void> => new Promise<void>((resolve) => nextTurn(resolve))
   const lines: string[] = []
 
   // Stands in for the view host: rows, and watches that are read again after every commit.
@@ -114,7 +115,7 @@ if (process.argv[1]?.endsWith('views.mts')) {
     const mine = { name, read, heard }
     watches.add(mine)
     lines.push(`      (watching ${name})`)
-    setImmediate(deliver)
+    nextTurn(deliver)
     return () => { watches.delete(mine); lines.push(`      (stopped  ${name})`) }
   }
 

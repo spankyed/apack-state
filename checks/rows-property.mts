@@ -13,6 +13,7 @@ import { sample, type Schedule } from '../src/schedule.ts'
 import { answered, reaching } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
+import { nextTurn } from '../src/turn.ts'
 
 const IDS = ['r0', 'r1', 'r2', 'r3'] as const
 type Write = readonly [id: string, value: number | null]
@@ -109,7 +110,7 @@ interface Watched {
   /** What an ask that waits waits for. A turn of the event loop, unless a schedule is to say when. */
   wait?(does: Does): Promise<unknown>
 }
-const subject = (store: Rows, { handled, wait = () => new Promise((resolve) => { setImmediate(resolve) }) }: Watched = {}) => {
+const subject = (store: Rows, { handled, wait = () => new Promise<void>((resolve) => { nextTurn(resolve) }) }: Watched = {}) => {
   const put = (writes: readonly Write[]): void => { for (const [id, value] of writes) { if (value === null) store.remove('thread', id); else store.put('thread', id, { value }) } }
   return state<{ data: { count: number } }, Events, Asks>()({
     data: { count: 0 },

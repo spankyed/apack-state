@@ -9,6 +9,7 @@ import { explore, type Schedule } from '../src/schedule.ts'
 import { answered, given, reaching } from '../src/index.ts'
 import { memory, WROTE_OUTSIDE_A_STEP, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
+import { nextTurn } from '../src/turn.ts'
 
 type Asks = {
   CREATE: { args: { id: string; topic: string; parent?: string }; answer: { id: string }; refuses: 'no-parent' | 'taken' }
@@ -155,7 +156,7 @@ type Sourced = { systems: { source: { events: never; asks: SourceAsks } }; surfa
 const sourced = reaching<Sourced>()
 /** Says it has begun, waits a turn, and answers. */
 const source = sourced<{}, never, SourceAsks>()({
-  asks: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise((resolve) => { setImmediate(resolve) }); return `found ${q}` } },
+  asks: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
 })
 type KeeperEvents = { type: 'SET'; query: string } | { type: 'SAVE' }
 type Keeper = { data: { query: string; got: string[] }; makes: { save: 'one' } }
@@ -359,7 +360,7 @@ const checks = ([, open]: Kept): Array<readonly [string, () => void | Promise<vo
     // Being answered: its handler wrote, and is waiting on a file.
     const importing = sys.ask(handle, 'IMPORT', { id: 'a', path: 'a.md' })
     // It cannot come to rest while it waits on its file, so this is a turn and no more.
-    await new Promise((resolve) => { setImmediate(resolve) })
+    await new Promise<void>((resolve) => { nextTurn(resolve) })
     deepStrictEqual(store.get('import', 'a'), { state: 'reading' })
     store.failNext('the disk is full')
     const lost = await sys.ask(handle, 'CREATE', { id: 'b', topic: 'lost' })

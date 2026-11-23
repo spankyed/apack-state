@@ -4,6 +4,7 @@
 // `transact` is the engine's: it runs a function as one unit, a throw undoes what it wrote, one inside another joins
 // it and is undone alone when it throws, and the writer is taken at the first write. The rest is what a check reads
 // rows with, and the rule a pack's engine holds: a write is made inside a unit.
+import { nextTurn } from '../src/turn.ts'
 
 export type Row = Readonly<Record<string, unknown>>
 export type Table = 'thread' | 'link' | 'import'
@@ -41,7 +42,7 @@ export interface Rows {
 }
 
 /** `later` runs something after what it was given before: a check gives a lane of its schedule, to choose when. */
-export function memory(later: (run: () => void) => void = (run) => { setImmediate(run) }): Rows {
+export function memory(later: (run: () => void) => void = (run) => { nextTurn(run) }): Rows {
   const watches = new Set<{ again(): void }>()
   const tables = new Map<string, Map<string, Row>>()
   const table = (name: string): Map<string, Row> => tables.get(name) ?? tables.set(name, new Map()).get(name)!

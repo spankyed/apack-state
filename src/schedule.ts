@@ -4,7 +4,6 @@
 //
 // What is in one lane keeps its order. Between lanes the schedule chooses, and `explore` runs a scenario once for
 // every way of choosing. A failure comes back with the choices that led to it, and `replay` runs exactly those again.
-import { MessageChannel } from 'node:worker_threads'
 import type { Lane } from './port.ts'
 
 type Task = { readonly what: string; run(): void }
@@ -28,10 +27,11 @@ interface Run { choices: number[]; counts: number[]; taken: string[]; error?: un
  * of them. A message and not `setImmediate`, which costs fifty times as much and is paid once per thing run.
  */
 const turn = new MessageChannel()
+/** In Node an open port keeps the process alive, so it is held only while a run is waiting on it. A window has neither. */
+const hold = turn.port1 as unknown as { onmessage: (() => void) | null; ref?(): void; unref?(): void }
 let onTurn: (() => void) | undefined
-turn.port1.on('message', () => { const resolve = onTurn; onTurn = undefined; resolve?.() })
-// The channel keeps the process alive only while a run is waiting on it.
-turn.port1.unref()
+hold.onmessage = () => { const resolve = onTurn; onTurn = undefined; resolve?.() }
+hold.unref?.()
 const settled = (): Promise<void> => new Promise((resolve) => { onTurn = resolve; turn.port2.postMessage(0) })
 
 /** More than this in one run is two things telling each other forever. */
@@ -47,7 +47,7 @@ async function once(scenario: (schedule: Schedule) => () => void, choose: (depth
     breaks: (label, error) => new Promise((_, reject) => { into({ label }, { what: label, run: () => reject(error) }) }),
   }
   const made: Run = { choices: [], counts: [], taken: [] }
-  turn.port1.ref()
+  hold.ref?.()
   try {
     const check = scenario(schedule)
     for (;;) {
@@ -63,7 +63,7 @@ async function once(scenario: (schedule: Schedule) => () => void, choose: (depth
       task.run()
     }
     check()
-  } catch (error) { made.error = error } finally { turn.port1.unref() }
+  } catch (error) { made.error = error } finally { hold.unref?.() }
   return made
 }
 
