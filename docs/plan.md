@@ -558,6 +558,15 @@ progress, a broadcast, word to a subscriber) until the step commits. This is wha
 parallel regions: an observer never sees them disagree. The same idea is SCXML's macrostep, a Redux dispatch, a signals
 batch, and this repo's own `transact` followed by `watch`.
 
+A tell to a state in the same system is therefore handled in the step it was told in, and one that leaves the system
+arrives after the commit. That is the line others draw between an event handled in the transaction that raised it and
+one put in an outbox for another store: a database's triggers and its replication, a domain event and an integration
+event, a Convex mutation called and one scheduled. It is drawn at the system because a system is one database with
+one writer; actors that share nothing draw it at each actor, and pay for it in messages that can be lost between
+them. What follows from it is said where it applies: a step is cut short after ten thousand things
+([Not built](#not-built), a bound across steps), a send that leaves is written so that it shows, and a step is not
+all of its handlers or none: each handler's rows and change are kept or not on their own.
+
 ### Rows
 
 **A step covers what a state holds. On the backend that is the small part.** What the backend holds for good is rows
@@ -654,7 +663,11 @@ one inside it, and a repository's command, which is a `transact` of its own, joi
    out before its change is made, so an answer that names a row its change creates takes the id first (`newId`).
    A handler could still open a `transact` of its own after an `await` and write there. That is refused by a pack
    rule and not by handing a handler its writer: the rule keeps the 184 calls as they are, where a writer passed in
-   would change every one.
+   would change every one. The rule has no allow (decided 2026-11-23): such a unit is tied to no step, so it is kept
+   when the state was left during the wait, kept when what follows it throws, and nothing is held for it. What it
+   was wanted for has a form inside the rule: a write after a wait is returned, and a job that writes in batches
+   tells its own state an event for each. The rule is about a state's handlers and its own work; an action is
+   neither ([What it does not cover](#what-it-does-not-cover)).
 5. **What a handler wrote before it waited is kept.** An ask that writes a row, waits, and is then refused has kept
    the row: the write was in the step that took the ask. A row that should not outlive a refusal is written in the
    change that comes with the answer.
@@ -710,10 +723,61 @@ frame is up, is elmdb's to offer and is not asked for here ([Not built](#not-bui
   the state owns, and write the row that says it happened in the step its result arrives in. A crash between the
   two leaves the outside thing done and unrecorded, so what is recorded has to be something a later look can find
   again: the commit by its hash, the file by its path.
-- **The run history**, which is a second database with its own engine. A run node is written beside a step.
-- **A flow action.** An action is not a state: it is work the brain runs, outside any step. Its 31 writes are each
-  a command, which is a unit of its own, and several that belong together go in one `transact`, as now. Whether an
-  action's result should carry its writes back to the brain's step is settled when the brain is ported.
+- **The run history**, which is a second database with its own engine, and by its contract a log that a unit of
+  the app's data never undoes. One unit cannot cover both, so what is held is the order: the log is what the
+  brain's kept steps said happened, and nothing else writes it or decides by it (decided 2026-11-23).
+  - *The brain tells it, and it is outside the system.* Within a system a tell is handled in the same step,
+    before the commit, so a state told in the backend's system would write the second database inside a unit that
+    may yet not be kept. The run history is a **peer**: a name the host binds to something outside the system, as
+    a window is. What a step tells a peer leaves at the commit, in the order it was told, everything one step told
+    it together, and is applied there as one unit of the peer's own database. One step of the brain is then one
+    unit of the log, where ending an event, ending its flow and recording a result are three commits today. This
+    is the transactional outbox, kept in memory: a run does not outlive the process, so nothing is lost by it that
+    is not lost anyway, and what a crash leaves `active` is marked `stopped` as the app starts, as now.
+  - *A tell that leaves the system is written so that it shows.* A surface is told as `{ surface }`, and a peer as
+    `{ peer }`: `tell({ peer: 'run-history' }, …)`. A plain name is a state in this system, handled in this step.
+    Two sends that look alike and arrive at different times are the oldest mistake of a call made to look local.
+  - *An entry is a fact the brain stamps:* the node's id and when it happened are made by the brain, where the run
+    history makes both today as it writes. Applying an entry twice then changes nothing, and the log says when a
+    thing happened and not when it was written down.
+  - *The brain does not read the log.* It reads it in three places today (a node's parent flow, the flow a run
+    walks, a flow's event tracks: `brainQueries`, `packages/default-setup/src/features/brain/be/repository/index.ts`).
+    The first two it knows as it starts the node, and the third is a window's question. The brain is not handed
+    what reads the log.
+  - *A window reads the log one way.* A window is sent each run node as it starts and asks for the tree again as
+    well (`packages/default-setup/src/features/brain/fe/state.ts`), and two ways to the same thing can disagree. A
+    view over the run history's database replaces both. It needs the view host to serve a second database, which
+    is not sized.
+  - *An entry that does not fit is a defect.* An end for a node the log does not hold is ignored today, and a start
+    under a parent it does not hold is dropped with a warning. With the order held neither can happen, so each is
+    reported.
+
+  One thing has to be true of the kernel for the log to hold only what was kept, and is not
+  ([Not built](#not-built), what a handler said before it was not made). Read from apack at `eddd825c24`,
+  2026-11-23: a run node is started inside the handler that spawns it (`createStepRunNode`,
+  `packages/default-setup/src/features/brain/be/step-system.ts`), and one left `active` by a handler that threw
+  is found only when the brain is next killed or restarted.
+
+  What was set aside: the log in the app's database, which one unit would cover and which would put a log's
+  writes in line for the one writer and wake the app's watches; writing the second database from a handler, which
+  needs nothing built and writes another store inside a unit that may not be kept; an outbox kept in the app's
+  database and relayed, which is for a run that outlives the process, and if runs ever do, a run's state belongs
+  in the app's database and the log is a projection of its changes; and a commit in two phases, which LMDB has no
+  first phase for.
+- **A flow action.** An action is not a state: it is work a step's state runs, outside any step of the kernel's. Its
+  31 writes are each a command, which is a unit of its own, and several that belong together go in one `transact`,
+  as now. An action's writes are not carried back to the brain's step (decided 2026-11-23): an action runs for as
+  long as a model takes, reads what it wrote, and may write as it goes. So an action is not whole: a step killed or
+  failed leaves what its action had written, and the step records only how it ended. Seven action functions write
+  after an `await`, which is what an action is for, and the pack rule above is not about them. The hold needs
+  nothing more for it: an action's rows are kept before its step ends, so a window told the step ended has been
+  shown them.
+- **What a step type's handler is handed.** A step's handler is given an actor and sends it `COMPLETE` or `ERROR`,
+  and reaches another flow through `getFlowActor` (`StepRuntimeFacet`, apack's `packages/apack-sdk/src/steps/types.ts`).
+  That is a pack contract naming an actor. Here a handler returns its result, throws to fail, and is handed the
+  signal that aborts when its step is left, which an action's sandbox is passed in turn; a step that never
+  completes waits until it is left; and killing a flow is something the brain is asked. All fourteen step types
+  move with the brain.
 - **Durable is later than committed.** A commit is on disk within a second (group commit). An answer released after
   a commit and before that can outlive its row through a power cut. A handler whose answer must not says
   `durable: true`, as `transact` takes today, and its step waits.
@@ -1254,7 +1318,19 @@ projects. Each would loosen the fit to this app.
   an agent's loop is one thing leading to the next for as long as it runs, and so is reading results a page at a
   time, so a limit would stop what the app is for. A circle of views is different, and is refused (rule 14), because
   what a view is asked for is declared and a circle among declarations is a mistake whatever its length.
-- **Undoing what a handler sent before it threw.** Its change is not made, and what it told others is still told.
+- **What a handler said before it was not made.** A handler that throws, or whose change is refused, has its
+  rows and its change taken back, and what it told and what it sent to leave are still told and still leave
+  (`checks/failure-check.mts`, "what was sent is sent"; `checks/makes-check.mts`; the model in
+  `checks/rows-property.mts`). So within a step a state can be told of something whose change was never made, and
+  a peer can be handed an entry for it. **To be decided, and recommended:** what a handler says joins its unit, so
+  that one not made has said nothing, as a mutation that throws has scheduled nothing in Convex, an `update` that
+  throws has returned no command in Elm, and a rolled-back transaction has written nothing to its outbox. It is
+  the queues a handler adds to, cut back to where they stood when it began. What goes on being heard from a
+  handler that threw is the trace, which is not something a state said. The other way is Erlang's, where a
+  message is sent as it is sent and a crash takes nothing back, and it is what the checks hold today.
+- **A peer that is not a window.** What leaves a backend's system leaves to its windows and to nothing else. A
+  name bound by the host to something outside, told with `{ peer }` and handed what a step told it at the commit,
+  is what the run history needs ([What it does not cover](#what-it-does-not-cover)).
 - **Field names unique along a path** are assumed and not enforced.
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **Saving a state to disk** is not wanted. A saved state is a stored format that would then have to be kept stable.
@@ -1279,7 +1355,12 @@ projects. Each would loosen the fit to this app.
     for it yet. It is one more key on what a handler returns, and is added when a handler needs it.
   - *Restart.* Nothing here kills a system between something done outside and the row that records it. That is
     checked against the first ported feature that does both, since what is to be found again differs by feature.
-  - *A flow action's writes and the brain's step*, settled with the brain.
+  - *The brain*, whose decisions are under [What it does not cover](#what-it-does-not-cover): the run history a
+    peer that is told and not written, a step type's handler returning its result, and an action keeping units of
+    its own. Two
+    things are not checked: whether a bare write at the top of a state's own work is inside a unit (the create and
+    update steps make one), and a flow's events, which are made from its trigger nodes as it starts and need one
+    declared event that says which was heard.
 - **Delayed transitions and history states** are absent. The app uses one delayed transition and no history states.
   A delay, when there is one, goes through the kernel's `later` so that a schedule can choose when it fires.
 - **The kernel's own rough edge.** Reading a state that has ended throws.
