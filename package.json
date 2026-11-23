@@ -52,7 +52,9 @@
     "package:lint": "node scripts/package-lint.mjs",
     "test:browser": "vitest run --project browser",
     "bench": "node scripts/bench.mjs",
-    "bench:record": "node scripts/bench.mjs --record"
+    "bench:record": "node scripts/bench.mjs --record",
+    "graph:update": "tsx tools/graph.mts --write",
+    "graph:check": "tsx tools/graph.mts --check"
   },
   "peerDependencies": {
     "@vue/reactivity": "^3.5.0",

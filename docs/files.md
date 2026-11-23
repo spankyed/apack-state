@@ -51,6 +51,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-check.mts` | A step as one unit of the database: a handler's rows, data and what it sent kept together, on both stores. Runs, for about 12 seconds |
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
+| `checks/graph-check.mts` | The graph tool (`tools/graph.mts`) run on states that are hard to read, in `checks/graphs/`: a state entered at one inside it before itself, and what is written short; and its command line |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
 | `scripts/bench.mjs` | Runs every measurement, prints each reading beside the recorded one, and records them with their conditions (`--record`) |
@@ -65,7 +66,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `examples/library.mts` | The app's library system ported handler for handler. Typechecks against stand-ins for its imports; not run |
 | `examples/threads.mts` | Three backend systems, a state per thread, and two windows: asks, tells, a reply the thread writes and broadcasts, windows that leave part-way, and a refusal that carries data. Runs, and checks what each step leaves |
 | `examples/views.mts` | A surface following views, modelled on the threads surface: one always, one while a thread is open, one per tab. Runs, and checks what is followed after each step |
-| `tools/graph.mts` | Derives each state's graph from its types, running nothing |
+| `tools/graph.mts` | Derives each state's graph from its types, running nothing: one file's printed (`npx tsx tools/graph.mts <file>`), or every example's written to and checked against `etc/graphs/` (`graph:update`, `graph:check`) |
+| `etc/graphs/*.txt` | Each example's graph, as the tool reads it |
 | `surveys/xstate-survey.mts` | The survey of how the app uses XState that the plan's figures come from |
 
 Every check runs with `npm test`, each file a spec and each check a case. One file, or the cases named with some

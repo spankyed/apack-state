@@ -1,0 +1,17 @@
+# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
+
+SearchSystem
+  changes data only: UPDATE_BASE_DIRECTORY
+  answers: SEARCH_FILES
+  findings: none
+
+SearchSurface
+  states: idle, searching
+    anywhere         START              → searching
+    anywhere         CANCEL             → idle
+    anywhere         CLEAR              → idle
+    searching        (its work ends)    → idle
+    searching        (its work fails)   → idle
+  changes data only: UPDATE_OPTIONS, CLEAR_ERROR, DIRECTORY_CHANGED, FOUND in searching
+  reaches: ask 'code/search'
+  findings: none

@@ -38,6 +38,8 @@ jobs:
       - run: npm run typecheck:floor
       # What the package offers is what etc/*.api.md says it is
       - run: npm run api:check
+      # Each example's graph, read from its types, is what etc/graphs/ says it is
+      - run: npm run graph:check
       - run: npm run build
       - run: npm test
       # The package as a consumer gets it: packed, installed into a project of its own, each entry imported

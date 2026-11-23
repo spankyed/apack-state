@@ -1,0 +1,17 @@
+# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
+
+Commit
+  changes data only: commit.STAGE_FILE, commit.UNSTAGE_FILE, commit.VIEW_DIFF, commit.PUSH_BRANCH, commit.STOP_PUSH, commit.DISMISS_ERROR, REPOSITORY_CHANGED, status (ending), diff (ending), stage (ending), unstage (ending), push (ending), push (hearing)
+  awaits  status: code commit.GET_GIT_STATUS, from revision
+  awaits  diff: code commit.GET_GIT_DIFF, from selectedGitFile
+  makes   stage: code commit.STAGE_FILES, for each key it is told
+  makes   unstage: code commit.UNSTAGE_FILES, for each key it is told
+  makes   push: code commit.PUBLISH_BRANCH, one at a time
+  reaches: make 'stage', make 'unstage', make 'push', drop 'push'
+  findings: none
+
+Repository
+  changes data only: commit.STAGE_FILES (answering), commit.UNSTAGE_FILES (answering), commit.PUBLISH_BRANCH (answering)
+  answers: commit.GET_GIT_STATUS, commit.GET_GIT_DIFF, commit.STAGE_FILES, commit.UNSTAGE_FILES, commit.PUBLISH_BRANCH
+  reaches: broadcast 'commit'
+  findings: none

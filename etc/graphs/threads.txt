@@ -1,0 +1,45 @@
+# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
+
+{}
+  answers: GET_DOCUMENT
+  findings: none
+
+{ data: { fired: string[] } }
+  changes data only: TRIGGER_BRAIN_EVENT
+  answers: COUNT_FIRED
+  findings: none
+
+Thread
+  states: idle, writing
+    idle             WRITE (answering)  → writing
+    writing          (its work ends)    → idle
+    writing          (its work fails)   → idle
+  answers: WRITE in idle, WRITE in writing
+  reaches: tell 'brain', broadcast 'threads'
+  findings: none
+
+Threads
+  changes data only: CREATE_THREAD (answering)
+  answers: CREATE_THREAD, USER_MSG
+  starts: thread (one for each key)
+  reaches: broadcast 'threads', ask 'library', ask its 'thread'
+  findings: none
+
+{ data: { text: string } }
+  changes data only: DRAFT_CHANGED
+  findings: none
+
+ThreadsSurface
+  states: list, creating, thread, thread.idle, thread.sending
+    anywhere         NEW_THREAD         → creating
+    anywhere         BACK               → list
+    anywhere         OPEN_THREAD        → thread
+    creating         (its work ends)    → list | thread
+    creating         (its work fails)   → list
+    thread.idle      SEND               → thread.sending
+    thread.sending   (its work ends)    → thread.idle
+    thread.sending   (its work fails)   → thread.idle
+  changes data only: THREAD_CREATED, THREAD_CHANGED, TYPE in thread, REPLY_TEXT in thread, THREAD_CHANGED in thread, TYPE in thread.sending
+  starts: draft in thread
+  reaches: ask 'threads', tell its 'draft'
+  findings: none
