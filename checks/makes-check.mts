@@ -233,12 +233,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     // A write was said once. It is not said again by the state being the case again, as a read would be.
     deepStrictEqual({ did, done: now().done }, { did: ['run a', 'gave up a'], done: [] })
   }],
-  ['a handler that throws has still said what it said: what it told to be made is made', async () => {
-    const { send, now, did, defects } = wired()
+  ['a handler that throws has said nothing: what it told to be made is not made', async () => {
+    const { send, now, making, did, defects } = wired()
     send({ type: 'BREAK', id: 'a' })
     await rest()
     strictEqual(defects.length, 1)
-    deepStrictEqual({ did, done: now().done }, { did: ['run a'], done: ['a done'] })
+    deepStrictEqual({ did, done: now().done, making: making() }, { did: [], done: [], making: { run: {}, save: false } })
   }],
 ]
 

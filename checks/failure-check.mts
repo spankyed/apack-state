@@ -47,7 +47,7 @@ const panel = (released: string[]) => state<Panel, PanelEvent>()({
     SET_UP: () => ({ at: 'ready' }),
     LEAVE: () => ({ at: 'idle' }),
     COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
-    // Tells itself to count, and then throws.
+    // Tells itself to count, and then throws: it is not made, so it has told itself nothing.
     BREAK: (_, { send }) => { send({ type: 'COUNT' }); throw new Error('the handler broke') },
     // Counts, and tells itself to do it again, without end.
     SPIN: (_, { data, send }) => { send({ type: 'SPIN' }); return { data: { count: data.count + 1 } } },
@@ -180,8 +180,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(it.at(), 'idle')
     ok(it.traced.some((line) => line.includes('threw handling BREAK')))
     it.send({ type: 'COUNT' })
-    // Two counts of its own and the one the broken handler sent before it threw: what was sent is sent.
-    strictEqual(it.count(), 3)
+    // Two counts of its own. The one the broken handler sent itself before it threw was never sent.
+    strictEqual(it.count(), 2)
     it.stop()
   }],
   ['a `failed` that throws is reported, and the state takes events as before', async () => {

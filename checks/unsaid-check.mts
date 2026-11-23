@@ -1,0 +1,233 @@
+// What a handler says is its own until it is made. One that throws, refuses, or returns a change that cannot be made
+// has told nobody, sent nothing, asked nothing and reported no progress, as it has written nothing. Whoever asked it
+// is still told that it failed: that is the kernel's word, not the handler's.
+//
+//   npx vitest run unsaid
+import { deepStrictEqual, strictEqual } from 'node:assert'
+import { rest, run, system } from './checks.mts'
+import { answered, given, reaching, type StepLog } from '../src/index.ts'
+import { memory } from './store.mts'
+import { nextTurn } from '../src/turn.ts'
+
+/** How a handler ends, having said everything it has to say first. */
+type Ends = 'made' | 'throws' | 'stray'
+type AskEnds = Ends | 'refuses' | 'change throws' | 'change refuses'
+
+type EarEvent = { type: 'NOTE'; text: string }
+type EarAsks = { ECHO: { args: { text: string }; answer: string } }
+type DeskEvent = { type: 'SAY'; how: Ends } | { type: 'COUNT' } | { type: 'WORK'; how: 'at once' | 'in failed' } | { type: 'REST' }
+type DeskAsks = { DO: { args: { how: AskEnds }; progress: string; answer: string; refuses: 'no' } }
+type PanelEvent = { type: 'NOTED'; text: string } | { type: 'PASS'; how: Ends }
+type PanelAsks = { RELAY: { args: { how: Ends }; answer: string } }
+type App = {
+  systems: { ear: { events: EarEvent; asks: EarAsks }; desk: { events: DeskEvent; asks: DeskAsks } }
+  surfaces: { panel: { events: PanelEvent } }
+  views: {}
+}
+const state = reaching<App>()
+
+/** Keeps what it was told and what it was asked, in the order they came. */
+const ear = state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
+  data: { heard: [] },
+  on: { NOTE: ({ text }, { data }) => ({ data: { heard: [...data.heard, text] } }) },
+  asks: { ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }) },
+})
+
+/** Says something every way a backend state can, and then ends as it is told to. */
+const desk = state<{ data: { count: number; problem: string | null }; states: { idle: {}; working: { data: { how: 'at once' | 'in failed' } } } }, DeskEvent, DeskAsks>()({
+  data: { count: 0, problem: null },
+  start: 'idle',
+  on: {
+    COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
+    SAY: ({ how }, { tell, send, broadcast }) => {
+      tell('ear', { type: 'NOTE', text: 'said' })
+      send({ type: 'COUNT' })
+      broadcast('panel', { type: 'NOTED', text: 'said' })
+      if (how === 'throws') throw new Error('the handler broke')
+      if (how === 'stray') return { data: { nothing: 1 } } as never
+      return undefined
+    },
+    WORK: ({ how }) => ({ at: 'working', data: { how } }),
+    REST: () => ({ at: 'idle' }),
+  },
+  asks: {
+    DO: ({ how }, { tell, send, broadcast, progress, ask, refuse }) => {
+      tell('ear', { type: 'NOTE', text: 'doing' })
+      send({ type: 'COUNT' })
+      broadcast('panel', { type: 'NOTED', text: 'doing' })
+      progress('half way')
+      void ask('ear', 'ECHO', { text: 'echo' })
+      if (how === 'throws') throw new Error('the handler broke')
+      if (how === 'refuses') throw refuse('no', 'the handler refused')
+      if (how === 'stray') return answered('done', { data: { nothing: 1 } } as never)
+      return answered('done', { data: () => {
+        if (how === 'change throws') throw new Error('the change broke')
+        if (how === 'change refuses') throw refuse('no', 'the change refused')
+      } })
+    },
+  },
+  states: {
+    idle: {},
+    working: {
+      data: { how: given },
+      run({ data, tell }) {
+        if (data.how === 'at once') { tell('ear', { type: 'NOTE', text: 'working' }); throw new Error('broke at once') }
+        return new Promise<never>((_, reject) => { nextTurn(() => reject(new Error('broke later'))) })
+      },
+      failed: (error, { data, tell }) => {
+        if (data.how === 'in failed') { tell('ear', { type: 'NOTE', text: 'failing' }); throw new Error('failed broke as well') }
+        return { at: 'idle', data: { problem: error instanceof Error ? error.message : String(error) } }
+      },
+    },
+  },
+})
+
+/** A surface: keeps what was broadcast to it, and passes word to the backend before ending as it is told to. */
+const panel = state<{ data: { seen: string[] } }, PanelEvent, PanelAsks>()({
+  data: { seen: [] },
+  on: {
+    NOTED: ({ text }, { data }) => ({ data: { seen: [...data.seen, text] } }),
+    PASS: ({ how }, { tell }) => {
+      tell('desk', { type: 'COUNT' })
+      if (how === 'throws') throw new Error('the handler broke')
+      if (how === 'stray') return { data: { nothing: 1 } } as never
+      return undefined
+    },
+  },
+  asks: {
+    RELAY: ({ how }, { ask }) => {
+      void ask('desk', 'DO', { how: 'made' })
+      if (how !== 'made') throw new Error('the handler broke')
+      return 'relayed'
+    },
+  },
+})
+
+/** A backend that keeps rows, so each thing it handles is a unit, and a window that keeps none. */
+const wired = () => {
+  const store = memory()
+  const steps: StepLog[] = []
+  const backend = system({ side: 'backend', transact: store.transact, log: (step) => { steps.push(step) } })
+  const theEar = backend.start('ear', ear)
+  const theDesk = backend.start('desk', desk)
+  const window = system({ side: 'window' })
+  window.connect(backend)
+  const thePanel = window.start('panel', panel)
+  const progress: string[] = []
+  return {
+    backend, window, steps, progress,
+    say: (how: Ends): void => backend.send(theDesk, { type: 'SAY', how }),
+    work: (how: 'at once' | 'in failed'): void => backend.send(theDesk, { type: 'WORK', how }),
+    doIt: (how: AskEnds) => backend.ask(theDesk, 'DO', { how }, (updates) => { progress.push(...updates) }),
+    pass: (how: Ends): void => window.send(thePanel, { type: 'PASS', how }),
+    relay: (how: Ends) => window.ask(thePanel, 'RELAY', { how }),
+    /** Everything anybody was told, by whoever it was said to. */
+    said: () => ({ heard: backend.read(theEar).data.heard, count: backend.read(theDesk).data.count, seen: window.read(thePanel).data.seen, progress }),
+    desk: () => backend.read(theDesk),
+  }
+}
+const NOTHING = { heard: [], count: 0, seen: [], progress: [] }
+
+const refused: ReadonlyArray<readonly [AskEnds, string, string]> = [
+  ['throws', 'failed', 'the handler broke'],
+  ['refuses', 'no', 'the handler refused'],
+  ['stray', 'failed', 'The change that came with the answer was refused, so nothing was changed'],
+  ['change throws', 'failed', 'The change that came with the answer was refused, so nothing was changed'],
+  ['change refuses', 'no', 'the change refused'],
+]
+
+await run([
+  ['a handler that is made has said what it said: a state told, itself sent, and a window broadcast to', async () => {
+    const it = wired()
+    it.say('made')
+    await rest()
+    deepStrictEqual(it.said(), { heard: ['said'], count: 1, seen: ['said'], progress: [] })
+  }],
+  ['a handler that throws has said nothing', async () => {
+    const it = wired()
+    it.say('throws')
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+  }],
+  ['a handler whose change cannot be made has said nothing', async () => {
+    const it = wired()
+    it.say('stray')
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+  }],
+  ['what was said before and after one that was not made is said, in its order', async () => {
+    const it = wired()
+    it.say('made')
+    it.say('throws')
+    it.say('made')
+    await rest()
+    deepStrictEqual(it.said(), { heard: ['said', 'said'], count: 2, seen: ['said', 'said'], progress: [] })
+  }],
+  ['an ask that is made has said what it said, its progress and the ask it made among it', async () => {
+    const it = wired()
+    deepStrictEqual(await it.doIt('made'), { ok: true, value: 'done' })
+    await rest()
+    deepStrictEqual(it.said(), { heard: ['doing', 'asked echo'], count: 1, seen: ['doing'], progress: ['half way'] })
+  }],
+  ...refused.map(([how, kind, message]) => [`an ask whose handler ${how} has said nothing, and whoever asked is told`, async () => {
+    const it = wired()
+    deepStrictEqual(await it.doIt(how), { ok: false, failure: { kind, message } })
+    // It comes to rest: the ask the handler made is ended, so nothing waits on what will never be asked.
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+  }] as const),
+  ['what leaves the step of an ask that was not made is its answer, and nothing the handler said', async () => {
+    const it = wired()
+    await it.doIt('throws')
+    await rest()
+    const step = it.steps.find((each) => each.handled[0]?.name === 'DO')!
+    deepStrictEqual(step.handled, [{ kind: 'ask', ref: 'desk', name: 'DO' }])
+    deepStrictEqual(step.left, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
+  }],
+  ['work that fails at once has said nothing, and goes where the state says', async () => {
+    const it = wired()
+    it.work('at once')
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+    deepStrictEqual(it.desk(), { at: 'idle', data: { count: 0, problem: 'broke at once' } })
+  }],
+  ['a `failed` that throws has said nothing', async () => {
+    const it = wired()
+    it.work('in failed')
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+    strictEqual(it.desk().at, 'working')
+  }],
+  ['in a window, a handler that is made has told the backend', async () => {
+    const it = wired()
+    it.pass('made')
+    await rest()
+    strictEqual(it.said().count, 1)
+  }],
+  ['in a window, a handler that throws has told the backend nothing', async () => {
+    const it = wired()
+    it.pass('throws')
+    await rest()
+    strictEqual(it.said().count, 0)
+  }],
+  ['in a window, a handler whose change cannot be made has told the backend nothing', async () => {
+    const it = wired()
+    it.pass('stray')
+    await rest()
+    strictEqual(it.said().count, 0)
+  }],
+  ['in a window, an ask made across the link by a handler that is made is asked', async () => {
+    const it = wired()
+    deepStrictEqual(await it.relay('made'), { ok: true, value: 'relayed' })
+    await rest()
+    deepStrictEqual(it.said(), { heard: ['doing', 'asked echo'], count: 1, seen: ['doing'], progress: [] })
+  }],
+  ['in a window, an ask made across the link by a handler that throws is never asked, and nothing waits on it', async () => {
+    const it = wired()
+    deepStrictEqual(await it.relay('throws'), { ok: false, failure: { kind: 'failed', message: 'the handler broke' } })
+    await rest()
+    deepStrictEqual(it.said(), NOTHING)
+    // Closing the link finds no ask waiting on it to end.
+    strictEqual(it.window.idle(), true)
+  }],
+])

@@ -1,7 +1,7 @@
 // The rule about rows as a property, and not as the cases somebody thought of: for any run of handlers that write,
 // tell themselves more, throw, refuse, return a change that cannot be made, and wait, the rows kept are those written
-// by what was made, the data counts what was made, an ask is answered as made exactly when it was, and nobody is told
-// of a step while it is still writing.
+// by what was made, the data counts what was made, what was told is what was told by what was made, an ask is
+// answered as made exactly when it was, and nobody is told of a step while it is still writing.
 //
 // A run is generated from a seed and held against a model that knows nothing of the kernel: a few lines that say what
 // the rule says. A run that differs is reported with its seed, and `SEED=<n>` runs that one alone.
@@ -35,24 +35,24 @@ type Op = { readonly how: 'told' | 'asked' | 'asked, and it waits'; readonly doe
 interface Model { rows: Map<string, number>; count: number }
 const write = (rows: Map<string, number>, writes: readonly Write[]): void => { for (const [id, value] of writes) { if (value === null) rows.delete(id); else rows.set(id, value) } }
 /**
- * Events, each handled in the order it was sent: what its handler wrote is kept if it was made, and what it told
- * itself waits its turn behind what was sent before, whether or not it was made.
+ * Events, each handled in the order it was sent: what its handler wrote and what it told itself are kept if it was
+ * made, and what it told itself waits its turn behind what was sent before. One that was not made told itself nothing.
  */
 const told = (model: Model, ...first: readonly Does[]): void => {
   const waiting = [...first]
   for (let does = waiting.shift(); does; does = waiting.shift()) {
     const before = new Map(model.rows)
     write(model.rows, does.writes)
-    if (does.ends === 'made') model.count += does.adds; else model.rows = before
-    waiting.push(...does.sends)
+    if (does.ends === 'made') { model.count += does.adds; waiting.push(...does.sends) } else model.rows = before
   }
 }
 /**
  * An ask's handler and the change that comes with its answer. Answers whether it was made.
  *
- * One that does not wait is one thing: what the handler wrote and what its change wrote are kept together or not at
- * all, and what it told itself is handled after. One that waits is two: what it wrote before the wait is kept as its
- * step ends, what it told itself is handled then, and its change is made later, kept or not on its own.
+ * One that does not wait is one thing: what the handler wrote, what its change wrote and what it told itself are kept
+ * together or not at all, and what it told itself is handled after. One that waits is two: what it wrote before the
+ * wait is kept as its step ends, what it told itself is handled then, and its change is made later, kept or not on
+ * its own.
  */
 const asked = (model: Model, does: Does, waits: boolean): boolean => {
   const before = new Map(model.rows)
@@ -66,7 +66,7 @@ const asked = (model: Model, does: Does, waits: boolean): boolean => {
   }
   if (made) model.count += does.adds
   else if (!waits || does.ends === 'made') model.rows = beforeChange
-  if (!waits) told(model, ...does.sends)
+  if (!waits && made) told(model, ...does.sends)
   return made
 }
 

@@ -201,6 +201,7 @@ export function system(host: {
   /**
    * The `transact` of the database this system's rows are kept in. With one, a step is a unit of it: a handler's rows,
    * the data it changed and what it sent are kept together, and a handler that changes nothing has written nothing.
+   * Without one, such a handler has still said nothing.
    */
   transact?: Transact
   /**
@@ -239,8 +240,12 @@ export function system(host: {
   const running = new Map<string, Running>()
   const outside: Item[] = []
   const inside: Item[] = []
-  /** What leaves when the step commits: answers, progress, what crosses a link, and word to subscribers. */
-  const leaving: Array<(() => void) & { lost?: () => void; said?: Sent }> = []
+  /**
+   * What leaves when the step commits: answers, progress, what crosses a link, and word to subscribers. `anyway` is
+   * the kernel's own word, which leaves whether or not what it was said while handling was made. `unsaid` is what
+   * taking one back has to end: an ask that will now never cross the link.
+   */
+  const leaving: Array<(() => void) & { lost?: () => void; said?: Sent; anyway?: true; unsaid?: () => void }> = []
   /** For each ask a state here was asked, which it was: what its answer is said to be to. */
   const askedOf = new WeakMap<Question, { readonly ref: string; readonly name: string }>()
   /** The state answering each ask it answers later, until the answer is taken; and each ask it left unanswered. */
@@ -259,6 +264,19 @@ export function system(host: {
   const NOT_MADE = false
   /** Set when a step's rows could not be kept. The states are ahead of the rows then, and no more steps are taken. */
   let broken = false
+  const TAKEN_BACK = 'What made this ask was not made, so it was never asked'
+  /** Where what has been said in this step stands: what is waiting to be handled in it, and what is waiting to leave. */
+  const sayings = (): { readonly inside: number; readonly leaving: number } => ({ inside: inside.length, leaving: leaving.length })
+  /**
+   * Takes back everything said since: what a handler sent, told, asked, had made or dropped, broadcast and reported
+   * as progress. What it says is its own until it is made, as its rows are, so one that threw, refused, or returned a
+   * change that could not be made has said nothing. An ask among it is ended, since nothing will now answer it. The
+   * kernel's own word stays: whoever asked is still told that it failed.
+   */
+  const unsay = (since: { readonly inside: number; readonly leaving: number }): void => {
+    for (const item of inside.splice(since.inside)) if (item.kind === 'ask') item.question.end(refusal('abandoned', TAKEN_BACK))
+    for (const leave of leaving.splice(since.leaving)) { if (leave.anyway) leaving.push(leave); else leave.unsaid?.() }
+  }
   /** The views this backend runs for its windows that can say when they have caught up: what the hold asks. */
   const forWindows = new Set<Viewing>()
   /**
@@ -316,7 +334,7 @@ export function system(host: {
   const answer = (question: Question, outcome: AnyOutcome): void => {
     const asked = askedOf.get(question)
     const said: Sent = { kind: 'answer', ...(asked ? { to: asked.ref, name: asked.name } : {}), outcome: outcome.ok ? 'ok' : outcome.failure.kind }
-    leaving.push(Object.assign(() => question.end(outcome), { lost: () => question.end(refusal('failed', 'What this step wrote could not be kept, so nothing was changed')), said }))
+    leaving.push(Object.assign(() => question.end(outcome), { lost: () => question.end(refusal('failed', 'What this step wrote could not be kept, so nothing was changed')), said, anyway: true as const }))
   }
   const changed = new Set<string>()
   /** For each running state that changed in this step, the fields of its data that did. */
@@ -389,7 +407,7 @@ export function system(host: {
   const isSurface = (to: unknown): to is { surface: string } => typeof to === 'object' && to !== null && 'surface' in to
 
   /** Something to leave at the commit: of this step, or of one of its own if none is running. */
-  const out = (leave: () => void, said?: Sent): void => { if (stepping) leaving.push(Object.assign(leave, { said })); else arrive({ kind: 'out', leave, ...(said ? { said } : {}) }) }
+  const out = (leave: () => void, said?: Sent, unsaid?: () => void): void => { if (stepping) leaving.push(Object.assign(leave, { said, unsaid })); else arrive({ kind: 'out', leave, ...(said ? { said } : {}) }) }
 
   /** A name is a backend system: here on the backend, across the link from a window. A handle is always here. */
   const isAcross = (to: string | { ref: string }): boolean => typeof to === 'string' && host.side === 'window'
@@ -458,7 +476,7 @@ export function system(host: {
       leave = mine.port.ask(ref, name, args,
         (update) => carry(mine.link, 'down', () => heard?.(update)),
         (outcome) => carry(mine.link, 'down', () => { mine.waiting.delete(question); mine.gone.delete(gone); question.end(outcome) }))
-    }), { kind: 'ask', to: ref, name })
+    }), { kind: 'ask', to: ref, name }, () => { mine.waiting.delete(question); question.end(refusal('abandoned', TAKEN_BACK)) })
   }))
 
   const scopeOf = (mine: Active, signal: AbortSignal = mine.controller.signal) => {
@@ -503,9 +521,10 @@ export function system(host: {
     if (path) trace(`${top.ref} entered ${path}`)
     let made: unknown
     // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
-    // And what it wrote before it threw is taken back: work that fails at once has done nothing.
+    // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
     const begin = (): void => { made = def.run?.(scopeOf(active)) }
-    try { if (host.transact) host.transact(begin); else begin() } catch (error) { inside.push({ kind: 'failure', of: active, error }); return active }
+    const before = sayings()
+    try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); inside.push({ kind: 'failure', of: active, error }); return active }
     if (made instanceof Promise) {
       under(made, (value) => arrive({ kind: 'result', of: active, value }), (error) => arrive({ kind: 'failure', of: active, error }))
     } else if (made !== undefined) inside.push({ kind: 'result', of: active, value: made })
@@ -877,10 +896,6 @@ export function system(host: {
     return of ? { handler: of.def[table]![name]!, of } : undefined
   }
 
-  /**
-   * Takes one thing, whole. What a handler wrote is kept only if what it did is: one that threw, refused, or returned
-   * a change that could not be made has its rows taken back, and the rows of everything else in the step stay.
-   */
   /** What a log says of a thing handled: its kind, the state, and the name it was declared or sent by. */
   const handledOf = (item: Exclude<Item, { kind: 'out' }>): Handled => {
     switch (item.kind) {
@@ -893,10 +908,18 @@ export function system(host: {
       case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name } }
     }
   }
+  /**
+   * Takes one thing, whole. What a handler wrote and what it said are kept only if what it did is: one that threw,
+   * refused, or returned a change that could not be made has its rows and its word taken back, and those of
+   * everything else in the step stay.
+   */
   const handle = (item: Item): void => {
+    const before = sayings()
     const within = host.transact
-    if (!within) { take(item); return }
-    try { within(() => { if (!take(item)) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error }
+    let made = NOT_MADE
+    if (!within) made = take(item)
+    else try { within(() => { made = take(item); if (!made) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error }
+    if (!made) unsay(before)
   }
   const take = (item: Item): boolean => {
     if (item.kind === 'out') { leaving.push(Object.assign(item.leave, { said: item.said })); return MADE }
