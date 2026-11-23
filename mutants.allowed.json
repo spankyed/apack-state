@@ -215,16 +215,6 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) if (leave.lost) safely('what leaves at the commit', leave.lost) | \"\"",
-    "original": "'what leaves at the commit'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
-    "key": "src/kernel.ts | StringLiteral | for (const leave of leaving.splice(0)) safely('what leaves as it stops', leave) | \"\"",
-    "original": "'what leaves as it stops'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
     "key": "src/kernel.ts | StringLiteral | for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
@@ -753,11 +743,6 @@
     "key": "src/kernel.ts | StringLiteral | for (const leave of now) safely('what leaves at the commit', leave) | \"\"",
     "original": "'what leaves at the commit'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
-    "key": "src/kernel.ts | StringLiteral | if (ended) { linked.gone.delete(ended); out(() => carry(linked.link, 'up', ended), { kind: 'unfollow', to: feature, name: view }) } | \"\"",
-    "original": "'up'",
-    "why": "Which lane a view's stop goes up in: the backend takes a stop whenever it comes, and the window stopped hearing that view when it gave it up, so its place among what else goes up changes nothing either side sees"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | case 'view': case 'ended': case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) } | case 'progressed':",
