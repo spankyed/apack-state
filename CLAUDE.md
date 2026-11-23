@@ -37,12 +37,17 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 ## Commands
 
 ```bash
+npm run lint
 npm run typecheck
 npm run typecheck:floor
 npm run api:check
 npm test
 npm run build
 ```
+
+`npm run lint` is oxlint over everything here, warnings refused; `.oxlintrc.json` turns off the rules whose findings
+are deliberate, each where it is. `npm run package:lint` packs the package and runs publint and attw over the
+tarball.
 
 `etc/*.api.md` is what each entry offers, as API Extractor reads it from the source. A change to what the package
 offers fails `api:check` until `npm run api:update` has written it, so it shows in the diff. A type a public

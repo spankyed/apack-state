@@ -8,7 +8,7 @@ const ts = createRequire(join(process.cwd(), 'package.json'))('typescript')
 const PRIMITIVES = new Set(['create', 'upsert', 'write', 'untypedCreate', 'untypedUpsert', 'untypedWrite', 'updateRelation', 'removeRelation'])
 const EARS = /(^#generated\/ears(\.ts)?$)|(@apackdev\/sdk\/ears)/
 const files: string[] = []
-const walk = (dir: string): void => { for (const name of readdirSync(dir)) { if (['node_modules', 'dist', '__generated__', 'tests', 'repository'].includes(name)) continue; const at = join(dir, name); if (statSync(at).isDirectory()) walk(at); else if (/\.ts$/.test(name) && !/\.(spec|d)\.ts$/.test(name)) files.push(at) } }
+const walk = (dir: string): void => { for (const name of readdirSync(dir)) { if (['node_modules', 'dist', '__generated__', 'tests', 'repository'].includes(name)) continue; const at = join(dir, name); if (statSync(at).isDirectory()) walk(at); else if (name.endsWith('.ts') && !/\.(spec|d)\.ts$/.test(name)) files.push(at) } }
 walk(join(root, 'packages/default-setup/src'))
 type Fn = { file: string; name: string; writes: number; covered: number; afterAwait: number; awaits: number; broadcasts: number; broadcastBeforeLastWrite: boolean }
 const fns: Fn[] = []
@@ -36,7 +36,7 @@ for (const file of files) {
       if (transactName && ts.isIdentifier(callee) && callee.text === transactName) { for (const child of node.arguments) visit(child, u, true, d); return }
       const owner = ts.isPropertyAccessExpression(callee) ? callee.expression : null
       const ownerName = owner ? (ts.isPropertyAccessExpression(owner) ? owner.name.text : ts.isIdentifier(owner) ? owner.text : '') : ''
-      const isWrite = (ts.isIdentifier(callee) && imported.has(callee.text)) || /Commands$/.test(ownerName)
+      const isWrite = (ts.isIdentifier(callee) && imported.has(callee.text)) || ownerName.endsWith('Commands')
       if (u && isWrite) { u.writes++; if (c) u.covered++; if (u.awaits > 0) u.afterAwait++; if (u.broadcasts > 0) u.broadcastBeforeLastWrite = true }
       if (u && ts.isIdentifier(callee) && /^(broadcast|tell|sendToSurface|sendToWindow)$/.test(callee.text)) u.broadcasts++
     }

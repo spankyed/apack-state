@@ -38,7 +38,7 @@ state<Jobs, JobsEvent>()({
   start: 'on',
   states: {
     on: {
-      makes: ({ one, each }) => ({
+      makes: ({ one }) => ({
         // @ts-expect-error a job is one for each of many, so it is made with `each`
         run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),
         // @ts-expect-error what a save answers is a string, so it cannot be put where the list goes

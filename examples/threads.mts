@@ -17,7 +17,7 @@
 // and `inference` for `services.inference`.
 
 import { deepStrictEqual } from 'node:assert'
-import { answered, given, reaching, system, within, type AskFailure, type Each } from '../src/index.ts'
+import { answered, given, reaching, system, type Each } from '../src/index.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // What can be reached by name. In the app a pack's generated facade would declare this.

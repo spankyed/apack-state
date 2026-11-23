@@ -32,6 +32,7 @@ jobs:
       - run: npm run workflows:check
       # Each sibling's packages are named by a release of it, all at one commit, as deps:pin writes them
       - run: npm run deps:check
+      - run: npm run lint
       - run: npm run typecheck
       # The oldest TypeScript the package and its type tests are held to
       - run: npm run typecheck:floor
@@ -41,6 +42,8 @@ jobs:
       - run: npm test
       # The package as a consumer gets it: packed, installed into a project of its own, each entry imported
       - run: npm run package:smoke
+      # The packed package as published code: its manifest and files (publint), and each entry's types (attw)
+      - run: npm run package:lint
 
   # The one check a merge, and the packages workflow, wait on: every suite passed
   ci-pass:

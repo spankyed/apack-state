@@ -209,7 +209,7 @@ const made = (open: () => Rows, later?: Schedule['later'], read?: (path: string)
   return { store, sys, handle, traced, defects: () => traced.filter((line) => line.startsWith('DEFECT')) }
 }
 
-const checks = ([kept, open]: Kept): Array<readonly [string, () => void | Promise<void>]> => ([
+const checks = ([, open]: Kept): Array<readonly [string, () => void | Promise<void>]> => ([
   ['a row and the data that counts it are kept together, and whoever is told of the step can read the row', async () => {
     const { store, sys, handle } = made(open)
     const seen: Array<{ count: number; row: unknown; writing: boolean }> = []
