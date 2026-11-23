@@ -72,10 +72,15 @@ line('the kernel, ten steps of one write', timed(500, (store) => { const step = 
 type WindowAsks = { ADD: { args: { id: string }; answer: boolean } }
 type Net = { systems: { rows: { events: never; asks: { CREATE: { args: { id: string }; answer: string } } } }; surfaces: {}; views: { rows: { count: { args: {}; result: number } } } }
 const linked = reaching<Net>()
-const asking = async (held: boolean, asks: number, writes: boolean, apartMs: number): Promise<number> => {
+/** How a backend holds what it sends a window: not at all, as it did (until no watch at all is behind), or as it does. */
+type Hold = 'none' | 'every watch settled' | 'each view caught up'
+const asking = async (hold: Hold, asks: number, writes: boolean, apartMs: number): Promise<number> => {
   const store = elmdb()
   const views: ViewHost = (_feature, _view, _args, heard) => store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
-  const backend = system({ side: 'backend', transact: store.transact, views, ...(held ? { viewsSent: store.settled } : {}) })
+  // The same views, unable to say when they have caught up, or saying it when no watch at all is behind.
+  const unheld: ViewHost = (...given) => { const running = views(...given); return typeof running === 'function' ? running : { stop: () => running.stop() } }
+  const settled: ViewHost = (...given) => { const running = views(...given); return typeof running === 'function' ? running : { stop: () => running.stop(), caughtUp: (then) => store.settled(then) } }
+  const backend = system({ side: 'backend', transact: store.transact, views: hold === 'none' ? unheld : hold === 'every watch settled' ? settled : views })
   backend.start('rows', linked<{}, never, Net['systems']['rows']['asks']>()({ asks: { CREATE: ({ id }) => { if (writes) store.put('thread', id, { topic: 'made' }); return id } } }))
   const window = system({ side: 'window' })
   window.connect(backend)
@@ -103,9 +108,15 @@ const cases = [
 for (const [what, writes, apartMs, asks] of cases) {
   console.log(`\nA window asks its backend ${what}, with a view of the rows open`)
   const unheld: number[] = []
+  const settled: number[] = []
   const held: number[] = []
-  for (let at = 0; at < RUNS; at++) { unheld.push(await asking(false, asks, writes, apartMs)); held.push(await asking(true, asks, writes, apartMs)) }
+  for (let at = 0; at < RUNS; at++) {
+    unheld.push(await asking('none', asks, writes, apartMs))
+    settled.push(await asking('every watch settled', asks, writes, apartMs))
+    held.push(await asking('each view caught up', asks, writes, apartMs))
+  }
   const plain = median(unheld)
   line('answered when the rows are kept', plain)
-  line('answered when its views have been sent them', median(held), plain)
+  line('answered when no watch is behind (the hold as it was)', median(settled), plain)
+  line('answered when each view it follows has caught up, soon (the hold)', median(held), plain)
 }

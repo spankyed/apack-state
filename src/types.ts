@@ -48,8 +48,16 @@ type Nothing = { systems: {}; surfaces: {}; views: {} }
 
 /** What a view delivers: its result, and each changed result after it, or why it could not be read. */
 export type ViewUpdate<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string }
-/** What runs a view: it calls `heard` with the result and every changed result until the function it returns is called. */
-export type ViewHost = (feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void) => () => void
+/**
+ * A view running: what stops it, and, where whatever runs it can say so, what calls `then` once it has been handed
+ * everything kept before the call. `soon` says something is blocked on it.
+ */
+export interface Viewing { stop(): void; caughtUp?(then: () => void, soon: boolean): void }
+/**
+ * What runs a view: it calls `heard` with the result and every changed result until it is stopped. It returns what
+ * stops it, or a `Viewing`: one that can say when it has caught up is what a backend holds what it sends windows for.
+ */
+export type ViewHost = (feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void) => (() => void) | Viewing
 
 export type AskEnd =
   | 'failed'        // the handler threw

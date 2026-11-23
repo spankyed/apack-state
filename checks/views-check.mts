@@ -71,11 +71,16 @@ const watcher = (store: Rows) => state<{ data: { heard: number[] } }, never>()({
 
 /** The views a backend runs over its rows. */
 const viewsOf = (store: Rows): ViewHost => (_feature, _view, _args, heard) => store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
+/** The same views, unable to say when they have caught up: what a backend has to hold for, taken away. */
+const unheld = (store: Rows): ViewHost => (feature, view, args, heard) => {
+  const running = viewsOf(store)(feature, view, args, heard)
+  return typeof running === 'function' ? running : { stop: () => running.stop() }
+}
 
 const made = (store: Rows, held: boolean, later?: Schedule['later']) => {
   const traced: string[] = []
   const trace = (line: string): void => { traced.push(line) }
-  const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), ...(held ? { viewsSent: store.settled } : {}), trace, ...(later ? { later } : {}) })
+  const backend = system({ side: 'backend', transact: store.transact, views: held ? viewsOf(store) : unheld(store), trace, ...(later ? { later } : {}) })
   backend.start('threads', threads(store))
   const window = system({ side: 'window', trace, ...(later ? { later } : {}) })
   const link = window.connect(backend)
@@ -145,11 +150,15 @@ await run([
   }] as const),
   ['a window that closes while its answer is held is told it was disconnected, is sent nothing after, and the backend goes on', async () => {
     const store = memory()
-    // The views are sent what was kept when this check says so, and not before.
+    // The views say they have been sent what was kept when this check says so, and not before.
     const waiting: Array<() => void> = []
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard)
+      return { stop: () => (typeof running === 'function' ? running() : running.stop()), caughtUp: (then) => { waiting.push(then) } }
+    }
     const traced: string[] = []
     const trace = (line: string): void => { traced.push(line) }
-    const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), viewsSent: (then) => { waiting.push(then) }, trace })
+    const backend = system({ side: 'backend', transact: store.transact, views, trace })
     backend.start('threads', threads(store))
     const closing = system({ side: 'window', name: 'the window that closes', trace })
     const link = closing.connect(backend)
@@ -186,7 +195,12 @@ await run([
   ['what each step sends a window waits for its own step\'s views, however the waits overlap', async () => {
     const store = memory()
     const waiting: Array<() => void> = []
-    const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), viewsSent: (then) => { waiting.push(then) } })
+    // The one view says it has caught up when this check says so, once for each time it is asked.
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard)
+      return { stop: () => (typeof running === 'function' ? running() : running.stop()), caughtUp: (then) => { waiting.push(then) } }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
     const made = backend.start('threads', threads(store))
     const window = system({ side: 'window' })
     window.connect(backend)
@@ -207,6 +221,70 @@ await run([
     waiting.shift()!()
     strictEqual(await told(), 3)
     for (const then of waiting.splice(0)) then()
+  }],
+  ['an answer waits for every view the windows follow, and not for the first of them to catch up', async () => {
+    const store = memory()
+    // Each view says it has caught up when this check says so: the first window's, then the second's.
+    const waiting: Array<Array<() => void>> = []
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard)
+      const mine: Array<() => void> = []
+      waiting.push(mine)
+      return { stop: () => (typeof running === 'function' ? running() : running.stop()), caughtUp: (then) => { mine.push(then) } }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
+    backend.start('threads', threads(store))
+    const first = system({ side: 'window', name: 'the first window' })
+    first.connect(backend)
+    const asking = first.start('panel', panel)
+    await rest()
+    const second = system({ side: 'window', name: 'the second window' })
+    second.connect(backend)
+    second.start('panel', panel)
+    await rest()
+    strictEqual(waiting.length, 2)
+    let answered = false
+    void first.ask(asking, 'ADD', { id: 'a' }).then(() => { answered = true })
+    const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+    for (let turns = 0; turns < 50 && waiting.some((mine) => mine.length === 0); turns++) await turn()
+    ok(waiting.every((mine) => mine.length > 0), 'each view was asked whether it had caught up')
+    for (const then of waiting[0]!.splice(0)) then()
+    for (let turns = 0; turns < 10; turns++) await turn()
+    strictEqual(answered, false, 'answered when one of the two views had caught up')
+    for (const then of waiting[1]!.splice(0)) then()
+    await rest()
+    strictEqual(answered, true)
+  }],
+  ['a view stopped while it is waited on does not hold what waits, though whatever runs it never says it caught up', async () => {
+    const store = memory()
+    // The first window's view never says it has caught up; the second's says so when this check does.
+    const waiting: Array<() => void> = []
+    let made = 0
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = viewsOf(store)(feature, view, args, heard)
+      const silent = made++ === 0
+      return { stop: () => (typeof running === 'function' ? running() : running.stop()), caughtUp: (then) => { if (!silent) waiting.push(then) } }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
+    backend.start('threads', threads(store))
+    const closing = system({ side: 'window', name: 'the window that closes' })
+    const link = closing.connect(backend)
+    closing.start('panel', panel)
+    await rest()
+    const staying = system({ side: 'window', name: 'the window that stays' })
+    staying.connect(backend)
+    const stayed = staying.start('panel', panel)
+    await rest()
+    const asked = staying.ask(stayed, 'ADD', { id: 'a' })
+    const turn = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+    for (let turns = 0; turns < 50 && waiting.length === 0; turns++) await turn()
+    for (const then of waiting.splice(0)) then()
+    // The answer still waits on the first window's view. That window goes, and its view with it.
+    link.close()
+    closing.stop()
+    // Nothing is left waiting: a backend still holding the answer would not come to rest, and that fails.
+    await rest()
+    ok((await asked).ok)
   }],
   ['a window that closes before its ask crosses is told so, and neither side is left waiting', async () => {
     const store = memory()

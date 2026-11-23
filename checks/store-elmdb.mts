@@ -20,7 +20,7 @@ interface Engine {
   findRelations(match: { source: string; target: string; kind: string }): unknown[]
   catalog(): { types: ReadonlyArray<{ name: string; count: number }> }
   lastCommit(): number
-  watch<T>(read: () => T, heard: (value: T, commit: number) => void): { stop(): void }
+  watch<T>(read: () => T, heard: (value: T, commit: number) => void): { stop(): void; caughtUp(options?: { soon?: boolean }): Promise<void> }
   /** What only whoever made the engine holds. */
   admin: { watchesSettled(): Promise<void> }
 }
@@ -79,7 +79,10 @@ export function elmdb(): ElmdbRows {
     get commits() { return engine.lastCommit() - started },
     get writing() { return open },
     failNext: (why) => { failing = why },
-    watch: (read, heard) => { const watching = engine.watch(read, (value) => heard(value)); return () => watching.stop() },
+    watch: (read, heard) => {
+      const watching = engine.watch(read, (value) => heard(value))
+      return { stop: () => watching.stop(), caughtUp: (then, soon) => { void watching.caughtUp({ soon }).then(then) } }
+    },
     // The engine's own timers do not keep a process alive, so while this waits something else has to.
     settled: (then) => {
       const alive = setInterval(() => {}, 1_000)
