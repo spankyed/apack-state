@@ -1,0 +1,102 @@
+{
+  "measurement": "rows-cost.mts",
+  "conditions": {
+    "date": "2026-11-23T04:28:32.539Z",
+    "commit": "bbc5b47e99aaf044e685e9b4ed5715089444f7dc",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 18.3,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz"
+  },
+  "readings": [
+    {
+      "name": "A step that writes nothing: the kernel alone, given no database",
+      "value": 8.199447900000001,
+      "unit": "µs"
+    },
+    {
+      "name": "A step that writes nothing: the kernel, with each step a unit",
+      "value": 7.8817875,
+      "unit": "µs"
+    },
+    {
+      "name": "A step that writes one row: the engine alone: one unit, one write",
+      "value": 58.244191799999996,
+      "unit": "µs"
+    },
+    {
+      "name": "A step that writes one row: the kernel, with the step a unit",
+      "value": 64.2762082,
+      "unit": "µs"
+    },
+    {
+      "name": "A step in which ten handlers each write one row: the engine alone: one unit, ten writes",
+      "value": 215.9425205,
+      "unit": "µs"
+    },
+    {
+      "name": "A step in which ten handlers each write one row: the engine alone: one unit, each write in a unit inside it",
+      "value": 230.6896875,
+      "unit": "µs"
+    },
+    {
+      "name": "A step in which ten handlers each write one row: the kernel, with the step a unit",
+      "value": 319.6411665,
+      "unit": "µs"
+    },
+    {
+      "name": "Ten rows, a step each: what a stream written a piece at a time is: the kernel, ten steps of one write",
+      "value": 601.873332,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, straight after the last, with a view of the rows open: answered when the rows are kept",
+      "value": 117.55395499999997,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, straight after the last, with a view of the rows open: answered when no watch is behind (the hold as it was)",
+      "value": 16717.113534999997,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, straight after the last, with a view of the rows open: answered when each view it follows has caught up, soon (the hold)",
+      "value": 168.66207499999996,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, 20 ms after the last was answered, with a view of the rows open: answered when the rows are kept",
+      "value": 447.6166999999999,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, 20 ms after the last was answered, with a view of the rows open: answered when no watch is behind (the hold as it was)",
+      "value": 692.2999749999999,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend to write a row, 20 ms after the last was answered, with a view of the rows open: answered when each view it follows has caught up, soon (the hold)",
+      "value": 556.0749999999999,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend something that writes nothing, straight after the last, with a view of the rows open: answered when the rows are kept",
+      "value": 49.374569999999984,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend something that writes nothing, straight after the last, with a view of the rows open: answered when no watch is behind (the hold as it was)",
+      "value": 52.444165000000005,
+      "unit": "µs"
+    },
+    {
+      "name": "A window asks its backend something that writes nothing, straight after the last, with a view of the rows open: answered when each view it follows has caught up, soon (the hold)",
+      "value": 50.52045500000002,
+      "unit": "µs"
+    }
+  ]
+}

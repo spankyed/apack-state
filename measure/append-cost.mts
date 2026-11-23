@@ -7,15 +7,19 @@
 // backend to a window, the way the search does.
 import { produce } from '../src/draft.ts'
 import { reaching, system } from '../src/index.ts'
+import { reading, under } from './record.mts'
 
 const time = async (label: string, run: () => void | Promise<void>): Promise<void> => {
   const started = process.hrtime.bigint()
   await run()
-  console.log(`  ${label.padEnd(54)} ${(Number(process.hrtime.bigint() - started) / 1e6).toFixed(0).padStart(7)} ms`)
+  const ms = Number(process.hrtime.bigint() - started) / 1e6
+  reading(label, ms, 'ms')
+  console.log(`  ${label.padEnd(54)} ${ms.toFixed(0).padStart(7)} ms`)
 }
 const row = (i: number) => ({ path: `/repo/file-${i}.ts`, matches: [{ line: i }] })
 type Row = ReturnType<typeof row>
 
+under('the draft alone')
 console.log('the draft alone')
 for (const count of [10_000, 100_000]) {
   for (const each of [1, 100, 1000]) {
@@ -73,6 +77,7 @@ const panel = state<Panel, PanelEvent>()({
   },
 })
 
+under('through an ask, backend to window')
 console.log('\nthrough an ask, backend to window')
 for (const count of [10_000, 100_000]) {
   const notes: string[] = []

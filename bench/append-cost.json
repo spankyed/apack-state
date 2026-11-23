@@ -1,0 +1,62 @@
+{
+  "measurement": "append-cost.mts",
+  "conditions": {
+    "date": "2026-11-23T04:27:55.959Z",
+    "commit": "bbc5b47e99aaf044e685e9b4ed5715089444f7dc",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 8.66,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz"
+  },
+  "readings": [
+    {
+      "name": "the draft alone: 10000 results, 1 per change",
+      "value": 104.2885,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 10000 results, 100 per change",
+      "value": 4.404208,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 10000 results, 1000 per change",
+      "value": 3.894542,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 100000 results, 1 per change",
+      "value": 15579.47325,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 100000 results, 100 per change",
+      "value": 209.569917,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 100000 results, 1000 per change",
+      "value": 50.421584,
+      "unit": "ms"
+    },
+    {
+      "name": "the draft alone: 100000 pieces of text, 1 per change",
+      "value": 265.210958,
+      "unit": "ms"
+    },
+    {
+      "name": "through an ask, backend to window: 10000 results streamed",
+      "value": 28.615375,
+      "unit": "ms"
+    },
+    {
+      "name": "through an ask, backend to window: 100000 results streamed",
+      "value": 429.772166,
+      "unit": "ms"
+    }
+  ]
+}

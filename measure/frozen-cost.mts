@@ -1,3 +1,4 @@
+import { reading } from './record.mts'
 // What a frozen list costs to read and to copy, beside the same list unfrozen. A measurement, not a check: it
 // prints and refuses nothing. The kernel freezes what a state holds, so every list a handler or a component reads is
 // one of these, and the draft's copy of a list is the `spread` row.
@@ -48,6 +49,8 @@ for (const size of [100, 5_000]) {
   for (const [name, way] of Object.entries(WAYS)) {
     const a = cost(way, plain, calls)
     const b = cost(way, frozen, calls)
+    reading(`${size} rows, ${name}, unfrozen`, a, 'ns')
+    reading(`${size} rows, ${name}, frozen`, b, 'ns')
     console.log(name.padEnd(14) + a.toFixed(0).padStart(12) + b.toFixed(0).padStart(12) + (b / a).toFixed(1).padStart(8))
   }
 }
