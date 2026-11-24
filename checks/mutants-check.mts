@@ -14,11 +14,18 @@ const script = join(root, 'scripts', 'mutants.mjs')
 
 interface Mutant {
   id: string
+  mutatorName?: string
+  replacement?: string
   location: { start: { line: number; column: number }; end: { line: number; column: number } }
   status: string
 }
 interface Report {
   files: Record<string, { source: string; mutants: Mutant[] }>
+}
+interface AllowedEntry {
+  key: string
+  original: string
+  why: string
 }
 
 const mutant = (id: string, startLine: number, endLine = startLine, startCol = 1, endCol = 10): Mutant => ({
@@ -27,23 +34,31 @@ const mutant = (id: string, startLine: number, endLine = startLine, startCol = 1
   status: 'Survived',
 })
 
-const withReport = (initial: Report, body: (file: string) => void): void => {
+const withDir = (body: (dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'mutants-check-'))
-  const file = join(dir, 'report.json')
   try {
-    writeFileSync(file, JSON.stringify(initial))
-    body(file)
+    body(dir)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-const prune = (...args: string[]): { out: string; err: string; status: number | null } => {
-  const ran = spawnSync(process.execPath, [script, '--prune', ...args], { cwd: root, encoding: 'utf8' })
-  return { out: ran.stdout, err: ran.stderr, status: ran.status }
+const withReport = (initial: Report, body: (file: string) => void): void => {
+  withDir((dir) => {
+    const file = join(dir, 'report.json')
+    writeFileSync(file, JSON.stringify(initial))
+    body(file)
+  })
 }
 
+const runScript = (args: string[], env?: Record<string, string>): { out: string; err: string; status: number | null } => {
+  const ran = spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } })
+  return { out: ran.stdout, err: ran.stderr, status: ran.status }
+}
+const prune = (...args: string[]) => runScript(['--prune', ...args])
+
 const readReport = (file: string): Report => JSON.parse(readFileSync(file, 'utf8')) as Report
+const readAllowed = (file: string): AllowedEntry[] => JSON.parse(readFileSync(file, 'utf8')) as AllowedEntry[]
 
 await run([
   ['a line range keeps mutants just inside each boundary and drops those just outside or straddling', () => {
@@ -153,6 +168,135 @@ await run([
     withReport(extraFile, (file) => {
       const ran = prune('--expect-none', 'src/kernel.ts:1-275', file)
       ok(ran.status !== 0 && ran.err.includes('src/draft.ts'), ran.err)
+    })
+  }],
+  ['--draft prints canonically sorted, deduplicated entries for unlisted Survived and NoCoverage mutants', () => {
+    withDir((dir) => {
+      const allowed = join(dir, 'allowed.json')
+      const r1 = join(dir, 'r1.json')
+      const r2 = join(dir, 'r2.json')
+      writeFileSync(allowed, JSON.stringify([
+        { key: 'src/a.ts | BooleanLiteral | const ok = true | false', original: 'true', why: 'already listed' },
+      ]))
+      const source = 'const ok = true\nconst x = !a || b\n'
+      writeFileSync(r1, JSON.stringify({
+        files: {
+          'src/a.ts': {
+            source,
+            mutants: [
+              { id: '1', mutatorName: 'BooleanLiteral', replacement: 'false', location: { start: { line: 1, column: 12 }, end: { line: 1, column: 16 } }, status: 'Survived' },
+              { id: '2', mutatorName: 'ConditionalExpression', replacement: 'false', location: { start: { line: 2, column: 11 }, end: { line: 2, column: 18 } }, status: 'Survived' },
+              { id: '3', mutatorName: 'ConditionalExpression', replacement: 'false', location: { start: { line: 2, column: 11 }, end: { line: 2, column: 13 } }, status: 'NoCoverage' },
+              { id: '4', mutatorName: 'BooleanLiteral', replacement: 'true', location: { start: { line: 1, column: 12 }, end: { line: 1, column: 16 } }, status: 'Killed' },
+            ],
+          },
+        },
+      }))
+      // Duplicate of id 3 in a second report must only appear once
+      writeFileSync(r2, JSON.stringify({
+        files: {
+          'src/a.ts': {
+            source,
+            mutants: [
+              { id: '3b', mutatorName: 'ConditionalExpression', replacement: 'false', location: { start: { line: 2, column: 11 }, end: { line: 2, column: 13 } }, status: 'NoCoverage' },
+            ],
+          },
+        },
+      }))
+      const ran = runScript(['--draft', r1, r2], { MUTANTS_ALLOWED: allowed })
+      strictEqual(ran.status, 0, ran.err)
+      deepStrictEqual(JSON.parse(ran.out), [
+        { key: 'src/a.ts | ConditionalExpression | const x = !a || b | false', original: '!a', why: '' },
+        { key: 'src/a.ts | ConditionalExpression | const x = !a || b | false', original: '!a || b', why: '' },
+      ])
+    })
+  }],
+  ['--sort normalizes key order, sorts canonically, and rejects duplicates', () => {
+    withDir((dir) => {
+      const file = join(dir, 'allowed.json')
+      writeFileSync(file, JSON.stringify([
+        { why: 'second', key: 'src/b.ts | M | b | x', original: 'b' },
+        { key: 'src/a.ts | M | a | x', original: 'a', why: 'first' },
+      ]))
+      const ran = runScript(['--sort', file])
+      strictEqual(ran.status, 0, ran.err)
+      const parsed = readAllowed(file)
+      deepStrictEqual(parsed, [
+        { key: 'src/a.ts | M | a | x', original: 'a', why: 'first' },
+        { key: 'src/b.ts | M | b | x', original: 'b', why: 'second' },
+      ])
+      deepStrictEqual(Object.keys(parsed[1]!), ['key', 'original', 'why'])
+
+      const dup = join(dir, 'dup.json')
+      writeFileSync(dup, JSON.stringify([
+        { key: 'src/a.ts | M | a | x', original: 'a', why: 'one' },
+        { key: 'src/a.ts | M | a | x', original: 'a', why: 'two' },
+      ]))
+      const failed = runScript(['--sort', dup])
+      ok(failed.status !== 0 && failed.err.includes('Duplicate entries'), failed.err)
+    })
+  }],
+  ['--merge combines disjoint additions, deletions, identical additions, and one-sided why edits cleanly', () => {
+    withDir((dir) => {
+      const base = join(dir, 'base.json')
+      const ours = join(dir, 'ours.json')
+      const theirs = join(dir, 'theirs.json')
+      const e = (id: string, why: string): AllowedEntry => ({ key: `src/${id}.ts | M | ${id} | x`, original: id, why })
+
+      writeFileSync(base, JSON.stringify([
+        e('keep', 'same'),
+        e('drop-ours', 'stale'),
+        e('drop-theirs', 'stale'),
+        e('edit-ours', 'old'),
+        e('edit-theirs', 'old'),
+      ]))
+      writeFileSync(ours, JSON.stringify([
+        e('keep', 'same'),
+        e('drop-theirs', 'stale'),
+        e('edit-ours', 'new-ours'),
+        e('edit-theirs', 'old'),
+        e('add-ours', 'why-ours'),
+        e('add-both', 'identical'),
+      ]))
+      writeFileSync(theirs, JSON.stringify([
+        e('keep', 'same'),
+        e('drop-ours', 'stale'),
+        e('edit-ours', 'old'),
+        e('edit-theirs', 'new-theirs'),
+        e('add-theirs', 'why-theirs'),
+        e('add-both', 'identical'),
+      ]))
+
+      const ran = runScript(['--merge', base, ours, theirs])
+      strictEqual(ran.status, 0, ran.err)
+      deepStrictEqual(readAllowed(ours), [
+        e('add-both', 'identical'),
+        e('add-ours', 'why-ours'),
+        e('add-theirs', 'why-theirs'),
+        e('edit-ours', 'new-ours'),
+        e('edit-theirs', 'new-theirs'),
+        e('keep', 'same'),
+      ])
+    })
+  }],
+  ['--merge fails without clobbering ours on differing why or edit-vs-delete conflicts', () => {
+    withDir((dir) => {
+      const base = join(dir, 'base.json')
+      const ours = join(dir, 'ours.json')
+      const theirs = join(dir, 'theirs.json')
+      const e = (id: string, why: string): AllowedEntry => ({ key: `src/${id}.ts | M | ${id} | x`, original: id, why })
+
+      writeFileSync(base, JSON.stringify([e('a', 'orig'), e('b', 'orig')]))
+      const oursRaw = JSON.stringify([e('a', 'ours-why'), e('c', 'c-ours')])
+      writeFileSync(ours, oursRaw)
+      writeFileSync(theirs, JSON.stringify([e('b', 'theirs-why'), e('c', 'c-theirs')]))
+
+      const ran = runScript(['--merge', base, ours, theirs])
+      ok(ran.status !== 0, 'expected merge conflict')
+      ok(ran.err.includes('edited on ours, deleted on theirs'), ran.err)
+      ok(ran.err.includes('deleted on ours, edited on theirs'), ran.err)
+      ok(ran.err.includes('both sides changed/added with different why'), ran.err)
+      strictEqual(readFileSync(ours, 'utf8'), oursRaw)
     })
   }],
 ])

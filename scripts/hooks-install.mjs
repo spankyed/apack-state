@@ -9,6 +9,10 @@ import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+// Repo-local merge driver for `mutants.allowed.json` (`.gitattributes`): merges entries by `(key, original)`.
+git('config', 'merge.mutants-allowed.name', 'Three-way merge of mutants.allowed.json by entry')
+git('config', 'merge.mutants-allowed.driver', 'node scripts/mutants.mjs --merge %O %A %B')
+console.log('Configured repo-local git merge driver for mutants.allowed.json.')
 const hooksPath = (() => { try { return git('config', '--get', 'core.hooksPath') } catch { return '' } })()
 if (hooksPath) {
   console.error(`core.hooksPath is set (${hooksPath}): a hook written there runs for every repository that uses it. Nothing written.`)
