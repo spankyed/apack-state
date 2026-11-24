@@ -160,7 +160,7 @@
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const send of toWindows.splice(0, count)) safely('what is sent to a window', send) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) }, | \"\"",
     "original": "'what is sent to a window'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
@@ -290,11 +290,6 @@
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
-    "key": "src/kernel.ts | OptionalChaining | if (signal?.aborted) { mine.waiting.delete(question); return } | signal.aborted",
-    "original": "signal?.aborted",
-    "why": "An ask crosses a link only when a state's scope names a backend system, and a scope always has a signal; System.ask takes a handle, which is never across. So the signal is never missing where it is read"
-  },
-  {
     "key": "src/kernel.ts | OptionalChaining | signal?.addEventListener('abort', gone, { once: true }) | signal.addEventListener",
     "original": "signal?.addEventListener",
     "why": "An ask crosses a link only when a state's scope names a backend system, and a scope always has a signal; System.ask takes a handle, which is never across. So the signal is never missing where it is read"
@@ -343,11 +338,6 @@
     "key": "src/kernel.ts | ConditionalExpression | if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return | true",
     "original": "now.seen.length === seen.length",
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | stop = linked.port.view(feature, view, args, (update) => carry(linked.link, 'down', () => { if (!stopped) heard(update) })) | true",
-    "original": "!stopped",
-    "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key)) | []",
@@ -595,19 +585,9 @@
     "why": "A write to something frozen throws a TypeError whose message begins with what it could not do, in Node and in each browser the checks run in: matched anywhere or from the start, these messages match alike"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } } | ``",
-    "original": "`${called} to its backend`",
-    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | idle: () => pending === 0 && !due && !stepping && outside.length === 0, | true",
     "original": "outside.length === 0",
     "why": "outside is empty whenever no step is running: pump takes from it until it is, and a step that takes nothing more turns it away"
-  },
-  {
-    "key": "src/kernel.ts | BlockStatement | ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } } | {}",
-    "original": "{ down.delete(window) }",
-    "why": "A link that was closed delivers nothing (carry checks that it is open), so a window left among those a backend sends to hears nothing more"
   },
   {
     "key": "src/turn.ts | BlockStatement | : (() => { | {}",
@@ -633,6 +613,21 @@
     "key": "src/turn.ts | BlockStatement | return (run: () => void) => { waiting.push(run); channel.port2.postMessage(0) } | {}",
     "original": "{ waiting.push(run); channel.port2.postMessage(0) }",
     "why": "This is the turn a window takes, where there is no setImmediate; mutants run in Node, which has one and never comes here. The checks run it in a window, in the browser project, which Stryker does not run"
+  },
+  {
+    "key": "src/testing.ts | StringLiteral | export function connect(window: System, backend: System, schedule?: Pick<Schedule, 'later'>, name = 'the window'): Connected { | \"\"",
+    "original": "'the window'",
+    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
+  },
+  {
+    "key": "src/testing.ts | StringLiteral | const up: Lane = { label: `${name} to its backend` } | ``",
+    "original": "`${name} to its backend`",
+    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
+  },
+  {
+    "key": "src/testing.ts | StringLiteral | const down: Lane = { label: `the backend to ${name}` } | ``",
+    "original": "`the backend to ${name}`",
+    "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
     "key": "src/testing.ts | OptionalChaining | sys?.stop() | sys.stop",
@@ -668,11 +663,6 @@
     "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number: ++logged, ...told })) | log || told",
     "original": "log && told",
     "why": "What a step logs is made at its start when there is a log and only then, so there is a log exactly when there is something to tell it"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }), { kind: 'unfollow', to: feature, name: view }) | true",
-    "original": "linked.gone.delete(ended)",
-    "why": "What stops a view across the link is carried once, by the first stop: a view that has not crossed has nothing to stop, and is turned away where it would cross; and what is carried finds itself among what the link's closing ends, since closing first means it is not carried at all"
   },
   {
     "key": "src/kernel.ts | StringLiteral | safely('what leaves at the commit', leave.lost) | \"\"",

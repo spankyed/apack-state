@@ -1,17 +1,13 @@
-// A backend and its window joined by `@apackdev/link` in place of the kernel's link in memory: what the kernel
-// promises a window it still keeps when what it says crosses a link of frames, numbered and taken in turn. The two
-// ports are put on the link here, in the check; the kernel is unchanged, and putting it on a link is the plan's next
-// step. Each way the link goes is a lane of the schedule, so every ordering is of the two packages together.
+// A backend and its window joined by `@apackdev/link` directly on their ports, with no adapter and one hold owned by
+// the link: what the kernel promises a window it keeps when what it says crosses a link of frames, numbered and taken
+// in turn. Each way the link goes is a lane of the schedule, so every ordering is of the two packages together.
 //
 //   npx vitest run link
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { join, link, memoryPair, type Port as LinkPort } from '@apackdev/link'
-import { rest, run, system } from './checks.mts'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
+import { connect, rest, run, system } from './checks.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching, type AnyEvent, type System, type ViewHost, type ViewUpdate } from '../src/index.ts'
-import type { AnyOutcome } from '../src/types.ts'
+import { answered, reaching, type Failure, type Port, type ViewHost } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
-import { PORT, type Port } from '../src/port.ts'
 import { memory, type Rows } from './store.mts'
 
 type ThreadAsks = { CREATE: { args: { id: string }; answer: { id: string } } }
@@ -72,75 +68,17 @@ const viewsOf = (store: Rows, held: boolean): ViewHost => (_feature, _view, _arg
   return held ? running : { stop: () => running.stop() }
 }
 
-/** A kernel's port as a link's: what crosses is told, asked and followed on the kernel's side as it arrives. */
-const onLink = (port: Port): LinkPort => ({
-  tell: (to, event) => port.event(to, event as AnyEvent),
-  ask: (to, name, args, heard, ended) => port.ask(to, name, args as object, heard, ended),
-  follow: (feature, view, args, shown) => {
-    // The kernel holds what it sends a window for its views itself, so a view it runs offers the link nothing to wait on.
-    const stop = port.view(feature, view, args as object, shown)
-    return { stop }
-  },
-})
-/** A link's port as a kernel's: what the kernel says goes out as frames. A view's ending is a result that is not one. */
-const onKernel = (port: LinkPort): Port => ({
-  event: (ref, event) => port.tell(ref, event),
-  ask: (ref, name, args, heard, settle) => port.ask(ref, name, args, heard, (outcome) => settle(outcome as AnyOutcome)),
-  view: (feature, view, args, heard) => {
-    const following = port.follow(feature, view, args, (update) => heard(update as ViewUpdate<unknown>), (failure) => heard({ ok: false, error: failure.message }))
-    return () => following.stop()
-  },
-})
-
-/**
- * The lanes a kernel puts what it says to the other system in, and what it hears from it, stand for a link in
- * memory: a real one carries in their place. The window's are named for it; the backend's are the ones handed it
- * here. They run at once, so that across a link nothing has a lane of the kernel's on top of the link's, which
- * would be a second way for things to cross. Everything else goes as it would.
- */
 const WINDOW = 'the window'
-const kernelLanes = new Set([`${WINDOW} to its backend`, `the backend to ${WINDOW}`, 'to the backend, as it arrives', 'to the window, as it leaves'])
-const putOff = (later?: Schedule['later']) => (lane: { readonly label: string }, go: () => void): void => {
-  if (kernelLanes.has(lane.label)) go()
-  else if (later) later(lane, go)
-  else nextTurn(go)
-}
 
-/**
- * A window connected to a backend across a link. With a schedule, each way is a lane of it: what the link carries one
- * way keeps its order, and when it arrives, against everything else, is the schedule's to choose.
- */
-const across = (window: System, backend: System, later?: Schedule['later']) => {
-  const up = { label: 'the link, window to backend' }
-  const down = { label: 'the link, backend to window' }
-  const [windowSide, backendSide] = later ? memoryPair((go) => later(up, go), (go) => later(down, go)) : memoryPair()
-  // A batch leaves at the end of the turn it was said in, as the link's own specs hold it to under every order:
-  // which arrives when is what is left to the schedule here.
-  const windowEnd = link(windowSide)
-  const backendEnd = link(backendSide)
-  const ofBackend = backend as unknown as { [PORT]: Port; attach(window: { link: { open: boolean; up: { label: string }; down: { label: string } }; port: Port }): () => void }
-  const ofWindow = window as unknown as { [PORT]: Port }
-  // The backend sees the window as a port that sends frames, and the window the backend so.
-  const toWindow = join(backendEnd, onLink(ofBackend[PORT]))
-  const toTheWindow = { open: true, up: { label: 'to the backend, as it arrives' }, down: { label: 'to the window, as it leaves' } }
-  const detach = ofBackend.attach({ link: toTheWindow, port: onKernel(toWindow) })
-  // When its end of the link has ended, the backend sends that window nothing more, as when a window closes.
-  backendEnd.onEnd(() => { toTheWindow.open = false; detach() })
-  const toBackend = join(windowEnd, onLink(ofWindow[PORT]))
-  // The window closing its connection closes its end of the link.
-  const connected = window.connect({ [PORT]: onKernel(toBackend), attach: () => () => { windowEnd.close() } } as unknown as System)
-  return { windowEnd, backendEnd, connected }
-}
-
-const made = (store: Rows, held: boolean, later?: Schedule['later']) => {
+const made = (store: Rows, held: boolean, schedule?: Schedule) => {
   const traced: string[] = []
   const trace = (line: string): void => { traced.push(line) }
-  const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store, held), trace, later: putOff(later) })
+  const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store, held), trace, ...(schedule ? { later: schedule.later } : {}) })
   backend.start('threads', threads(store))
-  const window = system({ side: 'window', name: WINDOW, trace, later: putOff(later) })
-  const joined = across(window, backend, later)
+  const window = system({ side: 'window', name: WINDOW, trace, ...(schedule ? { later: schedule.later } : {}) })
+  const joined = connect(window, backend, schedule, WINDOW)
   const handle = window.start('panel', panel)
-  return { backend, window, handle, ...joined, defects: () => traced.filter((line) => line.startsWith('DEFECT')) }
+  return { backend, window, handle, joined, defects: () => traced.filter((line) => line.startsWith('DEFECT')) }
 }
 
 /**
@@ -151,7 +89,7 @@ const made = (store: Rows, held: boolean, later?: Schedule['later']) => {
 const scenario = (held: boolean, how: 'one after the other' | 'both at once') => (schedule: Schedule) => {
   const views = { label: 'the views are told' }
   const store = memory((go) => schedule.later(views, go))
-  const { window, handle, defects } = made(store, held, schedule.later)
+  const { window, handle, defects } = made(store, held, schedule)
   const answers: boolean[] = []
   const add = (id: string, then?: () => void) => (): void => { void window.ask(handle, 'ADD', { id }).then((outcome) => { answers.push(outcome.ok && outcome.value); then?.() }) }
   if (how === 'both at once') schedule.does('the user', ['asks for a', add('a')], ['asks for b', add('b')])
@@ -189,10 +127,10 @@ await run([
     }
     const traced: string[] = []
     const trace = (line: string): void => { traced.push(line) }
-    const backend = system({ side: 'backend', transact: store.transact, views, trace, later: putOff() })
+    const backend = system({ side: 'backend', transact: store.transact, views, trace })
     backend.start('threads', threads(store))
-    const window = system({ side: 'window', name: WINDOW, trace, later: putOff() })
-    const { windowEnd } = across(window, backend)
+    const window = system({ side: 'window', name: WINDOW, trace })
+    const joined = connect(window, backend)
     window.start('panel', panel)
     const asking = window.start('asker', asker)
     await rest()
@@ -200,7 +138,7 @@ await run([
     for (let turns = 0; turns < 50 && store.count('thread') === 0; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
     strictEqual(store.count('thread'), 1)
     ok(waiting.length > 0, 'nothing was held')
-    windowEnd.close()
+    joined.close()
     // The ask of the backend ended disconnected, and the window's state was told so.
     deepStrictEqual(await soon(asked), { ok: true, value: 'disconnected' })
     // Asked again with the link gone, it is told at once, and nothing breaks.
@@ -208,17 +146,56 @@ await run([
     for (const then of waiting.splice(0)) then()
     await rest()
     // The backend goes on: another window, on a link of its own, asks and is answered.
-    const another = system({ side: 'window', name: WINDOW, trace, later: putOff() })
-    across(another, backend)
+    const another = system({ side: 'window', name: WINDOW, trace })
+    connect(another, backend)
     const again = another.start('asker', asker)
     await rest()
     const answered = another.ask(again, 'MAKE', { id: 'c' })
-    for (let turns = 0; turns < 50 && waiting.length === 0; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
+    for (let turns = 0; turns < 50 && store.count('thread') < 2; turns++) await new Promise<void>((resolve) => { nextTurn(resolve) })
     for (const then of waiting.splice(0)) then()
     deepStrictEqual(await soon(answered), { ok: true, value: 'made' })
     await rest()
     strictEqual(store.count('thread'), 2)
     deepStrictEqual(traced.filter((line) => line.startsWith('DEFECT')), [])
+  }],
+  ['attach enforces one backend per window, detaches cleanly on both sides, and follow on a system without views ends unavailable', async () => {
+    const store = memory()
+    const backend = system({ side: 'backend', transact: store.transact })
+    const threadsHandle = backend.start('threads', threads(store))
+    const told: unknown[] = []
+    const stub = (): Port => ({
+      tell: (_to, event) => { told.push(event) },
+      ask: (_to, _name, _args, _heard, ended) => { ended({ ok: true, value: { id: 'stub' } }); return () => {} },
+      follow: () => ({ stop: () => {} }),
+    })
+    const detachWindow = backend.attach(stub())
+    await backend.ask(threadsHandle, 'CREATE', { id: 'one' })
+    strictEqual(told.length, 1)
+    detachWindow()
+    await backend.ask(threadsHandle, 'CREATE', { id: 'two' })
+    strictEqual(told.length, 1)
+
+    const window = system({ side: 'window', name: WINDOW })
+    const first = stub()
+    const second = stub()
+    const detachFirst = window.attach(first)
+    throws(() => window.attach(second), /the window is already attached to a backend/)
+    detachFirst()
+    const detachSecond = window.attach(second)
+    // Detaching the first again leaves the second attached.
+    detachFirst()
+    const asking = window.start('asker', asker)
+    deepStrictEqual(await soon(window.ask(asking, 'MAKE', { id: 'x' })), { ok: true, value: 'made' })
+    detachSecond()
+    deepStrictEqual(await soon(window.ask(asking, 'MAKE', { id: 'y' })), { ok: true, value: 'disconnected' })
+
+    // Following a view on a backend with no views reports `unavailable` via `over` and returns a callable `stop`.
+    const overs: Failure[] = []
+    const following = backend.port.follow('threads', 'count', {}, () => {}, (failure) => { overs.push(failure) })
+    following.stop()
+    strictEqual(overs.length, 1)
+    strictEqual(overs[0]!.kind, 'unavailable')
+    ok(overs[0]!.message.includes('runs no views'))
   }],
 ], async (tally) => {
   for (const how of ['one after the other', 'both at once'] as const) {

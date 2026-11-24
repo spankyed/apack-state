@@ -1280,14 +1280,12 @@ projects. Each would loosen the fit to this app.
    run in ([Rows](#rows)) as something it is given, so that it names no database. Done, with what holds it to that:
    checks as specs, run in Node and in a browser, type tests held to TypeScript 5.7, an API report, mutation testing,
    a release of each commit as `pkg-<commit>`, and a kit for packs' checks (`@apackdev/state/testing`).
-3. **The kernel on a link.** A backend and its windows joined by `@apackdev/link` in place of the kernel's in-memory
-   port, with the hold held over it. `checks/link-check.mts` joins the two across the link now, with each port put
-   on it in the check and the kernel unchanged, and holds them to what a window is promised: answered and told
-   after its view shows the step. What it found for the move: the kernel's own lanes for a connection stand for a
-   link, and on a real one they are a second way across. A backend puts what it tells a window in one before it
-   leaves, and a window puts an answer and a view's result in one after they arrive, so a telling can pass a
-   view's result. On a link the kernel takes what arrives as it arrives and hands what it says to the link as it
-   says it; the check runs those lanes at once.
+3. **The kernel on a link.** Done. Each system exposes `port` (matching `@apackdev/link`'s `Port` structurally with
+   no runtime dependency) and `attach(peer)` (returning a detach callback), with no in-memory `connect(System)` or
+   kernel-side hold. A backend's `port` passes straight to `join(link, backend.port)` with its views' `caughtUp`, and
+   `@apackdev/link` owns the single per-connection hold. `@apackdev/state/testing` exports `connect(window, backend,
+   schedule?)` over `@apackdev/link`'s `memoryPair`, `dial`, `listen` and `join`, so every check exercises the real
+   link.
 4. **What is left of the kernel itself**: [Not built](#not-built).
 
 What the move changes in apack's tree, in order, from installing the packages to removing XState, is apack's plan:

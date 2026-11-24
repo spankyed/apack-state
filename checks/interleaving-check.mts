@@ -3,7 +3,7 @@
 //
 //   npx vitest run interleaving
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { run } from './checks.mts'
+import { connect, run } from './checks.mts'
 import { explore, replay, sample, type Schedule } from '@apackdev/orderings'
 import { reaching, system } from '../src/index.ts'
 
@@ -145,12 +145,12 @@ const wired = (schedule: Schedule, called = 'the window') => {
   const backend = system({ side: 'backend', later: schedule.later })
   backend.start('finder', finder(schedule))
   const window = system({ side: 'window', name: called, later: schedule.later })
-  window.connect(backend)
+  connect(window, backend, schedule, called)
   return { backend, window }
 }
 
 type Scenario = (schedule: Schedule) => () => void
-const scenarios: Array<[string, Scenario]> = [
+const scenarios: Array<[string, Scenario, 'all' | 'sampled']> = [
   ['a second search started while the first is running: only the second is ever shown', (schedule) => {
     const held = { locks: 0, unwound: 0 }
     const { window } = wired(schedule)
@@ -162,13 +162,13 @@ const scenarios: Array<[string, Scenario]> = [
       deepStrictEqual(now.data, { query: 'b', results: ['b result'], pieces: ['b:1', 'b:2'] })
       deepStrictEqual(held, { locks: 0, unwound: 2 })
     }
-  }],
+  }, 'sampled'],
   ['work that finishes after its state was left changes nothing: the search that ran last is the one shown', (schedule) => {
     const window = system({ side: 'window', later: schedule.later })
     const it = window.start('panel', ownWork(schedule))
     schedule.does('the user', ['searches for a', () => window.send(it, { type: 'START', query: 'a' })], ['searches for b', () => window.send(it, { type: 'START', query: 'b' })])
     return () => { deepStrictEqual(window.read(it), { at: 'idle', data: { query: 'b', results: ['b result'], pieces: [] } }) }
-  }],
+  }, 'all'],
   ['a search cancelled at any moment: nothing of it arrives afterwards, and what it held is let go', (schedule) => {
     const held = { locks: 0, unwound: 0 }
     const { window } = wired(schedule)
@@ -185,7 +185,7 @@ const scenarios: Array<[string, Scenario]> = [
       deepStrictEqual({ results: now.data.results, pieces: now.data.pieces }, atCancel)
       deepStrictEqual(held, { locks: 0, unwound: 1 })
     }
-  }],
+  }, 'all'],
   ['progress, broadcasts and the answer are heard in the order they were sent, wherever a click lands', (schedule) => {
     const heard: string[] = []
     const { window } = wired(schedule)
@@ -196,7 +196,7 @@ const scenarios: Array<[string, Scenario]> = [
       deepStrictEqual(heard.filter((each) => each !== 'click'), ['a', 'note 1', 'b', 'c', 'note 2', 'd', 'answer'])
       strictEqual(heard.filter((each) => each === 'click').length, 1)
     }
-  }],
+  }, 'sampled'],
 ]
 
 /** Two windows on one backend have more orderings than can all be run, so this one is run under a seed's worth. */
@@ -206,9 +206,9 @@ const twoWindows: Scenario = (schedule) => {
     const backend = system({ side: 'backend', later: schedule.later })
     backend.start('finder', finder(schedule))
     const one = system({ side: 'window', name: 'window one', later: schedule.later })
-    const link = one.connect(backend)
+    const link = connect(one, backend, schedule, 'window one')
     const two = system({ side: 'window', name: 'window two', later: schedule.later })
-    two.connect(backend)
+    connect(two, backend, schedule, 'window two')
     const inOne = one.start('panel', panel(first))
     const inTwo = two.start('panel', panel(second))
     one.send(inOne, { type: 'START', query: 'a' })
@@ -253,7 +253,7 @@ const inOrder = (schedule: Schedule): (() => void) => {
   const backend = system({ side: 'backend', later: schedule.later })
   const it = backend.start('notes', notes)
   const window = system({ side: 'window', later: schedule.later })
-  window.connect(backend)
+  connect(window, backend, schedule)
   window.start('sayer', sayer(answered))
   schedule.does('the user', ['does nothing much', () => {}])
   return () => {
@@ -263,7 +263,7 @@ const inOrder = (schedule: Schedule): (() => void) => {
 }
 
 await run([], async (tally) => {
-  for (const [name, scenario] of scenarios) await tally.every(name, () => explore(scenario))
+  for (const [name, scenario, how] of scenarios) await tally.every(name, () => (how === 'sampled' ? sample(scenario, { seed: 1, runs: 5_000 }) : explore(scenario)), how)
   await tally.every('what a window tells and asks its backend arrives there in the order it was said', () => explore(inOrder))
   await tally.every('a window closed at any moment: its search unwinds, and the backend goes on answering the other window', () => sample(twoWindows, { seed: 1, runs: 5_000 }), 'sampled')
 

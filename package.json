@@ -63,11 +63,15 @@
     "hooks:install": "node scripts/hooks-install.mjs"
   },
   "peerDependencies": {
+    "@apackdev/link": "*",
     "@apackdev/orderings": "*",
     "@vue/reactivity": "^3.5.0",
     "@vue/runtime-core": "^3.5.0"
   },
   "peerDependenciesMeta": {
+    "@apackdev/link": {
+      "optional": true
+    },
     "@apackdev/orderings": {
       "optional": true
     },
@@ -79,7 +83,7 @@
     }
   },
   "devDependencies": {
-    "@apackdev/link": "https://github.com/spankyed/apack-link/releases/download/pkg-a3ff0babdd4886e65052e0552b424ab3affff796/apackdev-link-0.1.0.tgz",
+    "@apackdev/link": "https://github.com/spankyed/apack-link/releases/download/pkg-04c2b37933c53b77413480a19187e428c582b51d/apackdev-link-0.1.0.tgz",
     "@apackdev/orderings": "https://github.com/spankyed/apack-orderings/releases/download/pkg-ffe4f02dcfb865088781223d47c6a28f5236f8a3/apackdev-orderings-0.1.0.tgz",
     "@arethetypeswrong/cli": "^0.18.5",
     "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-ears-0.1.0.tgz",

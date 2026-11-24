@@ -5,11 +5,41 @@
 // What each system puts off, and its frames, are lanes of the schedule, as are what a user does and outside work, so
 // the schedule chooses the order between them; `everyOrder` runs every one, and `sample` a seed's worth.
 import type { Lane } from './port.ts'
+import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
 import { sample, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Shape, State, Value } from './types.ts'
 import { system as kernel, type System } from './kernel.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
+
+/** A window and a backend joined across `@apackdev/link` over an in-memory transport. */
+export interface Connected {
+  /** Closes the link: both ends see it end, as when a real connection closes. */
+  close(): void
+  readonly window: Link
+  readonly backend: Link
+}
+
+/**
+ * Joins a window and a backend across `@apackdev/link` over an in-memory transport. Given a schedule, each direction
+ * of the link is a lane of its own, so every ordering of the two systems and the link is explored together.
+ */
+export function connect(window: System, backend: System, schedule?: Pick<Schedule, 'later'>, name = 'the window'): Connected {
+  const up: Lane = { label: `${name} to its backend` }
+  const down: Lane = { label: `the backend to ${name}` }
+  const [windowSide, backendSide] = schedule
+    ? memoryPair((run) => schedule.later(up, run), (run) => schedule.later(down, run))
+    : memoryPair()
+  const windowLink = dial(windowSide)
+  const backendLink = listen(backendSide)
+  const toBackend = join(windowLink, window.port)
+  const toWindow = join(backendLink, backend.port)
+  const detachBackend = window.attach(toBackend)
+  const detachWindow = backend.attach(toWindow)
+  windowLink.onEnd(detachBackend)
+  backendLink.onEnd(detachWindow)
+  return { close: () => { windowLink.close() }, window: windowLink, backend: backendLink }
+}
 
 /**
  * What a system is given to run on a schedule: what it puts off goes into the lanes it names, and its frames into a

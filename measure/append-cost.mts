@@ -7,6 +7,7 @@
 // backend to a window, the way the search does.
 import { produce } from '../src/draft.ts'
 import { reaching, system } from '../src/index.ts'
+import { connect } from '../src/testing.ts'
 import { reading, under } from './record.mts'
 
 const time = async (label: string, run: () => void | Promise<void>): Promise<void> => {
@@ -84,7 +85,7 @@ for (const count of [10_000, 100_000]) {
   const backend = system({ side: 'backend' })
   backend.start('finder', finder)
   const window = system({ side: 'window', trace: (line) => { if (line.startsWith('LARGE')) notes.push(line) } })
-  window.connect(backend)
+  const link = connect(window, backend)
   const surface = window.start('panel', panel)
   await time(`${count} results streamed`, () => new Promise<void>((resolve) => {
     window.subscribe(() => { const now = window.read(surface); if (now?.at === 'idle' && now.data.results.length === count) resolve() })
@@ -92,5 +93,5 @@ for (const count of [10_000, 100_000]) {
   }))
   console.log(`    arrived as ${window.read(surface).data.changes} changes`)
   for (const note of notes) console.log(`    ${note}`)
-  window.stop(); backend.stop()
+  link.close(); window.stop(); backend.stop()
 }

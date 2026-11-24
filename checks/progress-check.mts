@@ -3,7 +3,7 @@
 //
 //   npx vitest run progress
 import { deepStrictEqual, strictEqual } from 'node:assert'
-import { run, system } from './checks.mts'
+import { connect, run, system } from './checks.mts'
 import { given, reaching, type State } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -98,7 +98,7 @@ const wired = (backendStream: State<{}, never, StreamAsks> = stream) => {
   const backend = system({ side: 'backend' })
   backend.start('stream', backendStream)
   const window = system({ side: 'window', frame: (run) => { frames.push(run) } })
-  window.connect(backend)
+  connect(window, backend)
   const thePanel = window.start('panel', panel(heard))
   const theQuick = window.start('quick', quick(heard))
   return {

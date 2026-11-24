@@ -8,6 +8,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { reaching, system } from '../src/index.ts'
+import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 // ── the app's types, unchanged ──────────────────────────────────────────────────────────────────────────────────────
@@ -216,7 +217,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('search.mts')) {
   const theSystem = backend.start('code/search', searchSystem(null))
 
   const window = system({ side: 'window' })
-  window.connect(backend)
+  connect(window, backend)
   const panel = window.start('search', searchSurface)
   window.subscribe(() => {
     const now = window.read(panel)
@@ -250,7 +251,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('search.mts')) {
   holds('only the second search is shown, and it searched for the second query', shown(), { at: 'idle', query: 'second', matched: ['second', 'second', 'second'], error: null })
 
   say('search, then cancel')
-  window.send(panel, { type: 'START', query: 'third' });                                  await turns(5)
+  window.send(panel, { type: 'START', query: 'third' });                                  await turns(3)
   window.send(panel, { type: 'CANCEL' })
   const atCancel = shown()
   await turns(12)

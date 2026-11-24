@@ -7,6 +7,7 @@
 //   npx tsx measure/rows-cost.mts
 import { cpus } from 'node:os'
 import { reaching, system, type ViewHost } from '../src/index.ts'
+import { connect } from '../src/testing.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import type { Rows } from '../checks/store.mts'
 import { reading, under } from './record.mts'
@@ -85,7 +86,7 @@ const asking = async (hold: Hold, asks: number, writes: boolean, apartMs: number
   const backend = system({ side: 'backend', transact: store.transact, views: hold === 'none' ? unheld : hold === 'every watch settled' ? settled : views })
   backend.start('rows', linked<{}, never, Net['systems']['rows']['asks']>()({ asks: { CREATE: ({ id }) => { if (writes) store.put('thread', id, { topic: 'made' }); return id } } }))
   const window = system({ side: 'window' })
-  window.connect(backend)
+  const link = connect(window, backend)
   const handle = window.start('panel', linked<{ data: { count: number } }, never, WindowAsks>()({
     data: { count: 0 },
     follows: (follow) => ({ count: follow('rows', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
@@ -99,7 +100,7 @@ const asking = async (hold: Hold, asks: number, writes: boolean, apartMs: number
     await window.ask(handle, 'ADD', { id: String(at) })
     took += Number(process.hrtime.bigint() - began) / 1_000
   }
-  window.stop(); backend.stop(); store.close()
+  link.close(); window.stop(); backend.stop(); store.close()
   return took / asks
 }
 const cases = [

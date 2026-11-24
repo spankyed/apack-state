@@ -4,7 +4,7 @@
 //
 //   npx vitest run internal
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { reaching } from '../src/index.ts'
 
 export type ListEvent =
@@ -66,7 +66,7 @@ const wired = (connected = false) => {
   const backendTraced: string[] = []
   const backend = system({ side: 'backend', trace: (line) => { backendTraced.push(line) } })
   const theSystem = backend.start('detail', detailSystem)
-  if (connected) window.connect(backend)
+  if (connected) connect(window, backend)
   return {
     window, theList, traced, backendTraced,
     send: (event: ListEvent): void => window.send(theList, event),

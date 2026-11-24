@@ -51,7 +51,7 @@ export {
 
 // What runs it: a system, its steps, and what it is given.
 export { Left, system, type Changes, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
-export type { Lane } from './port.ts'
+export type { Failure, Following, Lane, Port, PortOutcome } from './port.ts'
 
 // What a frame is in a window.
 export { windowFrame, type WindowFrames } from './window-frame.ts'
