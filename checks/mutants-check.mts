@@ -211,13 +211,16 @@ await run([
       ])
     })
   }],
-  ['--sort normalizes key order, sorts canonically, and rejects duplicates', () => {
+  ['--sort normalizes key order, sorts canonically, checks order with --check, and rejects duplicates or empty why', () => {
     withDir((dir) => {
       const file = join(dir, 'allowed.json')
       writeFileSync(file, JSON.stringify([
         { why: 'second', key: 'src/b.ts | M | b | x', original: 'b' },
         { key: 'src/a.ts | M | a | x', original: 'a', why: 'first' },
       ]))
+      const unsorted = runScript(['--sort', '--check', file])
+      ok(unsorted.status !== 0 && unsorted.err.includes('npm run mutants:sort'), unsorted.err)
+
       const ran = runScript(['--sort', file])
       strictEqual(ran.status, 0, ran.err)
       const parsed = readAllowed(file)
@@ -227,6 +230,9 @@ await run([
       ])
       deepStrictEqual(Object.keys(parsed[1]!), ['key', 'original', 'why'])
 
+      const sortedCheck = runScript(['--sort', '--check', file])
+      strictEqual(sortedCheck.status, 0, sortedCheck.err)
+
       const dup = join(dir, 'dup.json')
       writeFileSync(dup, JSON.stringify([
         { key: 'src/a.ts | M | a | x', original: 'a', why: 'one' },
@@ -234,9 +240,16 @@ await run([
       ]))
       const failed = runScript(['--sort', dup])
       ok(failed.status !== 0 && failed.err.includes('Duplicate entries'), failed.err)
+
+      const emptyWhy = join(dir, 'empty-why.json')
+      writeFileSync(emptyWhy, JSON.stringify([
+        { key: 'src/a.ts | M | a | x', original: 'a', why: '   ' },
+      ]))
+      const rejected = runScript(['--sort', emptyWhy])
+      ok(rejected.status !== 0 && rejected.err.includes('non-empty why'), rejected.err)
     })
   }],
-  ['--merge combines disjoint additions, deletions, identical additions, and one-sided why edits cleanly', () => {
+  ['--merge combines disjoint additions, deletions, identical additions, one-sided why edits, and empty add/add base cleanly', () => {
     withDir((dir) => {
       const base = join(dir, 'base.json')
       const ours = join(dir, 'ours.json')
@@ -277,26 +290,35 @@ await run([
         e('edit-theirs', 'new-theirs'),
         e('keep', 'same'),
       ])
+
+      // Add/add merge where git passes a 0-byte base file (%O)
+      writeFileSync(base, '')
+      writeFileSync(ours, JSON.stringify([e('one', 'why-one')]))
+      writeFileSync(theirs, JSON.stringify([e('two', 'why-two')]))
+      const addAdd = runScript(['--merge', base, ours, theirs])
+      strictEqual(addAdd.status, 0, addAdd.err)
+      deepStrictEqual(readAllowed(ours), [e('one', 'why-one'), e('two', 'why-two')])
     })
   }],
-  ['--merge fails without clobbering ours on differing why or edit-vs-delete conflicts', () => {
+  ['--merge writes conflict markers into ours and preserves non-conflicting entries on real conflicts', () => {
     withDir((dir) => {
       const base = join(dir, 'base.json')
       const ours = join(dir, 'ours.json')
       const theirs = join(dir, 'theirs.json')
       const e = (id: string, why: string): AllowedEntry => ({ key: `src/${id}.ts | M | ${id} | x`, original: id, why })
 
-      writeFileSync(base, JSON.stringify([e('a', 'orig'), e('b', 'orig')]))
-      const oursRaw = JSON.stringify([e('a', 'ours-why'), e('c', 'c-ours')])
-      writeFileSync(ours, oursRaw)
-      writeFileSync(theirs, JSON.stringify([e('b', 'theirs-why'), e('c', 'c-theirs')]))
+      writeFileSync(base, JSON.stringify([e('a', 'orig'), e('b', 'orig'), e('keep', 'same')]))
+      writeFileSync(ours, JSON.stringify([e('a', 'ours-why'), e('c', 'c-ours'), e('keep', 'same')]))
+      writeFileSync(theirs, JSON.stringify([e('b', 'theirs-why'), e('c', 'c-theirs'), e('keep', 'same'), e('z-theirs', 'clean-add')]))
 
       const ran = runScript(['--merge', base, ours, theirs])
       ok(ran.status !== 0, 'expected merge conflict')
       ok(ran.err.includes('edited on ours, deleted on theirs'), ran.err)
       ok(ran.err.includes('deleted on ours, edited on theirs'), ran.err)
       ok(ran.err.includes('both sides changed/added with different why'), ran.err)
-      strictEqual(readFileSync(ours, 'utf8'), oursRaw)
+      const conflicted = readFileSync(ours, 'utf8')
+      ok(conflicted.includes('<<<<<<< ours') && conflicted.includes('=======') && conflicted.includes('>>>>>>> theirs'), conflicted)
+      ok(conflicted.includes('z-theirs') && conflicted.includes('clean-add'), conflicted)
     })
   }],
 ])

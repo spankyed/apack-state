@@ -19,15 +19,17 @@
 //   node scripts/mutants.mjs --all summary.md reports/*/mutation.json
 //   node scripts/mutants.mjs --prune [--expect-none] <mutate> <report.json> [...]
 //   node scripts/mutants.mjs --draft <report.json> [...]
-//   node scripts/mutants.mjs --sort [mutants.allowed.json]
+//   node scripts/mutants.mjs --sort [--check] [mutants.allowed.json]
 //   node scripts/mutants.mjs --merge <base.json> <ours.json> <theirs.json>
+import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const args = process.argv.slice(2)
 const root = path.resolve(import.meta.dirname, '..')
 const defaultAllowedPath = process.env.MUTANTS_ALLOWED
-  ? path.resolve(root, process.env.MUTANTS_ALLOWED)
+  ? path.resolve(process.env.MUTANTS_ALLOWED)
   : path.join(root, 'mutants.allowed.json')
 
 /** What names a mutant across edits elsewhere in its file: its file, what it does, and the line it changes, as written. */
@@ -53,8 +55,10 @@ const compareEntries = (a, b) => cmp(a.key, b.key) || cmp(a.original, b.original
 const normalizeEntry = (entry) => ({ key: entry.key, original: entry.original, why: entry.why })
 const formatAllowed = (entries) => `${JSON.stringify([...entries].map(normalizeEntry).sort(compareEntries), null, 2)}\n`
 
-const readAllowed = (filePath) => {
-  const list = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+const readAllowed = (filePath, { allowEmpty = false } = {}) => {
+  const raw = fs.readFileSync(filePath, 'utf8')
+  if (allowEmpty && raw.trim() === '') return { list: [], byName: new Map() }
+  const list = JSON.parse(raw)
   if (!Array.isArray(list)) {
     console.error(`${filePath} must be a JSON array`)
     process.exit(1)
@@ -66,9 +70,9 @@ const readAllowed = (filePath) => {
     console.error(`Each entry in ${path.basename(filePath)} names the part of the line it allows (original); these do not:\n${unnamed.map((entry) => `- ${entry?.key}`).join('\n')}`)
     process.exit(1)
   }
-  const invalid = list.filter((entry) => typeof entry.key !== 'string' || typeof entry.why !== 'string')
+  const invalid = list.filter((entry) => typeof entry.key !== 'string' || typeof entry.why !== 'string' || entry.why.trim().length === 0)
   if (invalid.length) {
-    console.error(`Each entry in ${path.basename(filePath)} must have string key, original and why.`)
+    console.error(`Each entry in ${path.basename(filePath)} must have string key, original and non-empty why:\n${invalid.map((entry) => `- ${entry.key}`).join('\n')}`)
     process.exit(1)
   }
   const byName = new Map()
@@ -197,11 +201,18 @@ if (args[0] === '--draft') {
 }
 
 if (args[0] === '--sort') {
-  const target = args[1] ? path.resolve(root, args[1]) : defaultAllowedPath
+  const rest = args.slice(1)
+  const check = rest[0] === '--check'
+  const fileArg = check ? rest[1] : rest[0]
+  const target = fileArg ? path.resolve(fileArg) : defaultAllowedPath
   const { byName } = readAllowed(target)
   const formatted = formatAllowed(byName.values())
   const current = fs.readFileSync(target, 'utf8')
   if (formatted !== current) {
+    if (check) {
+      console.error(`${path.relative(root, target) || target} is not canonically sorted: run \`npm run mutants:sort\`.`)
+      process.exit(1)
+    }
     fs.writeFileSync(target, formatted)
     console.log(`Sorted ${byName.size} entries in ${path.relative(root, target) || target}`)
   }
@@ -214,7 +225,7 @@ if (args[0] === '--merge') {
     console.error('Usage: node scripts/mutants.mjs --merge <base.json> <ours.json> <theirs.json>')
     process.exit(1)
   }
-  const base = readAllowed(basePath).byName
+  const base = readAllowed(basePath, { allowEmpty: true }).byName
   const ours = readAllowed(oursPath).byName
   const theirs = readAllowed(theirsPath).byName
   const merged = []
@@ -237,6 +248,21 @@ if (args[0] === '--merge') {
     }
   }
   if (conflicts.length) {
+    // Git writes %A (`oursPath`) directly to the working tree when a custom merge driver exits non-zero; produce
+    // standard conflict markers via `git merge-file` on canonically sorted copies so non-conflicting entries survive.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mutants-merge-'))
+    try {
+      const baseTmp = path.join(tmp, 'base.json')
+      const oursTmp = path.join(tmp, 'ours.json')
+      const theirsTmp = path.join(tmp, 'theirs.json')
+      fs.writeFileSync(baseTmp, formatAllowed(base.values()))
+      fs.writeFileSync(oursTmp, formatAllowed(ours.values()))
+      fs.writeFileSync(theirsTmp, formatAllowed(theirs.values()))
+      spawnSync('git', ['merge-file', '-L', 'ours', '-L', 'base', '-L', 'theirs', oursTmp, baseTmp, theirsTmp], { encoding: 'utf8' })
+      fs.writeFileSync(oursPath, fs.readFileSync(oursTmp, 'utf8'))
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
     console.error(`Cannot merge mutants.allowed.json cleanly:\n${conflicts.map((line) => `- ${line}`).join('\n')}`)
     process.exit(1)
   }
