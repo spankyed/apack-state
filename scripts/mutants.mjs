@@ -6,15 +6,83 @@
 // stays what is true. One job's report cannot say that: a job mutates part of a file, and the same line as written
 // can be in another job's part.
 //
+// With `--prune <mutate>`, it drops any mutant outside `<mutate>` from each report in place. Stryker's incremental
+// mode carries over cached mutants whose diff-shifted lines fall outside the current `MUTATE` range; pruning them
+// keeps each sharded job's report and incremental file within its own part.
+//
 //   node scripts/mutants.mjs reports/mutation/mutation.json [summary.md]
 //   node scripts/mutants.mjs --all summary.md reports/*/mutation.json
+//   node scripts/mutants.mjs --prune <mutate> <report.json> [...]
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const args = process.argv.slice(2)
+const root = path.resolve(import.meta.dirname, '..')
+
+// Same range syntax as Stryker's ProjectReader (`file:startLine[:startCol]-endLine[:endCol]`), 1-based lines and
+// 0-based columns when given (defaulting to 0..Infinity). Report positions are 1-based and converted to 0-based.
+const RANGE = /^(.*?):(\d+)(?::(\d+))?-(\d+)(?::(\d+))?$/
+const gte = (a, b) => a.line > b.line || (a.line === b.line && a.column >= b.column)
+const inRange = (range, loc) => {
+  const start = { line: loc.start.line - 1, column: loc.start.column - 1 }
+  const end = { line: loc.end.line - 1, column: loc.end.column - 1 }
+  return gte(start, range.start) && gte(range.end, end)
+}
+const scopeOf = (rel, patterns) => {
+  let scope = false
+  for (const raw of patterns) {
+    if (raw.startsWith('!')) {
+      if (path.posix.matchesGlob(rel, raw.slice(1))) scope = false
+      continue
+    }
+    const match = RANGE.exec(raw)
+    if (match) {
+      const [, filePattern, startLine, startCol = '0', endLine, endCol] = match
+      if (!path.posix.matchesGlob(rel, filePattern) || scope === true) continue
+      const range = {
+        start: { line: Number(startLine) - 1, column: Number(startCol) },
+        end: { line: Number(endLine) - 1, column: endCol === undefined ? Number.POSITIVE_INFINITY : Number(endCol) },
+      }
+      scope = Array.isArray(scope) ? [...scope, range] : [range]
+    } else if (path.posix.matchesGlob(rel, raw)) {
+      scope = true
+    }
+  }
+  return scope
+}
+
+if (args[0] === '--prune') {
+  const [mutate, ...files] = args.slice(1)
+  if (!mutate || !files.length) {
+    console.error('Usage: node scripts/mutants.mjs --prune <mutate> <report.json> [...]')
+    process.exit(1)
+  }
+  const patterns = mutate.split(',')
+  for (const reportPath of files) {
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
+    let removed = 0
+    for (const [file, entry] of Object.entries(report.files)) {
+      const rel = path.relative(root, path.resolve(root, file)).split(path.sep).join('/')
+      const scope = scopeOf(rel, patterns)
+      if (scope === false) {
+        removed += entry.mutants.length
+        delete report.files[file]
+      } else if (Array.isArray(scope)) {
+        const kept = entry.mutants.filter((mutant) => scope.some((range) => inRange(range, mutant.location)))
+        removed += entry.mutants.length - kept.length
+        entry.mutants = kept
+      }
+    }
+    if (removed > 0) {
+      fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+      console.log(`Pruned ${removed} out-of-scope mutant(s) from ${reportPath}`)
+    }
+  }
+  process.exit(0)
+}
+
 const all = args[0] === '--all'
 const [summary, ...reports] = all ? args.slice(1) : [args[1], args[0]]
-const root = path.resolve(import.meta.dirname, '..')
 const allowed = JSON.parse(fs.readFileSync(path.join(root, 'mutants.allowed.json'), 'utf8'))
 
 /** What names a mutant across edits elsewhere in its file: its file, what it does, and the line it changes, as written. */
