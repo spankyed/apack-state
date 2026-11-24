@@ -12,7 +12,7 @@ if [ "$result" != passed ] && [ "$result" != failed ]; then
 fi
 # Only speak for what master is at now: a manual re-run of an older commit must not reopen or close the issue after a
 # newer push already settled it.
-head="$(gh api "repos/$GH_REPO/git/ref/heads/master" --jq '.object.sha')"
+head="$(gh api "repos/$GH_REPO/git/ref/heads/master" | jq -r '.object.sha')"
 if [ "$head" != "$SHA" ]; then
   echo "Skipping: $SHA is no longer master HEAD ($head)."
   exit 0

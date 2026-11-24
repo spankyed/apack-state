@@ -33,7 +33,7 @@ const invoke = (arg: string | undefined, fixture: Fixture = {}): { status: numbe
       'printf "\\n" >> "$MOCK_LOG"',
       'if [ "$1" = api ]; then',
       '  if [[ "$*" == *"/git/ref/heads/master"* ]]; then',
-      '    printf "%s\\n" "$MOCK_HEAD"',
+      '    printf "{\\"object\\":{\\"sha\\":\\"%s\\"}}\\n" "$MOCK_HEAD"',
       '  else',
       '    cat "$MOCK_ISSUES"',
       '  fi',
