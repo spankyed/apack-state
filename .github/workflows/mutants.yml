@@ -61,6 +61,7 @@ jobs:
       - name: Results so far
         if: github.event_name == 'pull_request'
         id: restored
+        continue-on-error: true
         uses: actions/cache/restore@v4
         with:
           path: reports/stryker-incremental.json
@@ -73,25 +74,26 @@ jobs:
         run: |
           echo 'Everything is run: no cached results match these support files.' >> "$GITHUB_STEP_SUMMARY"
       - name: Mutate ${{ matrix.part }}
-        id: stryker
         run: npx stryker run --incremental ${{ github.event_name != 'pull_request' && '--force' || '' }}
         env:
           MUTATE: ${{ matrix.part }}
       # Stryker carries over cached mutants whose diff-shifted lines fall outside MUTATE; drop them so lines moving
       # across shard boundaries never leave phantom results in this job's report or cache.
       - name: Drop mutants outside this job's part
+        id: prune
         run: node scripts/mutants.mjs --prune "$MUTATE" reports/mutation/mutation.json reports/stryker-incremental.json
         env:
           MUTATE: ${{ matrix.part }}
       - name: Keep these results
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: reports/stryker-incremental.json
           key: ${{ steps.cache.outputs.prefix }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: What survived
-        if: always()
+        if: ${{ !cancelled() && steps.prune.outcome == 'success' }}
         run: node scripts/mutants.mjs reports/mutation/mutation.json "$GITHUB_STEP_SUMMARY"
-      - if: always()
+      - if: ${{ !cancelled() && steps.prune.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: mutants-${{ matrix.id }}

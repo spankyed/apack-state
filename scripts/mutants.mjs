@@ -61,19 +61,24 @@ if (args[0] === '--prune') {
   for (const reportPath of files) {
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
     let removed = 0
-    for (const [file, entry] of Object.entries(report.files)) {
+    let dirty = false
+    for (const [file, entry] of Object.entries(report.files ?? {})) {
       const rel = path.relative(root, path.resolve(root, file)).split(path.sep).join('/')
       const scope = scopeOf(rel, patterns)
       if (scope === false) {
         removed += entry.mutants.length
         delete report.files[file]
+        dirty = true
       } else if (Array.isArray(scope)) {
         const kept = entry.mutants.filter((mutant) => scope.some((range) => inRange(range, mutant.location)))
-        removed += entry.mutants.length - kept.length
-        entry.mutants = kept
+        if (kept.length !== entry.mutants.length) {
+          removed += entry.mutants.length - kept.length
+          entry.mutants = kept
+          dirty = true
+        }
       }
     }
-    if (removed > 0) {
+    if (dirty) {
       fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
       console.log(`Pruned ${removed} out-of-scope mutant(s) from ${reportPath}`)
     }
