@@ -64,6 +64,12 @@ signature uses and no entry exports is listed there as a forgotten export.
 branch changed since it left `master` (`--no-mutants` leaves that out, `--dry` says what it would run). `npm run
 hooks:install` has git run it before each push; it is opt-in, and nothing installs it otherwise.
 
+A mutant that survives is killed by a spec or listed in `mutants.allowed.json` with why, and the mutants workflow
+fails on one that is neither, and on an entry that no longer survives. `npm run mutants:list -- <run id>` writes the
+list from that run: stale entries off, new survivors on with an empty why, which the check refuses until it is
+written. `npm run mutants:merge-install` has git merge the list entry by entry in this checkout, where two branches
+that each change it otherwise conflict as text.
+
 `npm run test:browser` runs the same checks in Chromium (vitest's browser mode, Playwright), all but those that need
 Node itself: elmdb's binding and the examples run as processes. `src/turn.ts` is how the kernel, and every check,
 waits a turn in either.

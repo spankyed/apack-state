@@ -14,7 +14,7 @@ on:
   push:
     branches: [master]
   pull_request:
-    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'vitest.mutants.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', '.github/workflows/mutants.yml', 'package-lock.json', 'tsconfig*.json']
+    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'vitest.mutants.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', 'scripts/mutants-names.mjs', '.github/workflows/mutants.yml', 'package-lock.json', 'tsconfig*.json']
   workflow_dispatch:
 
 concurrency:
@@ -57,7 +57,7 @@ jobs:
       # on the pull request or on master — misses older caches and runs everything cleanly.
       - name: Cache key
         id: cache
-        run: echo "prefix=mutants-${{ matrix.id }}-${{ hashFiles('checks/**', '!checks/*-check.mts', '!checks/rows-property.mts', 'examples/**', 'scripts/mutants.mjs', 'stryker.config.mjs', 'vitest.*.mts', 'package.json', 'package-lock.json', 'tsconfig*.json', '.github/workflows/mutants.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "prefix=mutants-${{ matrix.id }}-${{ hashFiles('checks/**', '!checks/*-check.mts', '!checks/rows-property.mts', 'examples/**', 'scripts/mutants.mjs', 'scripts/mutants-names.mjs', 'stryker.config.mjs', 'vitest.*.mts', 'package.json', 'package-lock.json', 'tsconfig*.json', '.github/workflows/mutants.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Results so far
         if: github.event_name == 'pull_request'
         id: restored

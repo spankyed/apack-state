@@ -60,6 +60,10 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/link-check.mts` | A backend and a window joined by `@apackdev/link` in place of the kernel's link in memory, held to what a window is promised: answered and told after its view shows the step, under a seed's worth of orderings of the two packages; a link that goes ends what was asked as disconnected, and the backend goes on |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
+| `scripts/mutants.mjs` | Reads a mutants run's reports and fails on a survivor not in `mutants.allowed.json`, or (`--all`) an entry that survives in none |
+| `scripts/mutants-list.mjs` | Writes `mutants.allowed.json` from a run's reports: stale entries off, survivors on with an empty why to fill in (`npm run mutants:list`) |
+| `scripts/mutants-merge.mjs` | Merges `mutants.allowed.json` entry by entry as a git merge driver, once `npm run mutants:merge-install` sets it up |
+| `scripts/mutants-names.mjs` | How a mutant is named in the list, and which of a report's mutants survived |
 | `scripts/pre-push.mjs` | What runs before a push: lint, typecheck, API reports, specs, and mutants in the files under `src/` the branch changed |
 | `scripts/hooks-install.mjs` | Has git run it before each push from this checkout, if asked to: `npm run hooks:install` |
 | `scripts/bench.mjs` | Runs every measurement, prints each reading beside the recorded one, and records them with their conditions (`--record`) |
