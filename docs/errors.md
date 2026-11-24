@@ -104,7 +104,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `SAVE: (_, { make }) => { make('save') },` | TS2554: Expected 2 arguments, but got 1. | a save is made by a state inside, so only a handler there can say to make one |
 | `ADD: (_, { make }) => { make('run') },` | TS2554: Expected 2 arguments, but got 1. | a job is one of many, so making one takes its key |
 | `STOP_SAVING: (_, { drop }) => { drop('save', 'a') },` | TS2554: Expected 1 arguments, but got 2. | there is one save at a time, so it takes no key |
-| `DROP: (_, { make }) => { make('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"run" \| "save"'. | it makes no such thing |
+| `DROP: (_, { make }) => { make('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"save" \| "run"'. | it makes no such thing |
 | `run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),` | TS2322: Type 'MadeOne&lt;Jobs, "on", JobsEvent, App>' is not assignable to type 'MadeEach&lt;Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is made with `each` |
 | `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) =…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
 | `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { makes: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it makes these has to say how |

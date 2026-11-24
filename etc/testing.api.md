@@ -4,34 +4,22 @@
 
 ```ts
 
-// @public
-export interface Clock {
-    after(ms: number, run: () => void): () => void;
-    now(): number;
-    sleep(ms: number): Promise<void>;
-}
+import { Clock } from '@apackdev/orderings';
+import { everyOrder } from '@apackdev/orderings';
+import { explore } from '@apackdev/orderings';
+import { Explored } from '@apackdev/orderings';
+import { replay } from '@apackdev/orderings';
+import { sample } from '@apackdev/orderings';
+import { Scenario } from '@apackdev/orderings';
+import { Schedule } from '@apackdev/orderings';
 
-// @public
-export function everyOrdering(scenario: Scenario, options?: {
-    limit?: number;
-}): Promise<number>;
+export { Clock }
 
-// @public
-export function explore(scenario: (schedule: Schedule) => () => void, options?: {
-    limit?: number;
-}): Promise<Explored>;
+export { everyOrder }
 
-// @public (undocumented)
-export interface Explored {
-    readonly complete: boolean;
-    // (undocumented)
-    readonly failure?: {
-        readonly choices: readonly number[];
-        readonly taken: readonly string[];
-        readonly error: unknown;
-    };
-    readonly orderings: number;
-}
+export { explore }
+
+export { Explored }
 
 // Warning: (ae-forgotten-export) The symbol "Shape" needs to be exported by the entry point testing.d.ts
 // Warning: (ae-forgotten-export) The symbol "AnyEvent" needs to be exported by the entry point testing.d.ts
@@ -76,33 +64,17 @@ export interface Random {
     pick<T>(from: readonly T[]): T;
 }
 
-// @public
-export function replay(scenario: (schedule: Schedule) => () => void, choices: readonly number[]): Promise<{
-    taken: readonly string[];
-    error?: unknown;
-}>;
+export { replay }
 
-// @public
-export function sample(scenario: (schedule: Schedule) => () => void, options: {
-    seed: number;
-    runs: number;
-}): Promise<Explored>;
+export { sample }
 
-// @public
-export type Scenario = (schedule: Schedule) => () => void;
+export { Scenario }
 
-// @public (undocumented)
-export interface Schedule {
-    breaks(label: string, error: Error): Promise<never>;
-    readonly clock: Clock;
-    does(label: string, ...steps: ReadonlyArray<readonly [what: string, run: () => void]>): void;
-    later(lane: Lane, run: () => void): void;
-    work<T>(label: string, value: T): Promise<T>;
-}
+export { Schedule }
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:13:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:11:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

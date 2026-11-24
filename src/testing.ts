@@ -1,18 +1,15 @@
-// What a pack's checks are written with: a schedule that runs a scenario under every ordering, its clock, a system on
-// it, and scenarios made from the events a state declares. `@apackdev/state/testing`.
+// What a pack's checks are written with: the schedule of `@apackdev/orderings`, which runs a scenario under every
+// order, a system on it, and scenarios made from the events a state declares. `@apackdev/state/testing`.
 //
 // A scenario builds systems on the schedule it is handed and returns what must hold once everything has come to rest.
 // What each system puts off, and its frames, are lanes of the schedule, as are what a user does and outside work, so
-// the schedule chooses the order between them; `everyOrdering` runs every one, and `sample` a seed's worth.
+// the schedule chooses the order between them; `everyOrder` runs every one, and `sample` a seed's worth.
 import type { Lane } from './port.ts'
-import { explore, sample, type Explored, type Schedule } from './schedule.ts'
+import { sample, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Shape, State, Value } from './types.ts'
 import { system as kernel, type System } from './kernel.ts'
 
-export { explore, replay, sample, type Clock, type Explored, type Schedule } from './schedule.ts'
-
-/** A scenario: it builds what it checks on the schedule, and returns what must hold once all is at rest. */
-export type Scenario = (schedule: Schedule) => () => void
+export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
 
 /**
  * What a system is given to run on a schedule: what it puts off goes into the lanes it names, and its frames into a
@@ -21,23 +18,6 @@ export type Scenario = (schedule: Schedule) => () => void
 export function onSchedule(schedule: Schedule, name = 'a system'): { later(lane: Lane, run: () => void): void; frame(run: () => void): void } {
   const frames: Lane = { label: `${name}'s frame` }
   return { later: (lane, run) => schedule.later(lane, run), frame: (run) => schedule.later(frames, run) }
-}
-
-/** What a failure says: the ordering that led to it, as what was run in turn, and the choices to `replay` it with. */
-const told = (explored: Explored, how: string): Error => {
-  const { choices, taken, error } = explored.failure!
-  return new Error(`Failed in ${how} ${explored.orderings} (replay with [${choices.join(', ')}]):\n  ${taken.join('\n  ')}\n${error instanceof Error ? error.message : String(error)}`, { cause: error })
-}
-
-/**
- * Runs a scenario under every ordering and throws for the first that fails, naming it. Returns how many orderings
- * there were. Past `limit` it throws as well: one with more orderings than can all be run is one to `sample`.
- */
-export async function everyOrdering(scenario: Scenario, options: { limit?: number } = {}): Promise<number> {
-  const explored = await explore(scenario, options)
-  if (explored.failure) throw told(explored, 'ordering')
-  if (!explored.complete) throw new Error(`More than ${explored.orderings} orderings: too many to run them all, so sample them`)
-  return explored.orderings
 }
 
 /** Numbers drawn from a seed: the same seed, the same draws. */

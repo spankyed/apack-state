@@ -5,7 +5,7 @@
 //   npx vitest run rows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { explore, type Schedule } from '../src/schedule.ts'
+import { explore, type Schedule } from '@apackdev/orderings'
 import { answered, given, reaching } from '../src/index.ts'
 import { memory, WROTE_OUTSIDE_A_STEP, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'

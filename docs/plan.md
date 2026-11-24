@@ -1016,7 +1016,7 @@ Five examples run beside them and compare what each step leaves: `examples/searc
 - **The graph can be derived without running anything** (`tools/graph.mts`): states, moves, what each state answers, and
   which other states it reaches, read from handler return types by the TypeScript checker. An earlier version of it
   caught a handler dropped during a port.
-- **Every ordering, not the one that happened** (`src/schedule.ts`, `checks/interleaving-check.mts`, 8 checks). The kernel puts
+- **Every ordering, not the one that happened** (`@apackdev/orderings`, `checks/interleaving-check.mts`, 8 checks). The kernel puts
   off everything through lanes: what crosses a link one way is a lane, and so are a system's frames. A lane keeps its
   order, as a socket does, and a schedule chooses between lanes. `explore` runs a scenario under every such choice,
   `sample` under a seed's worth, and a failure comes back with the choices that `replay` runs again. Run under every
@@ -1135,7 +1135,8 @@ The design is the smaller half of the value. In the order they would pay:
    by `vue-tsc`, and runs in a browser. What a check cannot say is what Vue's devtools would show of it, as Pinia's
    do of its stores: [deferred](deferred/vue-devtools.md).
 2. **Tests that replay interleavings.** The risk in this design is ordering: a result that arrives after its state was
-   left. The prototype has this: `src/schedule.ts`, under What the prototype proves. What is left is its place in the
+   left. The prototype has this, under What the prototype proves: the schedule, now `@apackdev/orderings`, a package of
+   its own that apack-link's specs are run under too. What is left is its place in the
    harness, so that a pack's spec runs a scenario under every ordering the way it runs a case today, and a reduction
    that skips orderings differing only in two things that cannot affect each other, which is what would let two
    windows be run in full. This is the strongest reason to own the kernel.
@@ -1149,7 +1150,7 @@ The design is the smaller half of the value. In the order they would pay:
    where fast-check samples, and it waits a turn of the event loop to know that everything has settled where
    fast-check waits fifty microtask ticks and takes the quiet for it.
 
-   Built: `@apackdev/state/testing` has every ordering (`everyOrdering`), scenarios generated from the events a
+   Built: `@apackdev/state/testing` has every ordering (`everyOrder`, from `@apackdev/orderings`), scenarios generated from the events a
    state declares (`fromEvents`), and a clock the schedule owns (`schedule.clock`). The reduction is not built.
 3. **The graph as a recorded file.** `tools/graph.mts` is a script. As a recorded file per feature, with `:check` and
    `:update` halves like the API reports, a change to a state's graph shows in the diff. The same data gives pack rules:

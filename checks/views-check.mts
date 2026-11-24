@@ -6,7 +6,7 @@
 //   npx vitest run views
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { explore, type Schedule } from '../src/schedule.ts'
+import { explore, type Schedule } from '@apackdev/orderings'
 import { answered, reaching, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
