@@ -10,6 +10,13 @@ if [ "$result" != passed ] && [ "$result" != failed ]; then
   echo "Expected passed or failed, got: ${result:-<empty>}" >&2
   exit 1
 fi
+# Only speak for what master is at now: a manual re-run of an older commit must not reopen or close the issue after a
+# newer push already settled it.
+head="$(gh api "repos/$GH_REPO/git/ref/heads/master" | jq -r '.object.sha')"
+if [ "$head" != "$SHA" ]; then
+  echo "Skipping: $SHA is no longer master HEAD ($head)."
+  exit 0
+fi
 title="master fails: $WORKFLOW"
 # The Issues REST endpoint, not search: search lags behind a just-opened issue, and filtering by creator keeps a
 # public repository's users from colliding with it.

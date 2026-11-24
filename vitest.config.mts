@@ -7,7 +7,7 @@ const checks = ['checks/*-check.mts', 'checks/rows-property.mts']
  * What needs Node and is not run in a window: elmdb's binding (rows, the rows property, the views on elmdb) and
  * running the examples as processes.
  */
-const nodeOnly = ['checks/rows-check.mts', 'checks/rows-property.mts', 'checks/views-check.mts', 'checks/examples-check.mts', 'checks/graph-check.mts', 'checks/mutants-check.mts']
+const nodeOnly = ['checks/rows-check.mts', 'checks/rows-property.mts', 'checks/views-check.mts', 'checks/examples-check.mts', 'checks/graph-check.mts', 'checks/mutants-check.mts', 'checks/master-status-check.mts']
 
 /** What every run of the checks is given. */
 export const shared = {
