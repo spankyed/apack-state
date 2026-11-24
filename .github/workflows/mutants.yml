@@ -57,7 +57,7 @@ jobs:
       # on the pull request or on master — misses older caches and runs everything cleanly.
       - name: Cache key
         id: cache
-        run: echo "prefix=mutants-${{ matrix.id }}-${{ hashFiles('checks/**', '!checks/*-check.mts', '!checks/rows-property.mts', 'examples/**', 'stryker.config.mjs', 'vitest.*.mts', 'package.json', 'package-lock.json', 'tsconfig*.json', '.github/workflows/mutants.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "prefix=mutants-${{ matrix.id }}-${{ hashFiles('checks/**', '!checks/*-check.mts', '!checks/rows-property.mts', 'examples/**', 'scripts/mutants.mjs', 'stryker.config.mjs', 'vitest.*.mts', 'package.json', 'package-lock.json', 'tsconfig*.json', '.github/workflows/mutants.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Results so far
         if: github.event_name == 'pull_request'
         id: restored
@@ -78,18 +78,24 @@ jobs:
         env:
           MUTATE: ${{ matrix.part }}
       # Stryker carries over cached mutants whose diff-shifted lines fall outside MUTATE; drop them so lines moving
-      # across shard boundaries never leave phantom results in this job's report or cache.
+      # across shard boundaries never leave phantom results in this job's report or cache. On a forced full run
+      # (master / dispatch) every mutant must already be in scope, so --expect-none verifies the prune agrees with Stryker.
       - name: Drop mutants outside this job's part
         id: prune
-        run: node scripts/mutants.mjs --prune "$MUTATE" reports/mutation/mutation.json reports/stryker-incremental.json
+        run: node scripts/mutants.mjs --prune ${{ github.event_name != 'pull_request' && '--expect-none' || '' }} "$MUTATE" reports/mutation/mutation.json reports/stryker-incremental.json
         env:
           MUTATE: ${{ matrix.part }}
       - name: Keep these results
+        id: saved
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: reports/stryker-incremental.json
           key: ${{ steps.cache.outputs.prefix }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Note unsaved cache
+        if: steps.saved.outcome == 'failure'
+        run: |
+          echo 'Warning: failed to save incremental cache; subsequent PR runs will not reuse these results.' >> "$GITHUB_STEP_SUMMARY"
       - name: What survived
         if: ${{ !cancelled() && steps.prune.outcome == 'success' }}
         run: node scripts/mutants.mjs reports/mutation/mutation.json "$GITHUB_STEP_SUMMARY"

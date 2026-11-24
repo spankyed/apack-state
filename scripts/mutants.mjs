@@ -6,13 +6,14 @@
 // stays what is true. One job's report cannot say that: a job mutates part of a file, and the same line as written
 // can be in another job's part.
 //
-// With `--prune <mutate>`, it drops any mutant outside `<mutate>` from each report in place. Stryker's incremental
-// mode carries over cached mutants whose diff-shifted lines fall outside the current `MUTATE` range; pruning them
-// keeps each sharded job's report and incremental file within its own part.
+// With `--prune [--expect-none] <mutate>`, it drops any mutant outside `<mutate>` from each report in place. Stryker's
+// incremental mode carries over cached mutants whose diff-shifted lines fall outside the current `MUTATE` range;
+// pruning them keeps each sharded job's report and incremental file within its own part. `--expect-none` fails if
+// anything was out of scope, so forced full runs check that the prune agrees with Stryker.
 //
 //   node scripts/mutants.mjs reports/mutation/mutation.json [summary.md]
 //   node scripts/mutants.mjs --all summary.md reports/*/mutation.json
-//   node scripts/mutants.mjs --prune <mutate> <report.json> [...]
+//   node scripts/mutants.mjs --prune [--expect-none] <mutate> <report.json> [...]
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -52,38 +53,57 @@ const scopeOf = (rel, patterns) => {
 }
 
 if (args[0] === '--prune') {
-  const [mutate, ...files] = args.slice(1)
+  const rest = args.slice(1)
+  const expectNone = rest[0] === '--expect-none'
+  const [mutate, ...files] = expectNone ? rest.slice(1) : rest
   if (!mutate || !files.length) {
-    console.error('Usage: node scripts/mutants.mjs --prune <mutate> <report.json> [...]')
+    console.error('Usage: node scripts/mutants.mjs --prune [--expect-none] <mutate> <report.json> [...]')
     process.exit(1)
   }
   const patterns = mutate.split(',')
+  let unexpected = false
   for (const reportPath of files) {
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
-    let removed = 0
-    let dirty = false
+    let removedMutants = 0
+    let removedFiles = 0
+    const samples = []
     for (const [file, entry] of Object.entries(report.files ?? {})) {
       const rel = path.relative(root, path.resolve(root, file)).split(path.sep).join('/')
       const scope = scopeOf(rel, patterns)
       if (scope === false) {
-        removed += entry.mutants.length
+        removedFiles++
+        removedMutants += entry.mutants.length
+        if (samples.length < 5) samples.push(`${rel} (${entry.mutants.length} mutant(s))`)
         delete report.files[file]
-        dirty = true
       } else if (Array.isArray(scope)) {
-        const kept = entry.mutants.filter((mutant) => scope.some((range) => inRange(range, mutant.location)))
-        if (kept.length !== entry.mutants.length) {
-          removed += entry.mutants.length - kept.length
-          entry.mutants = kept
-          dirty = true
+        const kept = []
+        for (const mutant of entry.mutants) {
+          if (scope.some((range) => inRange(range, mutant.location))) {
+            kept.push(mutant)
+          } else {
+            removedMutants++
+            if (samples.length < 5) samples.push(`${rel}:${mutant.location.start.line}-${mutant.location.end.line}`)
+          }
         }
+        entry.mutants = kept
       }
     }
-    if (dirty) {
-      fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
-      console.log(`Pruned ${removed} out-of-scope mutant(s) from ${reportPath}`)
+    if (removedMutants > 0 || removedFiles > 0) {
+      if (expectNone) {
+        unexpected = true
+        const detail = [
+          removedMutants > 0 ? `${removedMutants} out-of-scope mutant(s)` : '',
+          removedFiles > 0 ? `${removedFiles} out-of-scope file(s)` : '',
+        ].filter(Boolean).join(' and ')
+        console.error(`Expected no out-of-scope results for ${mutate} in ${reportPath}, found ${detail}: ${samples.join(', ')}`)
+      } else {
+        fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+        const what = removedMutants > 0 ? `${removedMutants} out-of-scope mutant(s)` : `${removedFiles} out-of-scope file(s)`
+        console.log(`Pruned ${what} from ${reportPath}`)
+      }
     }
   }
-  process.exit(0)
+  process.exit(unexpected ? 1 : 0)
 }
 
 const all = args[0] === '--all'
