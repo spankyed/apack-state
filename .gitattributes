@@ -1,3 +1,6 @@
 # What tools write and check is written with LF, and a checkout keeps it so on every system.
 etc/** text eol=lf
 docs/errors.md text eol=lf
+
+# Merged entry by entry where a checkout has the driver (npm run mutants:merge-install), and as text where not
+mutants.allowed.json merge=mutants-list
