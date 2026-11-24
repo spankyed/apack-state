@@ -30,9 +30,14 @@ const slow = state<{}, never, SlowAsks>()({
   asks: {
     WAIT: async ({ turns: count }, { signal }) => {
       backendSaw.push('WAIT began')
-      signal.addEventListener('abort', () => backendSaw.push('WAIT told its asker had gone'))
-      await turns(count)
-      return 'done'
+      const gaveUp = (): void => { backendSaw.push('WAIT told its asker had gone') }
+      signal.addEventListener('abort', gaveUp)
+      try {
+        await turns(count)
+        return 'done'
+      } finally {
+        signal.removeEventListener('abort', gaveUp)
+      }
     },
     FETCH: async ({ turns: count }, { signal }) => {
       for (let turn = 0; turn < count; turn++) { await turns(1); signal.throwIfAborted() }
@@ -349,6 +354,111 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.stop()
     for (const run of frames.splice(0)) run()
     ok(!it.saw.includes('heard one'), it.saw.join(' / '))
+  }],
+  ['a work scope signal aborts when run or an ask handler ends for any reason, cancelling unawaited work', async () => {
+    const aborted: string[] = []
+    const unwoundAsks: string[] = []
+    type ScAsks = {
+      SLOW: { args: { label: string }; answer: string }
+      ASYNC_RETURN: { args: {}; answer: string }
+      ASYNC_THROW: { args: {}; answer: string }
+      SYNC_RETURN: { args: {}; answer: string }
+      SYNC_THROW: { args: {}; answer: string }
+    }
+    type ScNet = { systems: { svc: { events: never; asks: ScAsks } }; surfaces: {}; views: {} }
+    const scState = reaching<ScNet>()
+    type ScShape = { states: { idle: {}; asyncReturn: {}; asyncThrow: {}; syncReturn: {}; syncThrow: {} } }
+    type ScEvent = { type: 'GO'; at: 'asyncReturn' | 'asyncThrow' | 'syncReturn' | 'syncThrow' }
+    const svc = scState<ScShape, ScEvent, ScAsks>()({
+      start: 'idle',
+      on: { GO: ({ at }) => ({ at }) },
+      asks: {
+        SLOW: async ({ label }, { signal }) => {
+          const gaveUp = (): void => { unwoundAsks.push(label) }
+          signal.addEventListener('abort', gaveUp)
+          try { await turns(30); return 'late' } finally { signal.removeEventListener('abort', gaveUp) }
+        },
+        ASYNC_RETURN: async (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => aborted.push('ask:asyncReturn'))
+          void ask('svc', 'SLOW', { label: 'ask:asyncReturn' })
+          await turns(1)
+          return 'ok'
+        },
+        ASYNC_THROW: async (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => aborted.push('ask:asyncThrow'))
+          void ask('svc', 'SLOW', { label: 'ask:asyncThrow' })
+          await turns(1)
+          throw new Error('boom')
+        },
+        SYNC_RETURN: (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => aborted.push('ask:syncReturn'))
+          void ask('svc', 'SLOW', { label: 'ask:syncReturn' })
+          return 'ok'
+        },
+        SYNC_THROW: (_, { signal }) => {
+          signal.addEventListener('abort', () => aborted.push('ask:syncThrow'))
+          throw new Error('sync boom')
+        },
+      },
+      states: {
+        idle: {},
+        asyncReturn: {
+          async run({ signal, ask }) {
+            signal.addEventListener('abort', () => aborted.push('run:asyncReturn'))
+            void ask('svc', 'SLOW', { label: 'run:asyncReturn' })
+            await turns(1)
+          },
+          failed: () => {},
+        },
+        asyncThrow: {
+          async run({ signal, ask }) {
+            signal.addEventListener('abort', () => aborted.push('run:asyncThrow'))
+            void ask('svc', 'SLOW', { label: 'run:asyncThrow' })
+            await turns(1)
+            throw new Error('run boom')
+          },
+          failed: () => ({ at: 'idle' }),
+        },
+        syncReturn: {
+          run({ signal, ask }) {
+            signal.addEventListener('abort', () => aborted.push('run:syncReturn'))
+            void ask('svc', 'SLOW', { label: 'run:syncReturn' })
+          },
+        },
+        syncThrow: {
+          run({ signal }) {
+            signal.addEventListener('abort', () => aborted.push('run:syncThrow'))
+            throw new Error('sync run boom')
+          },
+          failed: () => ({ at: 'idle' }),
+        },
+      },
+    })
+
+    const sys = system({ side: 'backend' })
+    const h = sys.start('svc', svc)
+
+    deepStrictEqual(await sys.ask(h, 'ASYNC_RETURN', {}), { ok: true, value: 'ok' })
+    const r2 = await sys.ask(h, 'ASYNC_THROW', {})
+    ok(!r2.ok && r2.failure.kind === 'failed', JSON.stringify(r2))
+    deepStrictEqual(await sys.ask(h, 'SYNC_RETURN', {}), { ok: true, value: 'ok' })
+    const r4 = await sys.ask(h, 'SYNC_THROW', {})
+    ok(!r4.ok && r4.failure.kind === 'failed', JSON.stringify(r4))
+
+    for (const at of ['asyncReturn', 'asyncThrow', 'syncReturn', 'syncThrow'] as const) {
+      sys.send(h, { type: 'GO', at })
+      await rest()
+    }
+    await rest()
+
+    deepStrictEqual(aborted, [
+      'ask:asyncReturn', 'ask:asyncThrow', 'ask:syncReturn', 'ask:syncThrow',
+      'run:asyncReturn', 'run:asyncThrow', 'run:syncReturn', 'run:syncThrow',
+    ])
+    deepStrictEqual(unwoundAsks, [
+      'ask:asyncReturn', 'ask:asyncThrow', 'run:asyncReturn', 'run:asyncThrow',
+    ])
+    strictEqual(sys.idle(), true)
   }],
 ]
 

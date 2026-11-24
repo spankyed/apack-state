@@ -69,14 +69,18 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
       send({ type: 'COUNT' })
       broadcast('panel', { type: 'NOTED', text: 'doing' })
       progress('half way')
-      void ask('ear', 'ECHO', { text: 'echo' }).then(ended)
+      const echo = ask('ear', 'ECHO', { text: 'echo' })
+      void echo.then(ended)
       if (how === 'throws') throw new Error('the handler broke')
       if (how === 'refuses') throw refuse('no', 'the handler refused')
       if (how === 'stray') return answered('done', { data: { nothing: 1 } } as never)
-      return answered('done', { data: () => {
-        if (how === 'change throws') throw new Error('the change broke')
-        if (how === 'change refuses') throw refuse('no', 'the change refused')
-      } })
+      if (how === 'change throws' || how === 'change refuses') {
+        return answered('done', { data: () => {
+          if (how === 'change throws') throw new Error('the change broke')
+          throw refuse('no', 'the change refused')
+        } })
+      }
+      return echo.then(() => 'done')
     },
     LATER: async ({ how }, { tell, refuse }) => {
       // Said before the wait, in the step that took the ask: that step is made, so it stands.
@@ -116,10 +120,11 @@ const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: strin
   },
   asks: {
     RELAY: ({ how }, { ask }) => {
-      void ask('desk', 'DO', { how: 'made' }).then(ended)
+      const done = ask('desk', 'DO', { how: 'made' })
+      void done.then(ended)
       if (how === 'throws') throw new Error('the handler broke')
       if (how === 'stray') return answered('relayed', { data: { nothing: 1 } } as never)
-      return 'relayed'
+      return done.then(() => 'relayed')
     },
   },
 })

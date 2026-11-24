@@ -508,7 +508,7 @@ export function system(host: {
     }
     return key === undefined ? scope : Object.assign(scope, { key })
   }
-  const workScopeOf = (mine: Active, signal: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine), {
+  const workScopeOf = (mine: Active, signal: AbortSignal) => Object.assign(eventScopeOf(mine), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
       const asked = ask(to, name, args, signal, hears)
@@ -517,12 +517,17 @@ export function system(host: {
       return asked
     },
     sleep: (ms: number) => {
-      const waiting = sleep(ms, workSignal)
+      const waiting = sleep(ms, signal)
       // A sleep that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
       waiting.catch(() => {})
       return waiting
     },
   })
+  /** Aborts a handler's own signal after `unsay` has ended any taken-back asks, so taken-back asks resolve before aborting. */
+  const abortAfterUnsay = (own: AbortController): void => {
+    const stop = (): void => { own.abort() }
+    leaving.push(Object.assign(stop, { anyway: true as const, lost: stop }))
+  }
 
   const enter = (top: Running, def: LooseDef, name: string, around: Active | undefined, entering: Plain): Active => {
     const path = around?.path ? `${around.path}.${name}` : name
@@ -540,9 +545,9 @@ export function system(host: {
       let made: unknown
       // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
       // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
-      const begin = (): void => { made = def.run!(workScopeOf(active, active.controller.signal, workSignal)) }
+      const begin = (): void => { made = def.run!(workScopeOf(active, workSignal)) }
       const before = sayings()
-      try { if (host.transact) host.transact(begin); else begin() } catch (error) { own.abort(); unsay(before); inside.push({ kind: 'failure', of: active, error }); return active }
+      try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); inside.push({ kind: 'failure', of: active, error }); return active }
       if (made instanceof Promise) {
         under(made,
           (value) => { own.abort(); arrive({ kind: 'result', of: active, value }) },
@@ -1070,7 +1075,7 @@ export function system(host: {
       return refusal('failed', message)
     }
     try {
-      const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, workSignal), {
+      const made = found.handler(args, Object.assign(workScopeOf(found.of, workSignal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
         progress: (update: unknown) => { if (!signal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
       }))
@@ -1084,12 +1089,12 @@ export function system(host: {
         // What it wrote before it waited is kept: it answers in a later step, and this one is made.
         return MADE
       } else {
-        own.abort()
         const outcome: AnyOutcome = isAnswered(made) ? withChange(found.of, made.next, { ok: true, value: made.answer }) : { ok: true, value: made }
         answer(question, outcome)
+        if (outcome.ok) own.abort(); else abortAfterUnsay(own)
         return outcome.ok
       }
-    } catch (error) { const outcome = failed(error); own.abort(); answer(question, outcome); return NOT_MADE }
+    } catch (error) { const outcome = failed(error); abortAfterUnsay(own); answer(question, outcome); return NOT_MADE }
   }
 
   /**

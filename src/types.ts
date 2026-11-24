@@ -220,7 +220,10 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    * read is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
    */
   readonly now: number
-  /** Aborted when this state stops being the case. For an ask, also when whoever asked has gone. */
+  /**
+   * Aborted when this state stops being the case. For `run` and an ask's handler, also when the work finishes
+   * (returns or throws), and for an ask when whoever asked has gone.
+   */
   readonly signal: AbortSignal
 
   /**

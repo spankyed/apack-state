@@ -140,10 +140,15 @@ export const git = (work: (what: string) => Promise<unknown>, said: string[] = [
     },
 
     'commit.GET_GIT_DIFF': async ({ path, staged }, { data, refuse, signal }) => {
-      signal.addEventListener('abort', () => { said.push(`gave up the diff of ${path}`) })
-      await work(`reading the diff of ${path}`)
-      if (!(staged ? data.staged : data.unstaged).includes(path)) throw refuse('not-found', `${path} has no ${staged ? 'staged' : 'unstaged'} changes`)
-      return { path, text: `diff of ${path}${staged ? ' (staged)' : ''}` }
+      const gaveUp = (): void => { said.push(`gave up the diff of ${path}`) }
+      signal.addEventListener('abort', gaveUp)
+      try {
+        await work(`reading the diff of ${path}`)
+        if (!(staged ? data.staged : data.unstaged).includes(path)) throw refuse('not-found', `${path} has no ${staged ? 'staged' : 'unstaged'} changes`)
+        return { path, text: `diff of ${path}${staged ? ' (staged)' : ''}` }
+      } finally {
+        signal.removeEventListener('abort', gaveUp)
+      }
     },
 
     'commit.STAGE_FILES': async ({ paths }, { broadcast, refuse }) => {
@@ -175,14 +180,19 @@ export const git = (work: (what: string) => Promise<unknown>, said: string[] = [
 
     'commit.PUBLISH_BRANCH': async (_, { data, progress, broadcast, signal }) => {
       const ahead = data.ahead
-      signal.addEventListener('abort', () => { said.push('gave up the push') })
-      for (const phase of ['Counting objects', 'Writing objects']) {
-        progress({ phase })
-        await work(`pushing: ${phase}`)
-        signal.throwIfAborted()
+      const gaveUp = (): void => { said.push('gave up the push') }
+      signal.addEventListener('abort', gaveUp)
+      try {
+        for (const phase of ['Counting objects', 'Writing objects']) {
+          progress({ phase })
+          await work(`pushing: ${phase}`)
+          signal.throwIfAborted()
+        }
+        broadcast('commit', { type: 'REPOSITORY_CHANGED' })
+        return answered({ pushed: ahead }, { data: (d) => { d.ahead = 0 } })
+      } finally {
+        signal.removeEventListener('abort', gaveUp)
       }
-      broadcast('commit', { type: 'REPOSITORY_CHANGED' })
-      return answered({ pushed: ahead }, { data: (d) => { d.ahead = 0 } })
     },
   },
 })

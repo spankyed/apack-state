@@ -20,11 +20,16 @@ const library = (did: string[]) => state<{}, never, LibraryAsks>()({
   asks: {
     LOOKUP: async ({ query }, { progress, signal }) => {
       did.push(`lookup ${query}`)
-      signal.addEventListener('abort', () => { did.push(`gave up ${query}`) })
-      progress(`${query} began`)
-      await turns(3)
-      progress(`${query} ended`)
-      return query.toUpperCase()
+      const gaveUp = (): void => { did.push(`gave up ${query}`) }
+      signal.addEventListener('abort', gaveUp)
+      try {
+        progress(`${query} began`)
+        await turns(3)
+        progress(`${query} ended`)
+        return query.toUpperCase()
+      } finally {
+        signal.removeEventListener('abort', gaveUp)
+      }
     },
   },
 })
