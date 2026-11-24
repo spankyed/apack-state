@@ -467,7 +467,7 @@ export function system(host: {
       if (signal.aborted) { reject(new Left('sleep')); return }
       let fired = false
       let cancel!: () => void
-      const aborted = (): void => { cancel(); reject(new Left('sleep')) }
+      const aborted = (): void => { safely('cancelling a sleep', cancel); reject(new Left('sleep')) }
       try {
         cancel = clock.after(ms, () => {
           fired = true

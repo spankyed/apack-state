@@ -303,6 +303,38 @@ await run([
     strictEqual(sys.idle(), true)
   }],
 
+  ['a throwing cancel callback from clock.after still unwinds sleep with Left and comes to rest', async () => {
+    const traces: string[] = []
+    const saw: string[] = []
+    const throwingCancel: Clock = {
+      now: () => 0,
+      after: () => () => { throw new Error('cancel broke') },
+    }
+    const cancellable = state<{ states: { waiting: {}; done: {} } }, { type: 'LEAVE' }>()({
+      start: 'waiting',
+      states: {
+        waiting: {
+          on: { LEAVE: () => ({ at: 'done' }) },
+          async run({ sleep }) {
+            try { await sleep(1_000) } catch (error) {
+              saw.push(error instanceof Left && error.message.includes('sleep') ? 'Left' : String(error))
+              throw error
+            }
+          },
+          failed: () => { saw.push('failed') },
+        },
+        done: {},
+      },
+    })
+    const sys = system({ side: 'window', clock: throwingCancel, trace: (line) => traces.push(line) })
+    const h = sys.start('c', cancellable)
+    sys.send(h, { type: 'LEAVE' })
+    await rest()
+    deepStrictEqual(saw, ['Left'])
+    ok(traces.some((line) => /DEFECT: cancelling a sleep threw: cancel broke/.test(line)), traces.join('\n'))
+    strictEqual(sys.idle(), true)
+  }],
+
   ['synchronous clock.after firing inline and normal completion both remove abort listeners cleanly', async () => {
     let syncCancelCalls = 0
     const syncClock: Clock = {
