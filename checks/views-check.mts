@@ -6,7 +6,7 @@
 //   npx vitest run views
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { explore, sample, type Schedule } from '@apackdev/orderings'
+import { sample, type Schedule } from '@apackdev/orderings'
 import { answered, reaching, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
@@ -93,31 +93,6 @@ const made = (store: Rows, held: boolean, schedule?: Schedule) => {
 const settledAndRest = async (store: Rows): Promise<void> => {
   await new Promise<void>((resolve) => { store.settled(resolve) })
   await rest()
-}
-
-/**
- * Two threads asked for, the second once the first is answered or both at once: what the window noted at each answer
- * and each telling. With both under way, what the first step sent is waiting on the views when the second step's is
- * sent, and each has to wait for its own.
- */
-const scenario = (held: boolean, how: 'one after the other' | 'both at once') => (schedule: Schedule) => {
-  // The views are told in a lane of their own: when, against everything else, is the schedule's to choose.
-  const views = { label: 'the views are told' }
-  const store = memory((run) => schedule.later(views, run))
-  const { window, handle, defects } = made(store, held, schedule)
-  const answers: boolean[] = []
-  const add = (id: string, then?: () => void) => (): void => { void window.ask(handle, 'ADD', { id }).then((outcome) => { answers.push(outcome.ok && outcome.value); then?.() }) }
-  if (how === 'both at once') schedule.does('the user', ['asks for a', add('a')], ['asks for b', add('b')])
-  else schedule.does('the user', ['asks for a, and then for b', add('a', add('b'))])
-  return () => {
-    deepStrictEqual(answers, [true, true])
-    const { count, atAnswer, atEvent } = window.read(handle).data
-    strictEqual(count, 2)
-    // The first is in the view by the time the window hears of it, and so is the second. With both under way the
-    // view may show the second by the time the window hears of the first, which is ahead and never behind.
-    for (const noted of [atAnswer, atEvent]) ok(noted.length === 2 && noted[0]! >= 1 && noted[1] === 2, `noted ${JSON.stringify({ atAnswer, atEvent })}`)
-    deepStrictEqual(defects(), [])
-  }
 }
 
 /** Whether a promise settles within a few turns: a check that would otherwise wait for good fails instead. */
@@ -233,7 +208,7 @@ await run([
     // A window asks: its broadcast asks with soon = false, and its answer asks with soon = true.
     ok((await window.ask(handle, 'ADD', { id: 'b' })).ok)
     await settledAndRest(store)
-    ok(asked.some((soon) => soon), `asked ${JSON.stringify(asked)}`)
+    deepStrictEqual(asked, [false, true])
   }],
   ['views that cannot say they have caught up are not waited on: a window is answered and told', async () => {
     const store = memory()
@@ -447,17 +422,12 @@ await run([
     ok(backend.idle() && window.idle())
   }],
 ], async (tally) => {
+  // The `one after the other` and `both at once` link-hold orderings (with and without the hold) live in
+  // `checks/link-check.mts` so they run in both Node and Chromium.
   await tally.every('a window that stops while what it follows comes and goes stops following, under every ordering', () => sample((schedule) => {
     const store = memory((go) => schedule.later({ label: 'the views are told' }, go))
     const { window, handle, defects } = made(store, true, schedule)
     schedule.does('the user', ['asks for a', () => { void window.ask(handle, 'ADD', { id: 'a' }) }], ['closes the window', () => { window.stop() }])
     return () => { deepStrictEqual(defects(), []) }
   }, { seed: 1, runs: 5_000 }), 'sampled')
-  for (const how of ['one after the other', 'both at once'] as const) {
-    await tally.every(`${how}: under every ordering, a window is answered and told after its view shows the thread`, () => sample(scenario(true, how), { seed: 1, runs: 5_000 }), 'sampled')
-    await tally.check(`${how}: without the hold there is an ordering in which it is told first, so the hold is what the rule rests on`, async () => {
-      const found = await explore(scenario(false, how))
-      ok(found.failure, 'every ordering passed without the hold, so the scenario proves nothing')
-    })
-  }
 })

@@ -33,8 +33,9 @@ export function connect(window: System, backend: System, schedule?: Pick<Schedul
   const windowLink = dial(windowSide)
   const backendLink = listen(backendSide)
   const toBackend = join(windowLink, window.port)
+  let detachBackend: () => void
+  try { detachBackend = window.attach(toBackend) } catch (error) { windowLink.close(); throw error }
   const toWindow = join(backendLink, backend.port)
-  const detachBackend = window.attach(toBackend)
   const detachWindow = backend.attach(toWindow)
   windowLink.onEnd(detachBackend)
   backendLink.onEnd(detachWindow)

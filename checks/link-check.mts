@@ -6,7 +6,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching, type Failure, type Port, type ViewHost } from '../src/index.ts'
+import { answered, reaching, type Each, type Failure, type Port, type ViewHost } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 import { memory, type Rows } from './store.mts'
 
@@ -196,6 +196,104 @@ await run([
     strictEqual(overs.length, 1)
     strictEqual(overs[0]!.kind, 'unavailable')
     ok(overs[0]!.message.includes('runs no views'))
+
+    // `connect` closes the link it opened if `window.attach` refuses a second backend.
+    const other = system({ side: 'backend', transact: store.transact })
+    const joined = connect(window, backend)
+    const queued: Array<() => void> = []
+    throws(() => connect(window, other, { later: (_lane, run) => { queued.push(run) } }), /the window is already attached to a backend/)
+    strictEqual(queued.length, 2, 'expected hello and close to be queued on the aborted link')
+    while (queued.length) queued.shift()!()
+    joined.close()
+  }],
+  ['a remote ask whose asker leaves in the same step is never sent, and a completed ask does not call leave on stop', async () => {
+    let asked = 0
+    let left = 0
+    const spy: Port = {
+      tell: () => {},
+      ask: (_to, _name, _args, _heard, ended) => {
+        asked++
+        ended({ ok: true, value: { id: 'ok' } })
+        return () => { left++ }
+      },
+      follow: () => ({ stop: () => {} }),
+    }
+    const window = system({ side: 'window', name: WINDOW })
+    window.attach(spy)
+    const sameStep = state<{ states: { active: { makes: { create: 'one' } }; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
+      start: 'active',
+      states: {
+        active: {
+          makes: (make) => ({ create: make.one('threads', 'CREATE', { args: () => ({ id: 'a' }), ended: () => undefined }) }),
+          on: {
+            GO: (_, { make, send }) => { make('create'); send({ type: 'LEAVE' }) },
+            LEAVE: () => ({ at: 'done' }),
+          },
+        },
+        done: {},
+      },
+    })
+    const handle = window.start('same', sameStep)
+    window.send(handle, { type: 'GO' })
+    await rest()
+    strictEqual(window.read(handle).at, 'done')
+    strictEqual(asked, 0)
+
+    const asking = window.start('asker', asker)
+    deepStrictEqual(await soon(window.ask(asking, 'MAKE', { id: 'x' })), { ok: true, value: 'made' })
+    strictEqual(asked, 1)
+    window.stop()
+    await rest()
+    strictEqual(left, 0)
+  }],
+  ['a remote follow stopped before commit is never sent, and stopping after a throwing follow causes no defect', async () => {
+    let followed = 0
+    let stopped = 0
+    const traced: string[] = []
+    const spy: Port = {
+      tell: () => {},
+      ask: () => () => {},
+      follow: () => { followed++; return { stop: () => { stopped++ } } },
+    }
+    const window = system({ side: 'window', name: WINDOW, trace: (line) => { traced.push(line) } })
+    window.attach(spy)
+    const child = state<{ states: { watching: {}; gone: {} } }, { type: 'CLOSE' }>()({
+      start: 'watching',
+      states: {
+        watching: {
+          follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: () => undefined }) }),
+          on: { CLOSE: () => ({ at: 'gone' }) },
+        },
+        gone: {},
+      },
+    })
+    const parent = state<{ data: { kids: string[] }; starts: { child: Each<typeof child> } }, { type: 'FLASH' }>()({
+      data: { kids: [] },
+      starts: (start) => ({ child: start(child, { each: 'kids', given: () => ({}) }) }),
+      on: { FLASH: (_, { child: of, tell }) => { tell(of('child', 'one'), { type: 'CLOSE' }); return { data: { kids: ['one'] } } } },
+    })
+    const host = window.start('parent', parent)
+    window.send(host, { type: 'FLASH' })
+    await rest()
+    strictEqual(window.read(window.child(host, 'child', 'one'))?.at, 'gone')
+    strictEqual(followed, 0)
+    strictEqual(stopped, 0)
+    deepStrictEqual(traced.filter((line) => line.startsWith('DEFECT')), [])
+
+    // A `peer.follow` that throws at commit leaves nothing to unfollow when the window stops.
+    const brokenTraced: string[] = []
+    const broken = system({ side: 'window', name: WINDOW, trace: (line) => { brokenTraced.push(line) } })
+    broken.attach({
+      tell: () => {},
+      ask: () => () => {},
+      follow: () => { throw new Error('follow broke') },
+    })
+    broken.start('panel', panel)
+    await rest()
+    strictEqual(brokenTraced.filter((line) => line.startsWith('DEFECT')).length, 1)
+    broken.stop()
+    await rest()
+    strictEqual(brokenTraced.filter((line) => line.startsWith('DEFECT')).length, 1)
   }],
 ], async (tally) => {
   for (const how of ['one after the other', 'both at once'] as const) {

@@ -38,7 +38,7 @@ const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => 
   const backend = system({ side: 'backend', transact: store.transact, views })
   backend.start('rows', linked<{}, never, Net['systems']['rows']['asks']>()({ asks: { CREATE: ({ id }) => { store.put('thread', 'asked', { topic: id }); return id } } }))
   const window = system({ side: 'window' })
-  connect(window, backend)
+  const link = connect(window, backend)
   const panel = window.start('panel', linked<{ data: { views: string[]; counts: Record<string, number> } }, never, PanelAsks>()({
     data: { views: Array.from({ length: VIEWS }, (_, at) => String(at)), counts: {} },
     follows: (follow) => ({ count: follow('rows', 'count', { each: 'views', args: (view) => ({ view }), heard: (update, { key }) => (update.ok ? { data: (d) => { d.counts[key] = update.value } } : undefined) }) }),
@@ -64,7 +64,7 @@ const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => 
     }
   } finally {
     clearInterval(writer)
-    window.stop(); backend.stop(); store.close()
+    link.close(); window.stop(); backend.stop(); store.close()
   }
   return { took, unended }
 }

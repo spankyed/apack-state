@@ -280,19 +280,14 @@
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
-    "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', gone, { once: true }) | {}",
+    "key": "src/kernel.ts | ObjectLiteral | abort.addEventListener('abort', gone, { once: true }) | {}",
     "original": "{ once: true }",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
-    "key": "src/kernel.ts | BooleanLiteral | signal?.addEventListener('abort', gone, { once: true }) | false",
+    "key": "src/kernel.ts | BooleanLiteral | abort.addEventListener('abort', gone, { once: true }) | false",
     "original": "true",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
-  },
-  {
-    "key": "src/kernel.ts | OptionalChaining | signal?.addEventListener('abort', gone, { once: true }) | signal.addEventListener",
-    "original": "signal?.addEventListener",
-    "why": "An ask crosses a link only when a state's scope names a backend system, and a scope always has a signal; System.ask takes a handle, which is never across. So the signal is never missing where it is read"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (active.around) active.around.inside = undefined | false",

@@ -420,15 +420,19 @@ export function system(host: {
     if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, heard, gone: signal }); return }
     const peer = up
     if (!peer) { question.end(refusal('disconnected', `Not connected, so ${ref} cannot be asked`)); return }
+    // Only a state asks across a link, so it always has a signal.
+    const abort = signal!
     out(() => {
+      // Whoever asked may have left before the step committed: then the ask is never sent.
+      if (abort.aborted) return
       // What lets the ask go is there before the port is asked: a port may answer before it returns, as a link that has
       // closed does, and what it returns is not there yet then.
       let leave: (() => void) | undefined
       const gone = (): void => { leave?.() }
-      signal?.addEventListener('abort', gone, { once: true })
+      abort.addEventListener('abort', gone, { once: true })
       leave = peer.ask(ref, name, args,
         (update) => heard?.(update),
-        (outcome) => arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }))
+        (outcome) => { abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
     }, { kind: 'ask', to: ref, name }, () => abandon(question))
   }))
 
@@ -634,14 +638,19 @@ export function system(host: {
       const peer = up
       const views: ViewHost | undefined = host.views ?? (peer && ((feature, view, args, heard) => {
         let following: Following | undefined
+        let stopped = false
         out(() => {
+          if (stopped) return
           following = peer.follow(
             feature, view, args,
             (update) => heard(update as ViewUpdate<unknown>),
             (failure) => heard({ ok: false, error: failure.message }),
           )
         }, { kind: 'follow', to: feature, name: view })
-        return () => { out(() => following!.stop(), { kind: 'unfollow', to: feature, name: view }) }
+        return () => {
+          stopped = true
+          if (following) { const live = following; out(() => live.stop(), { kind: 'unfollow', to: feature, name: view }) }
+        }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => settle(at.following, id, seen, (live) => {
