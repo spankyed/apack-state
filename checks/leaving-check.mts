@@ -460,6 +460,42 @@ const checks: Array<[string, () => Promise<void>]> = [
     ])
     strictEqual(sys.idle(), true)
   }],
+  ['a finished ask or run scope drops any stray progress, send, tell or broadcast called after it returned', async () => {
+    const heard: string[] = []
+    const events: string[] = []
+    const broadcasts: string[] = []
+    let strayAsk!: () => void
+    let strayRun!: () => void
+    type StrayAsks = { PING: { args: {}; answer: string; progress: string } }
+    type StrayNet = { systems: { svc: { events: { type: 'NOTE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
+    const strayState = reaching<StrayNet>()
+    const svc = strayState<{}, { type: 'NOTE' }, StrayAsks>()({
+      on: { NOTE: () => { events.push('NOTE') } },
+      run({ send, tell, broadcast }) {
+        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+      },
+      asks: {
+        PING: async (_, { progress, send, tell, broadcast }) => {
+          progress('live')
+          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+          return 'ok'
+        },
+      },
+    })
+    const backend = system({ side: 'backend' })
+    const win = system({ side: 'window' })
+    win.start('panel', strayState<{}, { type: 'BCAST' }>()({ on: { BCAST: () => { broadcasts.push('BCAST') } } }))
+    connect(win, backend)
+    const h = backend.start('svc', svc)
+    deepStrictEqual(await backend.ask(h, 'PING', {}, (updates) => heard.push(...updates)), { ok: true, value: 'ok' })
+    await rest()
+    strayAsk()
+    strayRun()
+    await rest()
+    deepStrictEqual(heard, ['live'])
+    deepStrictEqual(events, [])
+    deepStrictEqual(broadcasts, [])
+  }],
 ]
 
 await run([...checks, ...lingeringChecks])

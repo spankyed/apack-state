@@ -483,8 +483,8 @@ export function system(host: {
     }))
   }
 
-  const eventScopeOf = (mine: Active, key?: string) => {
-    const alive = (): boolean => !mine.controller.signal.aborted
+  const eventScopeOf = (mine: Active, key?: string, own?: AbortSignal) => {
+    const alive = (): boolean => !mine.controller.signal.aborted && !own?.aborted
     const ref = mine.top.ref
     const scope = {
       get data() { return mine.top.data },
@@ -508,7 +508,7 @@ export function system(host: {
     }
     return key === undefined ? scope : Object.assign(scope, { key })
   }
-  const workScopeOf = (mine: Active, signal: AbortSignal) => Object.assign(eventScopeOf(mine), {
+  const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
       const asked = ask(to, name, args, signal, hears)
@@ -545,7 +545,7 @@ export function system(host: {
       let made: unknown
       // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
       // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
-      const begin = (): void => { made = def.run!(workScopeOf(active, workSignal)) }
+      const begin = (): void => { made = def.run!(workScopeOf(active, workSignal, own.signal)) }
       const before = sayings()
       try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); inside.push({ kind: 'failure', of: active, error }); return active }
       if (made instanceof Promise) {
@@ -1075,9 +1075,9 @@ export function system(host: {
       return refusal('failed', message)
     }
     try {
-      const made = found.handler(args, Object.assign(workScopeOf(found.of, workSignal), {
+      const made = found.handler(args, Object.assign(workScopeOf(found.of, workSignal, own.signal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
-        progress: (update: unknown) => { if (!signal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
+        progress: (update: unknown) => { if (!workSignal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
       }))
       if (made instanceof Promise) {
         found.of.questions.add(question)
