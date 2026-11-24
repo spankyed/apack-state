@@ -7,9 +7,12 @@
 // the mutant's specs took unchanged, three times over, and 15 seconds more: a mutant that hangs costs a worker that
 // long, and one that only runs slow under four workers still has three times its time.
 //
-// Results are kept in an incremental file (reports/stryker-incremental.json), which CI caches. A run on master mutates
-// everything and writes it afresh (`--force`); a run on a pull request starts from the last one and runs again only a
-// mutant whose code changed, one killed by a spec in a file that changed, and one not killed that a new spec reaches.
+// CI runs Stryker with `--incremental`, keeping each job's results in `reports/stryker-incremental.json` across runs.
+// A run on master mutates everything and writes it afresh (`--incremental --force`); a pull request starts from the
+// last cached file and reruns any mutant whose code changed, any mutant killed by a changed spec file, and any
+// non-killed mutant covered by a changed or newly added spec file (Vitest reports tests per file rather than per line,
+// so editing a spec file invalidates every test in it). Local runs (`npm run mutants`, `npm run pre-push`) stay
+// non-incremental so stale results never carry across branches or support-file edits.
 export default {
   testRunner: 'vitest',
   // The checks in Node: a browser is not opened for each mutant.
@@ -21,7 +24,6 @@ export default {
   ignoreStatic: false,
   reporters: ['progress', 'clear-text', 'json'],
   jsonReporter: { fileName: 'reports/mutation/mutation.json' },
-  incremental: true,
   timeoutMS: 15_000,
   timeoutFactor: 3,
   // CI's Linux runners have four cores.

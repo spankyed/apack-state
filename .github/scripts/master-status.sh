@@ -5,12 +5,27 @@
 #
 #   master-status.sh <passed|failed>   (GH_TOKEN, GH_REPO, WORKFLOW, RUN_URL and SHA from the job)
 set -euo pipefail
-result="$1"
+result="${1:-}"
+if [ "$result" != passed ] && [ "$result" != failed ]; then
+  echo "Expected passed or failed, got: ${result:-<empty>}" >&2
+  exit 1
+fi
 title="master fails: $WORKFLOW"
-open="$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "map(select(.title == \"$title\"))[0].number // empty")"
+# The Issues REST endpoint, not search: search lags behind a just-opened issue, and filtering by creator keeps a
+# public repository's users from colliding with it.
+open="$(gh api --paginate "repos/$GH_REPO/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" | jq -r --arg title "$title" '.[] | select(.pull_request == null and .title == $title) | .number')"
 if [ "$result" = failed ]; then
   body="$RUN_URL failed on $SHA."
-  if [ -n "$open" ]; then gh issue comment "$open" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+  first="${open%%$'\n'*}"
+  if [ -n "$first" ]; then
+    gh issue comment "$first" --body "$body"
+  else
+    gh issue create --title "$title" --body "$body"
+  fi
 elif [ -n "$open" ]; then
-  gh issue close "$open" --comment "$RUN_URL passed on $SHA."
+  while IFS= read -r number; do
+    if [ -n "$number" ]; then
+      gh issue close "$number" --comment "$RUN_URL passed on $SHA."
+    fi
+  done <<< "$open"
 fi

@@ -68,7 +68,7 @@ jobs:
         id: browsers
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
       - if: steps.browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - if: steps.browsers.outputs.cache-hit == 'true'
@@ -85,7 +85,7 @@ jobs:
 
   # Master's result, said where it is seen (.github/scripts/master-status.sh)
   master:
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     needs: [ci-pass]
     runs-on: ubuntu-24.04
     permissions:
