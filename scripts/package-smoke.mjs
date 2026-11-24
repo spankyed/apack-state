@@ -1,6 +1,7 @@
 // The package as a consumer gets it: a tarball installed into a project of its own, and each entry imported there by
-// its name. `./vue` is installed with the Vue packages it names as peers, which a consumer that uses it has. Removes
-// what it made either way.
+// its name. `./vue` is installed with the Vue packages it names as peers, and `./testing` with the schedule it names
+// as one, from the release this repository's manifest pins: a consumer that uses either has them. Removes what it
+// made either way.
 //
 //   node scripts/package-smoke.mjs [tarball]   (without one, packs this checkout: `prepack` builds dist/ first)
 import { execFileSync } from 'node:child_process'
@@ -20,8 +21,9 @@ try {
     tarball = path.join(consumer, packed.filename)
   }
   if (!fs.existsSync(tarball)) throw new Error(`No tarball at ${tarball}`)
-  // The peers `./vue` names are the consumer's own, as one that uses it has them.
-  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module', dependencies: { '@vue/reactivity': '^3.5.0', '@vue/runtime-core': '^3.5.0' } }))
+  // The peers `./vue` and `./testing` name are the consumer's own, as one that uses them has them.
+  const orderings = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'package.json'), 'utf8')).devDependencies['@apackdev/orderings']
+  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module', dependencies: { '@vue/reactivity': '^3.5.0', '@vue/runtime-core': '^3.5.0', '@apackdev/orderings': orderings } }))
   run(['install', '--no-audit', '--no-fund', '--no-package-lock', tarball], consumer)
   const load = [
     "const index = await import('@apackdev/state')",
@@ -29,7 +31,7 @@ try {
     "const vue = await import('@apackdev/state/vue')",
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
-    "for (const name of ['explore', 'sample', 'replay', 'everyOrdering', 'onSchedule', 'fromEvents']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'fromEvents']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
     // A state made and run, so that what loaded is the kernel and not only its names
     "const sys = index.system({ side: 'window' })",
     "const counter = index.reaching()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",

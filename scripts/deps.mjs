@@ -38,6 +38,12 @@ const SIBLINGS = {
       '@apackdev/link': { file: 'apackdev-link-0.1.0.tgz', dir: '.' },
     },
   },
+  'apack-orderings': {
+    tag: 'pkg',
+    packages: {
+      '@apackdev/orderings': { file: 'apackdev-orderings-0.1.0.tgz', dir: '.' },
+    },
+  },
 }
 
 /** @param {string} message @returns {never} */
@@ -126,11 +132,15 @@ function released(repos) {
 /** Every sibling package named by a release URL from the table, with its own file, and one commit a sibling */
 function check() {
   const problems = []
-  // A sibling's package is a devDependency: one named anywhere else is not one this pins or checks.
+  // A sibling's package is a devDependency: one named anywhere else is not one this pins or checks. The one
+  // exception is a peer marked optional that is a devDependency too: an entry of this package imports it
+  // (`./testing` the schedule), whoever uses that entry installs it, and what is run here is still the pin.
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
   for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
     for (const repo of Object.keys(SIBLINGS)) for (const name of Object.keys(SIBLINGS[repo].packages)) {
-      if (name in (manifest[field] ?? {})) problems.push(`${name} is in ${field}: a sibling's package is a devDependency, which deps:pin writes`)
+      if (!(name in (manifest[field] ?? {}))) continue
+      const optionalPeer = field === 'peerDependencies' && manifest.peerDependenciesMeta?.[name]?.optional === true && name in (manifest.devDependencies ?? {})
+      if (!optionalPeer) problems.push(`${name} is in ${field}: a sibling's package is a devDependency, which deps:pin writes`)
     }
   }
   for (const repo of Object.keys(SIBLINGS)) {

@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
-import { explore, type Schedule } from '../src/schedule.ts'
+import { explore, type Schedule } from '@apackdev/orderings'
 import { reaching } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 

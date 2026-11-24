@@ -7,7 +7,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { join, link, memoryPair, type Port as LinkPort } from '@apackdev/link'
 import { rest, run, system } from './checks.mts'
-import { explore, sample, type Schedule } from '../src/schedule.ts'
+import { explore, sample, type Schedule } from '@apackdev/orderings'
 import { answered, reaching, type AnyEvent, type System, type ViewHost, type ViewUpdate } from '../src/index.ts'
 import type { AnyOutcome } from '../src/types.ts'
 import { nextTurn } from '../src/turn.ts'

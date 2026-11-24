@@ -4,7 +4,7 @@
 //   npx vitest run interleaving
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { run } from './checks.mts'
-import { explore, replay, sample, type Schedule } from '../src/schedule.ts'
+import { explore, replay, sample, type Schedule } from '@apackdev/orderings'
 import { reaching, system } from '../src/index.ts'
 
 type FinderAsks = {

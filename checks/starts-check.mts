@@ -3,7 +3,7 @@
 //
 //   npx vitest run starts
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { explore, type Schedule } from '../src/schedule.ts'
+import { explore, type Schedule } from '@apackdev/orderings'
 import { run, system } from './checks.mts'
 import { answered, given, reaching, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'

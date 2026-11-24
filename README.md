@@ -34,15 +34,16 @@ It is one of three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps th
 
 ## Checking a pack's states
 
-`@apackdev/state/testing` is what a pack's checks are written with. A scenario builds systems on a schedule and says
-what must hold once everything has come to rest; the schedule chooses the order of everything put off, and runs
-every one:
+`@apackdev/state/testing` is what a pack's checks are written with, over the schedule of
+[`@apackdev/orderings`](https://github.com/spankyed/apack-orderings), which whoever uses this entry installs beside
+it. A scenario builds systems on a schedule and says what must hold once everything has come to rest; the schedule
+chooses the order of everything put off, and runs every one:
 
 ```ts
 import { system } from '@apackdev/state'
-import { everyOrdering, fromEvents, onSchedule } from '@apackdev/state/testing'
+import { everyOrder, fromEvents, onSchedule } from '@apackdev/state/testing'
 
-await everyOrdering((schedule) => {
+await everyOrder((schedule) => {
   const window = system({ side: 'window', ...onSchedule(schedule) })
   const counter = window.start('counter', counterState)
   schedule.does('one user', ['adds', () => window.send(counter, { type: 'ADD', by: 1 })])

@@ -6,7 +6,7 @@ import { reaching } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
-import { everyOrdering, explore, fromEvents, onSchedule, replay, type Scenario } from '../src/testing.ts'
+import { everyOrder, explore, fromEvents, onSchedule, replay, type Scenario } from '../src/testing.ts'
 import { system } from '../src/kernel.ts'
 
 const state = reaching()
@@ -45,7 +45,7 @@ const twoByTwo = (ran: string[][]): Scenario => (schedule) => {
 await run([
   ['every ordering is run once, each lane in its own order', async () => {
     const ran: string[][] = []
-    strictEqual(await everyOrdering(twoByTwo(ran)), 6)
+    strictEqual(await everyOrder(twoByTwo(ran)), 6)
     strictEqual(new Set(ran.map((order) => order.join(' '))).size, 6)
     for (const order of ran) ok(order.indexOf('x1') < order.indexOf('x2') && order.indexOf('y1') < order.indexOf('y2'))
   }],
@@ -56,18 +56,18 @@ await run([
       schedule.does('y', ['1', () => { order.push('y1') }])
       return () => { if (order[0] === 'y1') throw new Error('y went first') }
     }
-    const error = await everyOrdering(failing).then(() => undefined, (thrown: unknown) => thrown as Error)
+    const error = await everyOrder(failing).then(() => undefined, (thrown: unknown) => thrown as Error)
     ok(error instanceof Error)
     ok(/replay with \[1\]/.test(error.message) && /y: 1\n {2}x: 1/.test(error.message) && /y went first/.test(error.message), error.message)
     const again = await replay(failing, [1])
     strictEqual(String(again.error), 'Error: y went first')
   }],
   ['more orderings than it may run is said, and not passed', async () => {
-    await rejects(everyOrdering(twoByTwo([]), { limit: 3 }), /too many to run them all/)
+    await rejects(everyOrder(twoByTwo([]), { limit: 3 }), /too many to run them all/)
   }],
   ['the clock moves only as its timers fire, sooner ones first, to the time each was set for', async () => {
     const heard: Array<[string, number]> = []
-    await everyOrdering((schedule) => {
+    await everyOrder((schedule) => {
       const { clock } = schedule
       clock.after(30, () => heard.push(['thirty', clock.now()]))
       clock.after(10, () => heard.push(['ten', clock.now()]))
@@ -80,7 +80,7 @@ await run([
   }],
   ['a timer firing falls in every place among what else there is, and nothing waits for the time it is', async () => {
     const seen = new Set<string>()
-    const orderings = await everyOrdering((schedule) => {
+    const orderings = await everyOrder((schedule) => {
       const order: string[] = []
       schedule.does('the user', ['clicks', () => { order.push('click') }], ['clicks again', () => { order.push('click') }])
       void schedule.clock.sleep(60_000).then(() => { order.push('an hour later') })
@@ -91,7 +91,7 @@ await run([
   }],
   ['a system on a schedule has what it puts off run in the schedule\'s order', async () => {
     const counts = new Set<number>()
-    const orderings = await everyOrdering((schedule) => {
+    const orderings = await everyOrder((schedule) => {
       const sys = system({ side: 'window', ...onSchedule(schedule) })
       const handle = sys.start('counter', counter)
       schedule.does('one user', ['adds', () => sys.send(handle, { type: 'ADD', by: 1 })])
@@ -103,7 +103,7 @@ await run([
   }],
   ['a system\'s frames, like what it puts off, are run when the schedule chooses, in every place among the rest', async () => {
     const seen = new Set<string>()
-    const orderings = await everyOrdering((schedule) => {
+    const orderings = await everyOrder((schedule) => {
       const order: string[] = []
       const { frame } = onSchedule(schedule, 'the window')
       frame(() => { order.push('frame') })
@@ -292,7 +292,7 @@ await run([
   }],
   ['a failure says it was an ordering, every choice made, and what was thrown, which it is caused by', async () => {
     const thrown = new Error('x went first, then y')
-    const error = await everyOrdering((schedule) => {
+    const error = await everyOrder((schedule) => {
       const order: string[] = []
       schedule.does('x', ['1', () => { order.push('x1') }], ['2', () => { order.push('x2') }])
       schedule.does('y', ['1', () => { order.push('y1') }])
@@ -303,7 +303,7 @@ await run([
   }],
   ['a system\'s frames are named for it in what a failure lists, and what it puts off goes into the lane it names', async () => {
     for (const [name, says] of [[undefined, "a system's frame"], ['the window', "the window's frame"]] as const) {
-      const error = await everyOrdering((schedule) => {
+      const error = await everyOrder((schedule) => {
         const { frame, later } = onSchedule(schedule, ...(name ? [name] : []))
         frame(() => {})
         later({ label: 'put off' }, () => {})
@@ -313,7 +313,7 @@ await run([
     }
   }],
   ['a timer is named for its time in what a failure lists', async () => {
-    const error = await everyOrdering((schedule) => {
+    const error = await everyOrder((schedule) => {
       void schedule.clock.sleep(60_000)
       return () => { throw new Error('fails') }
     }).then(() => undefined, (caught: unknown) => caught as Error)
@@ -321,7 +321,7 @@ await run([
   }],
   ['a timer called off is the one called off: the first set, or one that has already fired, leaves the rest', async () => {
     const heard: string[] = []
-    await everyOrdering((schedule) => {
+    await everyOrder((schedule) => {
       const { clock } = schedule
       const first = clock.after(5, () => heard.push('first'))
       clock.after(15, () => heard.push('second'))

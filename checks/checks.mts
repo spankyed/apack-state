@@ -12,7 +12,7 @@
 import { beforeAll, it } from 'vitest'
 import { type System } from '../src/index.ts'
 import { system as kernel } from '../src/kernel.ts'
-import type { Explored } from '../src/schedule.ts'
+import type { Explored } from '@apackdev/orderings'
 import { nextTurn } from '../src/turn.ts'
 
 const made: System[] = []
