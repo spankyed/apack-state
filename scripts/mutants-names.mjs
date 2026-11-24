@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 export const root = path.resolve(import.meta.dirname, '..')
-export const LIST = path.join(root, 'mutants.allowed.json')
+export const LIST = process.env.MUTANTS_ALLOWED ? path.resolve(process.env.MUTANTS_ALLOWED) : path.join(root, 'mutants.allowed.json')
 
 /** What names a mutant across edits elsewhere in its file: its file, what it does, and the line it changes, as written. */
 export const keyOf = (file, mutant, source) => {

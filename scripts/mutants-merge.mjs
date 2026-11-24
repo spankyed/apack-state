@@ -3,13 +3,16 @@
 // and not as entries, and every rebase of one over the other stopped there.
 //
 // The result is ours, less each entry theirs took off, with each entry theirs added, and each why theirs changed
-// where ours left it as it was. An entry is its key and what it changes. Where both changed one entry's why to two
-// different things, ours is kept and the merge says it conflicts, naming the entry; nothing else does.
+// where ours left it as it was. An entry is its key and what it changes. Where both sides disagree on an entry's why
+// (changed two ways, added two ways, or changed on one side and removed on the other), standard git conflict markers
+// are written into ours via `git merge-file` on canonically sorted copies and the merge exits non-zero.
 //
 //   npm run mutants:merge-install      (has git use it in this checkout)
 //   node scripts/mutants-merge.mjs <base> <ours> <theirs>   (as git runs it: %O %A %B, the result written to ours)
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { listText, nameOf, root } from './mutants-names.mjs'
 
 if (process.argv[2] === '--install') {
@@ -46,6 +49,7 @@ for (const [name, entry] of mine) {
     if (entry.why === was.why) { merged.push(now); continue }
     if (entry.why !== now.why) conflicts.push(`${name}: its why was changed on both sides`)
   }
+  if (!was && now && entry.why !== now.why) conflicts.push(`${name}: added on both sides with different why`)
   merged.push(entry)
 }
 for (const [name, entry] of other) {
@@ -56,8 +60,23 @@ for (const [name, entry] of other) {
   merged.push(entry)
 }
 
-fs.writeFileSync(oursFile, listText(merged))
 if (conflicts.length) {
-  console.error(`mutants.allowed.json merged, but these conflict:\n${conflicts.map((line) => `  ${line}`).join('\n')}`)
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+  const sorted = (entries) => listText([...entries].map(({ key, original, why }) => ({ key, original, why })).sort((a, b) => cmp(a.key, b.key) || cmp(a.original, b.original)))
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mutants-merge-'))
+  try {
+    const baseTmp = path.join(tmp, 'base.json')
+    const oursTmp = path.join(tmp, 'ours.json')
+    const theirsTmp = path.join(tmp, 'theirs.json')
+    fs.writeFileSync(baseTmp, sorted(base))
+    fs.writeFileSync(oursTmp, sorted(ours))
+    fs.writeFileSync(theirsTmp, sorted(theirs))
+    spawnSync('git', ['merge-file', '-L', 'ours', '-L', 'base', '-L', 'theirs', oursTmp, baseTmp, theirsTmp], { encoding: 'utf8' })
+    fs.writeFileSync(oursFile, fs.readFileSync(oursTmp, 'utf8'))
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+  console.error(`mutants.allowed.json has conflicts:\n${conflicts.map((line) => `  ${line}`).join('\n')}`)
   process.exit(1)
 }
+fs.writeFileSync(oursFile, listText(merged))

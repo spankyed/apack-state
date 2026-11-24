@@ -32,17 +32,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The kernel in four, the last to its end however long it grows, and every other file of src/ in one: a file
-        # added to src/ is mutated without being named here.
+        # The kernel in four (cut between inner functions so no loop or block straddles a boundary), the last to its
+        # end however long it grows, and every other file of src/ in one: a file added to src/ is mutated without
+        # being named here.
         include:
           - id: kernel-1-275
             part: 'src/kernel.ts:1-275'
-          - id: kernel-276-550
-            part: 'src/kernel.ts:276-550'
-          - id: kernel-551-825
-            part: 'src/kernel.ts:551-825'
-          - id: kernel-826-end
-            part: 'src/kernel.ts:826-99999'
+          - id: kernel-276-581
+            part: 'src/kernel.ts:276-581'
+          - id: kernel-582-821
+            part: 'src/kernel.ts:582-821'
+          - id: kernel-822-end
+            part: 'src/kernel.ts:822-99999'
           - id: other
             part: 'src/**/*.ts,!src/kernel.ts'
     steps:

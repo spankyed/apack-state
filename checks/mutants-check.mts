@@ -1,5 +1,5 @@
-// Pruning of sharded Stryker reports (`scripts/mutants.mjs --prune`): keeps every mutant inside a job's `MUTATE`
-// scope and drops those carried over outside it, matching Stryker's own range and glob rules.
+// Stryker report pruning (`scripts/mutants.mjs --prune`), allowlist generation (`scripts/mutants-list.mjs`), and
+// entry-by-entry 3-way merging (`scripts/mutants-merge.mjs`).
 //
 //   npx vitest run mutants
 import { spawnSync } from 'node:child_process'
@@ -11,14 +11,23 @@ import { run } from './checks.mts'
 
 const root = join(import.meta.dirname, '..')
 const script = join(root, 'scripts', 'mutants.mjs')
+const listScript = join(root, 'scripts', 'mutants-list.mjs')
+const mergeScript = join(root, 'scripts', 'mutants-merge.mjs')
 
 interface Mutant {
   id: string
+  mutatorName?: string
+  replacement?: string
   location: { start: { line: number; column: number }; end: { line: number; column: number } }
   status: string
 }
 interface Report {
   files: Record<string, { source: string; mutants: Mutant[] }>
+}
+interface AllowedEntry {
+  key: string
+  original: string
+  why: string
 }
 
 const mutant = (id: string, startLine: number, endLine = startLine, startCol = 1, endCol = 10): Mutant => ({
@@ -27,23 +36,31 @@ const mutant = (id: string, startLine: number, endLine = startLine, startCol = 1
   status: 'Survived',
 })
 
-const withReport = (initial: Report, body: (file: string) => void): void => {
+const withDir = (body: (dir: string) => void): void => {
   const dir = mkdtempSync(join(tmpdir(), 'mutants-check-'))
-  const file = join(dir, 'report.json')
   try {
-    writeFileSync(file, JSON.stringify(initial))
-    body(file)
+    body(dir)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-const prune = (...args: string[]): { out: string; err: string; status: number | null } => {
-  const ran = spawnSync(process.execPath, [script, '--prune', ...args], { cwd: root, encoding: 'utf8' })
-  return { out: ran.stdout, err: ran.stderr, status: ran.status }
+const withReport = (initial: Report, body: (file: string) => void): void => {
+  withDir((dir) => {
+    const file = join(dir, 'report.json')
+    writeFileSync(file, JSON.stringify(initial))
+    body(file)
+  })
 }
 
+const runNode = (file: string, args: string[], env?: Record<string, string>): { out: string; err: string; status: number | null } => {
+  const ran = spawnSync(process.execPath, [file, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } })
+  return { out: ran.stdout, err: ran.stderr, status: ran.status }
+}
+const prune = (...args: string[]) => runNode(script, ['--prune', ...args])
+
 const readReport = (file: string): Report => JSON.parse(readFileSync(file, 'utf8')) as Report
+const readAllowed = (file: string): AllowedEntry[] => JSON.parse(readFileSync(file, 'utf8')) as AllowedEntry[]
 
 await run([
   ['a line range keeps mutants just inside each boundary and drops those just outside or straddling', () => {
@@ -153,6 +170,85 @@ await run([
     withReport(extraFile, (file) => {
       const ran = prune('--expect-none', 'src/kernel.ts:1-275', file)
       ok(ran.status !== 0 && ran.err.includes('src/draft.ts'), ran.err)
+    })
+  }],
+  ['mutants-list drops stale entries, carries why across unique rewrites, and adds new survivors with empty why refused by mutants.mjs', () => {
+    withDir((dir) => {
+      const list = join(dir, 'allowed.json')
+      const report = join(dir, 'report.json')
+      writeFileSync(list, JSON.stringify([
+        { key: 'src/b.ts | ConditionalExpression | if (stale) return | false', original: 'stale', why: 'gone' },
+        { key: 'src/a.ts | StringLiteral | const label = "old" | ""', original: '"old"', why: 'wording only' },
+      ]))
+      const source = 'const label = "old" // rewritten line\nconst fresh = true\n'
+      writeFileSync(report, JSON.stringify({
+        files: {
+          'src/a.ts': {
+            source,
+            mutants: [
+              { id: '1', mutatorName: 'StringLiteral', replacement: '""', location: { start: { line: 1, column: 15 }, end: { line: 1, column: 20 } }, status: 'Survived' },
+              { id: '2', mutatorName: 'BooleanLiteral', replacement: 'false', location: { start: { line: 2, column: 15 }, end: { line: 2, column: 19 } }, status: 'Survived' },
+            ],
+          },
+        },
+      }))
+
+      const ran = runNode(listScript, [report], { MUTANTS_ALLOWED: list })
+      strictEqual(ran.status, 0, ran.err)
+      deepStrictEqual(readAllowed(list), [
+        { key: 'src/a.ts | StringLiteral | const label = "old" // rewritten line | ""', original: '"old"', why: 'wording only' },
+        { key: 'src/a.ts | BooleanLiteral | const fresh = true | false', original: 'true', why: '' },
+      ])
+
+      // scripts/mutants.mjs must refuse the newly added entry until its why is filled in
+      const checked = runNode(script, [report], { MUTANTS_ALLOWED: list })
+      ok(checked.status !== 0 && checked.err.includes('says why its mutant survives'), checked.err)
+    })
+  }],
+  ['mutants-merge merges disjoint adds, removals, identical adds, and one-sided why edits cleanly', () => {
+    withDir((dir) => {
+      const base = join(dir, 'base.json')
+      const ours = join(dir, 'ours.json')
+      const theirs = join(dir, 'theirs.json')
+      const e = (id: string, why: string): AllowedEntry => ({ key: `src/${id}.ts | M | ${id} | x`, original: id, why })
+
+      writeFileSync(base, JSON.stringify([e('keep', 'same'), e('drop-ours', 's'), e('drop-theirs', 's'), e('edit-ours', 'old'), e('edit-theirs', 'old')]))
+      writeFileSync(ours, JSON.stringify([e('keep', 'same'), e('drop-theirs', 's'), e('edit-ours', 'new-ours'), e('edit-theirs', 'old'), e('add-ours', 'wo'), e('add-both', 'same')]))
+      writeFileSync(theirs, JSON.stringify([e('keep', 'same'), e('drop-ours', 's'), e('edit-ours', 'old'), e('edit-theirs', 'new-theirs'), e('add-theirs', 'wt'), e('add-both', 'same')]))
+
+      const ran = runNode(mergeScript, [base, ours, theirs])
+      strictEqual(ran.status, 0, ran.err)
+      const byKey = new Map(readAllowed(ours).map((entry) => [entry.key, entry.why]))
+      deepStrictEqual([...byKey.entries()].sort(), [
+        ['src/add-both.ts | M | add-both | x', 'same'],
+        ['src/add-ours.ts | M | add-ours | x', 'wo'],
+        ['src/add-theirs.ts | M | add-theirs | x', 'wt'],
+        ['src/edit-ours.ts | M | edit-ours | x', 'new-ours'],
+        ['src/edit-theirs.ts | M | edit-theirs | x', 'new-theirs'],
+        ['src/keep.ts | M | keep | x', 'same'],
+      ])
+    })
+  }],
+  ['mutants-merge flags add/add, edit/edit, and edit/delete conflicts with git conflict markers while keeping disjoint entries', () => {
+    withDir((dir) => {
+      const base = join(dir, 'base.json')
+      const ours = join(dir, 'ours.json')
+      const theirs = join(dir, 'theirs.json')
+      const e = (id: string, why: string): AllowedEntry => ({ key: `src/${id}.ts | M | ${id} | x`, original: id, why })
+
+      writeFileSync(base, JSON.stringify([e('a', 'orig'), e('b', 'orig'), e('d', 'orig'), e('keep', 'same')]))
+      writeFileSync(ours, JSON.stringify([e('a', 'ours-why'), e('c', 'c-ours'), e('d', 'd-ours'), e('keep', 'same')]))
+      writeFileSync(theirs, JSON.stringify([e('b', 'theirs-why'), e('c', 'c-theirs'), e('d', 'd-theirs'), e('keep', 'same'), e('z-theirs', 'clean-add')]))
+
+      const ran = runNode(mergeScript, [base, ours, theirs])
+      ok(ran.status !== 0, 'expected merge conflict')
+      ok(ran.err.includes('theirs took it off, ours changed its why'), ran.err)
+      ok(ran.err.includes('ours took it off, theirs changed its why'), ran.err)
+      ok(ran.err.includes('added on both sides with different why'), ran.err)
+      ok(ran.err.includes('its why was changed on both sides'), ran.err)
+      const conflicted = readFileSync(ours, 'utf8')
+      ok(conflicted.includes('<<<<<<< ours') && conflicted.includes('=======') && conflicted.includes('>>>>>>> theirs'), conflicted)
+      ok(conflicted.includes('z-theirs') && conflicted.includes('clean-add'), conflicted)
     })
   }],
 ])
