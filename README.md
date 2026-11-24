@@ -35,8 +35,10 @@ It is one of three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps th
 ## Checking a pack's states
 
 `@apackdev/state/testing` is what a pack's checks are written with, over the schedule of
-[`@apackdev/orderings`](https://github.com/spankyed/apack-orderings), which whoever uses this entry installs beside
-it. A scenario builds systems on a schedule and says what must hold once everything has come to rest; the schedule
+[`@apackdev/orderings`](https://github.com/spankyed/apack-orderings) and the in-memory link of
+[`@apackdev/link`](https://github.com/spankyed/apack-link), which whoever uses this entry installs beside
+it (`connect(window, backend, schedule?)` joins two systems across a real link). A scenario builds systems on a
+schedule and says what must hold once everything has come to rest; the schedule
 chooses the order of everything put off, and runs every one:
 
 ```ts

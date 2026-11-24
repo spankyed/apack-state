@@ -21,7 +21,7 @@
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
-import { PORT, type Heard, type Lane, type Link, type Port } from './port.ts'
+import type { Following, Lane, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ interface Running {
 
 type Item =
   | { kind: 'event'; ref: string; event: AnyEvent; /** Sent by the state to itself. */ own?: true }
-  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; heard?: Heard; gone?: AbortSignal }
+  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; heard?: (update: unknown) => void; gone?: AbortSignal }
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
   | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; update: ViewUpdate<unknown> }
@@ -177,8 +177,13 @@ export interface System {
   snapshot(): Record<string, unknown>
   /** Called once per step that changed anything, after it has committed, until what it returns is called. */
   subscribe(listener: (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void): () => void
-  /** From a window: joins it to its backend. Closing the link is the window going away. */
-  connect(backend: System): { close(): void }
+  /** What this system offers another across a link: pass straight to `@apackdev/link`'s `join`. */
+  readonly port: Port
+  /**
+   * Attaches another system's port to this one, and returns what detaches it. On a backend, each attached port is a
+   * window that `broadcast` reaches; on a window, the attached port is its backend (one at a time).
+   */
+  attach(peer: Port): () => void
   /**
    * Whether nothing is under way here: no work a state is doing, no ask being answered or waited on, nothing put off
    * and nothing gathered. For a check, to wait until what it did has come to rest and not for a count of turns.
@@ -283,59 +288,6 @@ export function system(host: {
     for (const item of inside.splice(since.inside)) if (item.kind === 'ask') abandon(item.question)
     for (const leave of cut) { if (leave.anyway) leaving.push(leave); else leave.unsaid?.() }
   }
-  /** The views this backend runs for its windows that can say when they have caught up: what the hold asks. */
-  const forWindows = new Set<Viewing>()
-  /**
-   * What is waiting to go to windows, in the order it was sent, until the views have been handed what its step kept.
-   * One list for every window: what a backend sends them keeps its order across them too.
-   */
-  const toWindows: Array<() => void> = []
-  /** How many of those have been asked after: what was sent since is still to be. */
-  let askedAfter = 0
-  /**
-   * Each asking of the views, oldest first: how many of what waits it lets go, and the views that have not called
-   * back. A round leaves when it and every round before it are done, so what is sent keeps its order.
-   */
-  const rounds: Array<{ count: number; waiting: Set<Viewing> }> = []
-  /** Sends something to a window: once the views it follows have been handed the rows of the step it leaves in. */
-  const toAWindow = (send: () => void): void => { toWindows.push(send) }
-  const letGo = (): void => {
-    while (rounds.length && rounds[0]!.waiting.size === 0) {
-      const { count } = rounds.shift()!
-      askedAfter -= count
-      // What was sent before the views were asked, and so before everything kept by then was handed to them.
-      for (const send of toWindows.splice(0, count)) safely('what is sent to a window', send)
-    }
-  }
-  /**
-   * After a step has left: has what it sent windows go once each view run for a window has caught up with it. A view
-   * that cannot say is not waited on, and with none to wait on what was sent goes at once, behind what waits before it.
-   */
-  const release = (): void => {
-    if (toWindows.length === askedAfter) return
-    const count = toWindows.length - askedAfter
-    askedAfter = toWindows.length
-    const round = { count, waiting: new Set(forWindows) }
-    rounds.push(round)
-    // Counted as the round is made: a view taken out of it before it is asked, stopped by another's call, is counted
-    // out as it was counted in.
-    pending += round.waiting.size
-    /** The view is caught up for this round: once, whether it says so, stops, or cannot be asked. */
-    const caught = (viewing: Viewing): void => {
-      if (!round.waiting.delete(viewing)) return
-      pending--
-      letGo()
-    }
-    for (const viewing of [...round.waiting]) {
-      // Something is blocked on it: an asker, or a window to be told. A view that throws when asked cannot say, and
-      // is not waited on.
-      try { viewing.caughtUp!(() => { caught(viewing) }, true) } catch (error) {
-        trace(`DEFECT: a view threw when asked whether it had caught up: ${said(error)}`)
-        caught(viewing)
-      }
-    }
-    letGo()
-  }
   /** An answer leaves when the step's rows are kept. If they cannot be, whoever asked is told that it failed. */
   const answer = (question: Question, outcome: AnyOutcome): void => {
     const asked = askedOf.get(question)
@@ -373,11 +325,10 @@ export function system(host: {
   let committed: Record<string, unknown> = {}
   let stepping = false
 
-  /** A window's link to its backend, and the asks waiting on it. */
-  let up: { link: Link; port: Port; waiting: Set<Question>; gone: Set<() => void> } | undefined
-  /** A backend's links to its windows. */
-  const down = new Set<{ link: Link; port: Port }>()
-  const carry = (link: Link, way: 'up' | 'down', across: () => void): void => { later(link[way], () => { if (link.open) across() }) }
+  /** A window's attached backend port. */
+  let up: Port | undefined
+  /** A backend's attached window ports. */
+  const down = new Set<Port>()
 
   /**
    * What a state holds is a value: once it is the state's, nothing changes it but a handler, which makes another.
@@ -429,7 +380,7 @@ export function system(host: {
     if (!isAcross(to)) { enqueue({ kind: 'event', ref, event }); return }
     const mine = up
     if (!mine) { trace(`nothing to tell ${ref}: not connected`); return }
-    out(() => carry(mine.link, 'up', () => mine.port.event(ref, event)), { kind: 'tell', to: ref, name: event.type })
+    out(() => mine.tell(ref, event), { kind: 'tell', to: ref, name: event.type })
   }
 
   /**
@@ -467,22 +418,22 @@ export function system(host: {
     signal?.addEventListener('abort', left, { once: true })
     // In the same system the asker's own signal tells the answerer; across a link, the port does.
     if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, heard, gone: signal }); return }
-    const mine = up
-    if (!mine) { question.end(refusal('disconnected', `Not connected, so ${ref} cannot be asked`)); return }
-    mine.waiting.add(question)
-    out(() => carry(mine.link, 'up', () => {
-      // Whoever asked may have ended before the ask crossed the link: then it is never started.
-      if (signal?.aborted) { mine.waiting.delete(question); return }
+    const peer = up
+    if (!peer) { question.end(refusal('disconnected', `Not connected, so ${ref} cannot be asked`)); return }
+    // Only a state asks across a link, so it always has a signal.
+    const abort = signal!
+    out(() => {
+      // Whoever asked may have left before the step committed: then the ask is never sent.
+      if (abort.aborted) return
       // What lets the ask go is there before the port is asked: a port may answer before it returns, as a link that has
       // closed does, and what it returns is not there yet then.
       let leave: (() => void) | undefined
       const gone = (): void => { leave?.() }
-      mine.gone.add(gone)
-      signal?.addEventListener('abort', gone, { once: true })
-      leave = mine.port.ask(ref, name, args,
-        (update) => carry(mine.link, 'down', () => heard?.(update)),
-        (outcome) => carry(mine.link, 'down', () => { mine.waiting.delete(question); mine.gone.delete(gone); question.end(outcome) }))
-    }), { kind: 'ask', to: ref, name }, () => { mine.waiting.delete(question); abandon(question) })
+      abort.addEventListener('abort', gone, { once: true })
+      leave = peer.ask(ref, name, args,
+        (update) => heard?.(update),
+        (outcome) => { abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
+    }, { kind: 'ask', to: ref, name }, () => abandon(question))
   }))
 
   const scopeOf = (mine: Active, signal: AbortSignal = mine.controller.signal) => {
@@ -500,7 +451,7 @@ export function system(host: {
         asked.catch(() => {})
         return asked
       },
-      broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => toAWindow(() => { for (const window of down) carry(window.link, 'down', () => window.port.event(to, event)) }), { kind: 'broadcast', to, name: event.type }) },
+      broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) },
       make: (name: string, key?: string) => { if (alive()) enqueue({ kind: 'make', of: mine, name, key }) },
       drop: (name: string, key?: string) => { if (alive()) enqueue({ kind: 'drop', of: mine, name, key }) },
       report: (event: AnyEvent) => {
@@ -682,22 +633,23 @@ export function system(host: {
         return keys
       }
 
-      // A window with no views of its own follows its backend's, over the link: what a view delivers comes down it
-      // in order with everything else the backend sends.
-      const linked = up
-      const views: ViewHost | undefined = host.views ?? (linked && ((feature, view, args, heard) => {
-        let stop: (() => void) | undefined
+      // A window with no views of its own follows its backend's, over the attached port: what a view delivers comes
+      // back in order with everything else the backend sends, held by the link.
+      const peer = up
+      const views: ViewHost | undefined = host.views ?? (peer && ((feature, view, args, heard) => {
+        let following: Following | undefined
         let stopped = false
-        out(() => carry(linked.link, 'up', () => {
+        out(() => {
           if (stopped) return
-          stop = linked.port.view(feature, view, args, (update) => carry(linked.link, 'down', () => { if (!stopped) heard(update) }))
-          linked.gone.add(stop)
-        }), { kind: 'follow', to: feature, name: view })
+          following = peer.follow(
+            feature, view, args,
+            (update) => heard(update as ViewUpdate<unknown>),
+            (failure) => heard({ ok: false, error: failure.message }),
+          )
+        }, { kind: 'follow', to: feature, name: view })
         return () => {
           stopped = true
-          const ended = stop
-          // It stays among what the link's closing ends until it has crossed: closed first, it is ended then, once.
-          if (ended) out(() => carry(linked.link, 'up', () => { if (linked.gone.delete(ended)) ended() }), { kind: 'unfollow', to: feature, name: view })
+          if (following) { const live = following; out(() => live.stop(), { kind: 'unfollow', to: feature, name: view }) }
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
@@ -1108,7 +1060,6 @@ export function system(host: {
       if (logging && leave.said) logging.left.push(leave.said)
       safely('what leaves as it stops', leave)
     }
-    release()
     for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
   }
   const commit = (): void => {
@@ -1129,7 +1080,6 @@ export function system(host: {
     const now = leaving.splice(0)
     if (logging) for (const leave of now) if (leave.said) logging.left.push(leave.said)
     for (const leave of now) safely('what leaves at the commit', leave)
-    release()
   }
 
   /** One step: something from outside, then everything it caused inside, then the commit. */
@@ -1140,11 +1090,9 @@ export function system(host: {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
-      // What a window asked is answered on its way to the window, which waits for nothing now.
-      release()
       return
     }
-    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); release(); return }
+    if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); return }
     stepping = true
     const log = host.log
     logging = log ? { handled: [], changed: {}, left: [], ended: 'committed' } : undefined
@@ -1200,32 +1148,30 @@ export function system(host: {
   const enqueue = (item: Item): void => { if (stepping) inside.push(item); else arrive(item) }
 
   const port: Port = {
-    event: (ref, event) => arrive({ kind: 'event', ref, event }),
-    ask: (ref, name, args, heard, settle) => {
+    tell: (to, event) => arrive({ kind: 'event', ref: to, event: event as AnyEvent }),
+    ask: (to, name, args, heard, ended) => {
       const gone = new AbortController()
-      // Whoever asks through the port is across a link: what they hear and how it ends go to a window.
-      arrive({ kind: 'ask', ref, name, args, question: new Question((outcome) => toAWindow(() => settle(outcome))), heard: (update) => toAWindow(() => heard(update)), gone: gone.signal })
+      arrive({
+        kind: 'ask', ref: to, name, args: args as object,
+        question: new Question((outcome) => ended(outcome as PortOutcome)),
+        heard,
+        gone: gone.signal,
+      })
       return () => gone.abort(new Error('Whoever asked has gone'))
     },
-    view: (feature, view, args, heard) => {
-      if (!host.views) { heard({ ok: false, error: `${called} runs no views` }); return () => {} }
-      const running = host.views(feature, view, args, heard)
+    follow: (feature, view, args, shown, over) => {
+      if (!host.views) { over({ kind: 'unavailable', message: `${called} runs no views` }); return { stop: () => {} } }
+      const running = host.views(feature, view, args as object, (update) => shown(update))
       const viewing: Viewing = typeof running === 'function' ? { stop: running } : running
-      // A view run for a window is what the hold waits on, while it runs: one stopped has nothing more to hand over,
-      // and counts as caught up for every round waiting on it, whether or not whatever ran it says so.
-      if (viewing.caughtUp) forWindows.add(viewing)
-      return () => {
-        forWindows.delete(viewing)
-        for (const round of rounds) if (round.waiting.delete(viewing)) pending--
-        // Whatever stopping it does, what waited on it is let go.
-        safely('stopping a view', () => viewing.stop())
-        letGo()
+      return {
+        stop: () => safely('stopping a view', () => viewing.stop()),
+        ...(viewing.caughtUp ? { caughtUp: viewing.caughtUp.bind(viewing) } : {}),
       }
     },
   }
 
-  const self: System & { [PORT]: Port; [key: symbol]: unknown } = {
-    [PORT]: port,
+  const self: System = {
+    port,
     start: (ref, made) => {
       let handleOf: { ref: string }
       if (stepping) handleOf = begin(ref, made.def as LooseDef)
@@ -1241,26 +1187,17 @@ export function system(host: {
       listeners.push(listener)
       return () => { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1) }
     },
-    connect: (backend) => {
-      const link: Link = { open: true, up: { label: `${called} to its backend` }, down: { label: `the backend to ${called}` } }
-      const theirs = backend as unknown as { [PORT]: Port; attach(window: { link: Link; port: Port }): () => void }
-      const mine = { link, port: theirs[PORT], waiting: new Set<Question>(), gone: new Set<() => void>() }
-      up = mine
-      const detach = theirs.attach({ link, port })
-      return {
-        close: () => {
-          link.open = false
-          detach()
-          // The backend learns that whoever asked has gone, and every ask still waiting here is told so.
-          for (const gone of mine.gone) gone()
-          for (const question of mine.waiting) arrive({ kind: 'answer', question, outcome: refusal('disconnected', 'The connection closed before the answer') })
-          up = undefined
-        },
+    attach: (peer) => {
+      if (host.side === 'backend') {
+        down.add(peer)
+        return () => { down.delete(peer) }
       }
+      if (up) throw new Error(`${called} is already attached to a backend`)
+      up = peer
+      return () => { if (up === peer) up = undefined }
     },
     idle: () => pending === 0 && !due && !stepping && outside.length === 0,
     stop: () => step(() => { for (const ref of [...running.keys()].reverse()) end(ref) }),
   }
-  ;(self as unknown as { attach(window: { link: Link; port: Port }): () => void }).attach = (window) => { down.add(window); return () => { down.delete(window) } }
   return self
 }

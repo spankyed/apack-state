@@ -3,7 +3,7 @@
 //
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { reaching, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 type App = {
@@ -303,7 +303,7 @@ const across = (runsViews = true) => {
   const backendHost = host()
   const backend = system({ side: 'backend', ...(runsViews ? { views: backendHost.views } : {}) })
   const window = system({ side: 'window' })
-  window.connect(backend)
+  connect(window, backend)
   const it = window.start('two', two)
   return { following: backendHost.following, send: (event: TwoEvent): void => window.send(it, event), data: () => window.read(it).data }
 }

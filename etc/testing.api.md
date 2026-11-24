@@ -8,12 +8,27 @@ import { Clock } from '@apackdev/orderings';
 import { everyOrder } from '@apackdev/orderings';
 import { explore } from '@apackdev/orderings';
 import { Explored } from '@apackdev/orderings';
+import { Link } from '@apackdev/link';
 import { replay } from '@apackdev/orderings';
 import { sample } from '@apackdev/orderings';
 import { Scenario } from '@apackdev/orderings';
 import { Schedule } from '@apackdev/orderings';
 
 export { Clock }
+
+// Warning: (ae-forgotten-export) The symbol "System" needs to be exported by the entry point testing.d.ts
+//
+// @public
+export function connect(window: System, backend: System, schedule?: Pick<Schedule, 'later'>, name?: string): Connected;
+
+// @public
+export interface Connected {
+    // (undocumented)
+    readonly backend: Link;
+    close(): void;
+    // (undocumented)
+    readonly window: Link;
+}
 
 export { everyOrder }
 
@@ -29,7 +44,6 @@ export { Explored }
 export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks> {
     // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
     readonly always: (value: Value<S>, sent: readonly E[]) => void;
-    // Warning: (ae-forgotten-export) The symbol "System" needs to be exported by the entry point testing.d.ts
     readonly around?: (system: System, schedule: Schedule) => void;
     // (undocumented)
     readonly events: Makers<E>;
@@ -74,7 +88,7 @@ export { Schedule }
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:11:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:24:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

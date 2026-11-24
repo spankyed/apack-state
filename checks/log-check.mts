@@ -3,7 +3,7 @@
 //
 //   npx vitest run log
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { given, reaching, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
@@ -148,7 +148,7 @@ const wired = (host: { failNext?: string } = {}) => {
   const backend = system({ side: 'backend', transact: store.transact, log: (step) => { logs.backend.push(step) } })
   backend.start('notes', notes(store))
   const window = system({ side: 'window', log: (step) => { logs.window.push(step) } })
-  window.connect(backend)
+  connect(window, backend)
   const handle = window.start('panel', panel)
   return { backend, window, handle, logs }
 }
@@ -194,7 +194,7 @@ await run([
   ['an answer that is a refusal is logged with its kind', async () => {
     const { backend, logs } = wired()
     const asker = system({ side: 'window', log: () => {} })
-    asker.connect(backend)
+    connect(asker, backend)
     const empty = asker.start('panel', panel)
     asker.send(empty, { type: 'SEND' })
     await rest()
@@ -266,7 +266,7 @@ await run([
     window.send(handle, { type: 'SEND' })
     await rest()
     const refusing = system({ side: 'window', log: (step) => { logs.window.push(step) } })
-    refusing.connect(wired().backend)
+    connect(refusing, wired().backend)
     refusing.send(refusing.start('panel', panel), { type: 'SEND' })
     await rest()
     ok(logs.window.length > 3 && logs.backend.length > 0)
@@ -319,7 +319,7 @@ await run([
     backend.start('worker', worker(() => new Promise(() => {})))
     const made = backend.start('jobs', jobs)
     const window = system({ side: 'window', log: (step) => { logs.window.push(step) } })
-    window.connect(backend)
+    connect(window, backend)
     window.start('watcher', watcher)
     window.start('teller', teller)
     await rest()
@@ -341,7 +341,7 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact })
     backend.start('worker', worker(() => new Promise(() => {})))
     const window = system({ side: 'window', log: (step) => { logs.push(step) } })
-    const link = window.connect(backend)
+    const link = connect(window, backend)
     window.start('asker', asker)
     await turns()
     link.close()
@@ -355,17 +355,24 @@ await run([
     await turns()
     ok(logs.some((step) => step.ended === 'cut short'), JSON.stringify(logs.map((step) => step.ended)))
   }],
-  ['a window that stops following before what it follows has crossed logs no unfollow: nothing was followed there', async () => {
+  ['a window that starts and stops following in one turn logs both follow and unfollow and stops the view', async () => {
     const store = memory()
     const logs: StepLog[] = []
-    const backend = system({ side: 'backend', transact: store.transact, views: countOf(store) })
+    let stopped = 0
+    const views: ViewHost = (feature, view, args, heard) => {
+      const running = countOf(store)(feature, view, args, heard)
+      return () => { stopped++; if (typeof running === 'function') running(); else running.stop() }
+    }
+    const backend = system({ side: 'backend', transact: store.transact, views })
     const window = system({ side: 'window', log: (step) => { logs.push(step) } })
-    window.connect(backend)
-    // Started and stopped in one turn: the follow is turned away where it would cross.
+    connect(window, backend)
+    // Started and stopped in one turn: the follow leaves on the link, and the unfollow leaves right behind it.
     window.start('watcher', watcher)
     window.stop()
     await rest()
-    ok(!leftIn(logs).some((sent) => sent.kind === 'unfollow'), JSON.stringify(leftIn(logs)))
+    has(leftIn(logs), { kind: 'follow', to: 'threads', name: 'count' })
+    has(leftIn(logs), { kind: 'unfollow', to: 'threads', name: 'count' })
+    strictEqual(stopped, 1)
   }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
     const traced: string[] = []

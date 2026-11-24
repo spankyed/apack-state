@@ -5,8 +5,8 @@
 //
 //   npx vitest run views
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
-import { explore, type Schedule } from '@apackdev/orderings'
+import { connect, rest, run, system } from './checks.mts'
+import { sample, type Schedule } from '@apackdev/orderings'
 import { answered, reaching, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
@@ -78,13 +78,13 @@ const unheld = (store: Rows): ViewHost => (feature, view, args, heard) => {
   return typeof running === 'function' ? running : { stop: () => running.stop() }
 }
 
-const made = (store: Rows, held: boolean, later?: Schedule['later']) => {
+const made = (store: Rows, held: boolean, schedule?: Schedule) => {
   const traced: string[] = []
   const trace = (line: string): void => { traced.push(line) }
-  const backend = system({ side: 'backend', transact: store.transact, views: held ? viewsOf(store) : unheld(store), trace, ...(later ? { later } : {}) })
+  const backend = system({ side: 'backend', transact: store.transact, views: held ? viewsOf(store) : unheld(store), trace, ...(schedule ? { later: schedule.later } : {}) })
   backend.start('threads', threads(store))
-  const window = system({ side: 'window', trace, ...(later ? { later } : {}) })
-  const link = window.connect(backend)
+  const window = system({ side: 'window', trace, ...(schedule ? { later: schedule.later } : {}) })
+  const link = connect(window, backend, schedule)
   const handle = window.start('panel', panel)
   return { backend, window, handle, link, defects: () => traced.filter((line) => line.startsWith('DEFECT')) }
 }
@@ -93,31 +93,6 @@ const made = (store: Rows, held: boolean, later?: Schedule['later']) => {
 const settledAndRest = async (store: Rows): Promise<void> => {
   await new Promise<void>((resolve) => { store.settled(resolve) })
   await rest()
-}
-
-/**
- * Two threads asked for, the second once the first is answered or both at once: what the window noted at each answer
- * and each telling. With both under way, what the first step sent is waiting on the views when the second step's is
- * sent, and each has to wait for its own.
- */
-const scenario = (held: boolean, how: 'one after the other' | 'both at once') => (schedule: Schedule) => {
-  // The views are told in a lane of their own: when, against everything else, is the schedule's to choose.
-  const views = { label: 'the views are told' }
-  const store = memory((run) => schedule.later(views, run))
-  const { window, handle, defects } = made(store, held, schedule.later)
-  const answers: boolean[] = []
-  const add = (id: string, then?: () => void) => (): void => { void window.ask(handle, 'ADD', { id }).then((outcome) => { answers.push(outcome.ok && outcome.value); then?.() }) }
-  if (how === 'both at once') schedule.does('the user', ['asks for a', add('a')], ['asks for b', add('b')])
-  else schedule.does('the user', ['asks for a, and then for b', add('a', add('b'))])
-  return () => {
-    deepStrictEqual(answers, [true, true])
-    const { count, atAnswer, atEvent } = window.read(handle).data
-    strictEqual(count, 2)
-    // The first is in the view by the time the window hears of it, and so is the second. With both under way the
-    // view may show the second by the time the window hears of the first, which is ahead and never behind.
-    for (const noted of [atAnswer, atEvent]) ok(noted.length === 2 && noted[0]! >= 1 && noted[1] === 2, `noted ${JSON.stringify({ atAnswer, atEvent })}`)
-    deepStrictEqual(defects(), [])
-  }
 }
 
 /** Whether a promise settles within a few turns: a check that would otherwise wait for good fails instead. */
@@ -139,7 +114,7 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact, views: viewsOf(store), trace: () => {}, ...(how === 'has taken every step it may' ? { limit: 6 } : {}) })
     backend.start('threads', threads(store))
     const window = system({ side: 'window', trace: () => {} })
-    window.connect(backend)
+    connect(window, backend)
     const handle = window.start('panel', panel)
     await rest()
     if (how === 'could not keep a step') {
@@ -153,13 +128,13 @@ await run([
     ok(told !== undefined, 'the window was never answered')
     ok(told.value.ok && told.value.value === false)
   }] as [string, () => Promise<void>]),
-  ['a view that throws when asked whether it has caught up is not waited on, and is reported', async () => {
+  ['a view that throws when asked whether it has caught up is ended, not waited on, and is reported', async () => {
     const store = memory()
     const traced: string[] = []
     const backend = system({ side: 'backend', transact: store.transact, views: viewsDoing(store, { caughtUp: () => { throw new Error('it cannot say') } }), trace: (line) => { traced.push(line) } })
     backend.start('threads', threads(store))
     const window = system({ side: 'window' })
-    window.connect(backend)
+    connect(window, backend)
     const handle = window.start('panel', panel)
     await rest()
     const told = await settlesSoon(window.ask(handle, 'ADD', { id: 'a' }))
@@ -169,7 +144,7 @@ await run([
   }],
   ['a view that throws when stopped still lets go of what waited on it, and is reported', async () => {
     const store = memory()
-    // The first window's view never says it has caught up, and throws when stopped.
+    // The first view never says it has caught up, and throws when stopped; the second catches up normally.
     let made = 0
     const traced: string[] = []
     const backend = system({ side: 'backend', transact: store.transact, trace: (line) => { traced.push(line) }, views: (feature, view, args, heard) => {
@@ -177,18 +152,20 @@ await run([
       return viewsDoing(store, first ? { caughtUp: () => {}, stop: () => { throw new Error('it would not stop') } } : {})(feature, view, args, heard)
     } })
     backend.start('threads', threads(store))
-    const closing = system({ side: 'window', name: 'the window that closes' })
-    const link = closing.connect(backend)
-    closing.start('panel', panel)
+    const window = system({ side: 'window' })
+    connect(window, backend)
+    const watcher = window.start('watcher', state<{ data: { ids: string[] } }, { type: 'DROP' }>()({
+      data: { ids: ['stuck'] },
+      on: { DROP: () => ({ data: { ids: [] } }) },
+      follows: (follow) => ({
+        item: follow('threads', 'count', { each: 'ids', args: () => ({}), heard: () => undefined }),
+      }),
+    }))
+    const handle = window.start('panel', panel)
     await rest()
-    const staying = system({ side: 'window', name: 'the window that stays' })
-    staying.connect(backend)
-    const stayed = staying.start('panel', panel)
-    await rest()
-    const asked = staying.ask(stayed, 'ADD', { id: 'a' })
+    const asked = window.ask(handle, 'ADD', { id: 'a' })
     for (let turns = 0; turns < 20; turns++) await new Promise<void>((resolve) => { setImmediate(resolve) })
-    link.close()
-    closing.stop()
+    window.send(watcher, { type: 'DROP' })
     const told = await settlesSoon(asked)
     ok(told?.value.ok, 'what waited on the view that threw was never let go')
     ok(traced.some((line) => line.startsWith('DEFECT: stopping a view threw') && line.includes('it would not stop')), JSON.stringify(traced))
@@ -199,7 +176,7 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact, views: viewsDoing(store, { stop: () => { stopped++ } }) })
     backend.start('threads', threads(store))
     const window = system({ side: 'window' })
-    const link = window.connect(backend)
+    const link = connect(window, backend)
     window.start('panel', panel)
     await rest()
     window.stop()
@@ -209,7 +186,7 @@ await run([
   }],
   ['the views are asked whether they have caught up for a step that sends a window something, and never for one that sends nothing', async () => {
     const store = memory()
-    // What each asking says: that something is blocked on the answer.
+    // What each asking says: soon for an answer, and not for a broadcast alone.
     const asked: boolean[] = []
     const views: ViewHost = (feature, view, args, heard) => {
       const running = viewsOf(store)(feature, view, args, heard) as Required<Exclude<ReturnType<ViewHost>, () => void>>
@@ -219,7 +196,7 @@ await run([
     backend.start('threads', threads(store))
     const maker = backend.start('maker', state<{}, { type: 'MAKE'; id: string }>()({ on: { MAKE: ({ id }) => { store.put('thread', id, { topic: 'made' }) } } }))
     const window = system({ side: 'window' })
-    window.connect(backend)
+    connect(window, backend)
     const handle = window.start('panel', panel)
     await settledAndRest(store)
     asked.length = 0
@@ -228,10 +205,10 @@ await run([
     await settledAndRest(store)
     deepStrictEqual(asked, [])
     strictEqual(window.read(handle).data.count, 1)
-    // A window asks: its answer, and what is told every window, wait on the view, and someone is blocked on them.
+    // A window asks: its broadcast asks with soon = false, and its answer asks with soon = true.
     ok((await window.ask(handle, 'ADD', { id: 'b' })).ok)
     await settledAndRest(store)
-    ok(asked.length > 0 && asked.every((soon) => soon), `asked ${JSON.stringify(asked)}`)
+    deepStrictEqual(asked, [false, true])
   }],
   ['views that cannot say they have caught up are not waited on: a window is answered and told', async () => {
     const store = memory()
@@ -302,10 +279,10 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact, views, trace })
     backend.start('threads', threads(store))
     const closing = system({ side: 'window', name: 'the window that closes', trace })
-    const link = closing.connect(backend)
+    const link = connect(closing, backend, undefined, 'the window that closes')
     const closed = closing.start('panel', panel)
     const staying = system({ side: 'window', name: 'the window that stays', trace })
-    staying.connect(backend)
+    connect(staying, backend, undefined, 'the window that stays')
     const stayed = staying.start('panel', panel)
     const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 6; turns++) await turn()
@@ -344,7 +321,7 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact, views })
     const made = backend.start('threads', threads(store))
     const window = system({ side: 'window' })
-    window.connect(backend)
+    connect(window, backend)
     const handle = window.start('panel', panel)
     // Waits are still held, so nothing comes to rest: what crossed is read after a few turns.
     const told = async (): Promise<number> => { for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => { setImmediate(resolve) }); return window.read(handle).data.atEvent.length }
@@ -363,9 +340,9 @@ await run([
     strictEqual(await told(), 3)
     for (const then of waiting.splice(0)) then()
   }],
-  ['an answer waits for every view the windows follow, and not for the first of them to catch up', async () => {
+  ['an answer waits for every view the window follows, and not for the first of them to catch up', async () => {
     const store = memory()
-    // Each view says it has caught up when this check says so: the first window's, then the second's.
+    // Two views followed by the same window: the first catches up, then the second.
     const waiting: Array<Array<() => void>> = []
     const views: ViewHost = (feature, view, args, heard) => {
       const running = viewsOf(store)(feature, view, args, heard)
@@ -375,17 +352,14 @@ await run([
     }
     const backend = system({ side: 'backend', transact: store.transact, views })
     backend.start('threads', threads(store))
-    const first = system({ side: 'window', name: 'the first window' })
-    first.connect(backend)
-    const asking = first.start('panel', panel)
-    await rest()
-    const second = system({ side: 'window', name: 'the second window' })
-    second.connect(backend)
-    second.start('panel', panel)
+    const window = system({ side: 'window', name: 'the window' })
+    connect(window, backend)
+    const asking = window.start('panel', panel)
+    window.start('second', panel)
     await rest()
     strictEqual(waiting.length, 2)
     let answered = false
-    void first.ask(asking, 'ADD', { id: 'a' }).then(() => { answered = true })
+    void window.ask(asking, 'ADD', { id: 'a' }).then(() => { answered = true })
     const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 50 && waiting.some((mine) => mine.length === 0); turns++) await turn()
     ok(waiting.every((mine) => mine.length > 0), 'each view was asked whether it had caught up')
@@ -398,7 +372,7 @@ await run([
   }],
   ['a view stopped while it is waited on does not hold what waits, though whatever runs it never says it caught up', async () => {
     const store = memory()
-    // The first window's view never says it has caught up; the second's says so when this check does.
+    // The first view never says it has caught up; the second says so when this check does.
     const waiting: Array<() => void> = []
     let made = 0
     const views: ViewHost = (feature, view, args, heard) => {
@@ -408,50 +382,52 @@ await run([
     }
     const backend = system({ side: 'backend', transact: store.transact, views })
     backend.start('threads', threads(store))
-    const closing = system({ side: 'window', name: 'the window that closes' })
-    const link = closing.connect(backend)
-    closing.start('panel', panel)
+    const window = system({ side: 'window' })
+    connect(window, backend)
+    const watcher = window.start('watcher', state<{ data: { ids: string[] } }, { type: 'DROP' }>()({
+      data: { ids: ['silent'] },
+      on: { DROP: () => ({ data: { ids: [] } }) },
+      follows: (follow) => ({
+        item: follow('threads', 'count', { each: 'ids', args: () => ({}), heard: () => undefined }),
+      }),
+    }))
+    const handle = window.start('panel', panel)
     await rest()
-    const staying = system({ side: 'window', name: 'the window that stays' })
-    staying.connect(backend)
-    const stayed = staying.start('panel', panel)
-    await rest()
-    const asked = staying.ask(stayed, 'ADD', { id: 'a' })
+    const asked = window.ask(handle, 'ADD', { id: 'a' })
     const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
     for (let turns = 0; turns < 50 && waiting.length === 0; turns++) await turn()
     for (const then of waiting.splice(0)) then()
-    // The answer still waits on the first window's view. That window goes, and its view with it.
-    link.close()
-    closing.stop()
-    // Nothing is left waiting: a backend still holding the answer would not come to rest, and that fails.
+    // The answer still waits on the first view. The window stops following it.
+    window.send(watcher, { type: 'DROP' })
+    // Nothing is left waiting: a link still holding the answer would not come to rest, and that fails.
     await rest()
     ok((await asked).ok)
   }],
-  ['a window that closes before its ask crosses is told so, and neither side is left waiting', async () => {
+  ['a window that closes right after asking is told it disconnected, and neither side is left waiting', async () => {
     const store = memory()
     const { backend, window, handle, link } = made(store, true)
     await rest()
     const asked = window.ask(handle, 'ADD', { id: 'a' })
+    // Graceful link close flushes what was already sent before closing, while telling the window its ask disconnected.
     link.close()
-    // Its ask of the backend ended as disconnected, which is what it answered with.
     const outcome = await asked
     ok(outcome.ok && outcome.value === false)
     await rest()
-    strictEqual(store.count('thread'), 0)
+    strictEqual(store.count('thread'), 1)
+    // Asking after the link closed fails at once without touching the backend.
+    const after = await window.ask(handle, 'ADD', { id: 'b' })
+    ok(after.ok && after.value === false)
+    await rest()
+    strictEqual(store.count('thread'), 1)
     ok(backend.idle() && window.idle())
   }],
 ], async (tally) => {
-  await tally.every('a window that stops while what it follows comes and goes stops following, under every ordering', () => explore((schedule) => {
+  // The `one after the other` and `both at once` link-hold orderings (with and without the hold) live in
+  // `checks/link-check.mts` so they run in both Node and Chromium.
+  await tally.every('a window that stops while what it follows comes and goes stops following, under every ordering', () => sample((schedule) => {
     const store = memory((go) => schedule.later({ label: 'the views are told' }, go))
-    const { window, handle, defects } = made(store, true, schedule.later)
+    const { window, handle, defects } = made(store, true, schedule)
     schedule.does('the user', ['asks for a', () => { void window.ask(handle, 'ADD', { id: 'a' }) }], ['closes the window', () => { window.stop() }])
     return () => { deepStrictEqual(defects(), []) }
-  }))
-  for (const how of ['one after the other', 'both at once'] as const) {
-    await tally.every(`${how}: under every ordering, a window is answered and told after its view shows the thread`, () => explore(scenario(true, how)))
-    await tally.check(`${how}: without the hold there is an ordering in which it is told first, so the hold is what the rule rests on`, async () => {
-      const found = await explore(scenario(false, how))
-      ok(found.failure, 'every ordering passed without the hold, so the scenario proves nothing')
-    })
-  }
+  }, { seed: 1, runs: 5_000 }), 'sampled')
 })

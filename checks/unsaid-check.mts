@@ -4,7 +4,7 @@
 //
 //   npx vitest run unsaid
 import { deepStrictEqual, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { answered, given, reaching, type StepLog } from '../src/index.ts'
 import { memory } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
@@ -134,7 +134,7 @@ const wired = () => {
   const ended = { echo: [] as unknown[], relayed: [] as unknown[] }
   const theDesk = backend.start('desk', desk((outcome) => { ended.echo.push(outcome) }))
   const window = system({ side: 'window', trace: (line) => { traced.push(line) } })
-  window.connect(backend)
+  connect(window, backend)
   const thePanel = window.start('panel', panel((outcome) => { ended.relayed.push(outcome) }))
   const progress: string[] = []
   return {

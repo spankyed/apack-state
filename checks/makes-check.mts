@@ -5,7 +5,7 @@
 //   npx vitest run makes
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { effect } from '@vue/reactivity'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { mirror } from '../src/mirror.ts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
@@ -248,7 +248,7 @@ const repository = (schedule: Schedule) => {
   const backend = system({ side: 'backend', later: schedule.later })
   const code = backend.start('code', git((what) => schedule.work(what, null)))
   const window = system({ side: 'window', later: schedule.later })
-  window.connect(backend)
+  connect(window, backend, schedule)
   const surface = window.start('commit', commit)
   return { send: (event: CommitEvent): void => window.send(surface, event), now: () => window.read(surface).data, making: () => window.read(surface).making, held: () => backend.read(code).data }
 }

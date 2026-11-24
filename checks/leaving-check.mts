@@ -3,7 +3,7 @@
 //
 //   npx vitest run leaving
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { given, Left, reaching } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -103,7 +103,7 @@ const wired = (connected = true, frame?: (run: () => void) => void) => {
   const backend = system({ side: 'backend', trace: (line) => { if (/answering/.test(line)) backendTraced.push(line) } })
   backend.start('slow', slow)
   const window = system({ side: 'window', ...(frame ? { frame } : {}), trace: (line) => { if (/left unanswered|failed|DEFECT/.test(line)) traced.push(line) } })
-  const link = connected ? window.connect(backend) : undefined
+  const link = connected ? connect(window, backend) : undefined
   const handle = window.start('panel', panel(saw, lock))
   return { saw, lock, traced, backendTraced, link, send: (event: PanelEvent): void => window.send(handle, event), at: (): string => window.read(handle).at, stop: (): void => { window.stop(); backend.stop() } }
 }
@@ -164,7 +164,7 @@ const lingered = () => {
   backend.start('slow', slow)
   const parent = backend.start('holder', holder(gate))
   const window = system({ side: 'window' })
-  window.connect(backend)
+  connect(window, backend)
   window.start('listener', listener(notes))
   const child = backend.child(parent, 'linger')
   const read = () => backend.read(child)!
@@ -282,13 +282,13 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(backendSaw.includes('WAIT began'), false)
     it.stop()
   }],
-  ['an ask whose asker left before it crossed is never begun', async () => {
+  ['an ask whose asker leaves in the next turn tells the backend it has gone and unwinds cleanly', async () => {
     const it = wired()
     it.send({ type: 'START', how: 'await' })
     it.send({ type: 'LEAVE' })
     await rest()
     deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
-    deepStrictEqual(backendSaw, [])
+    deepStrictEqual(backendSaw, ['WAIT began', 'WAIT told its asker had gone'])
     it.stop()
   }],
   ['what is said before an answer, to an asker with nothing to hear it, is dropped and nothing breaks', async () => {

@@ -18,6 +18,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { answered, given, reaching, system, type Each } from '../src/index.ts'
+import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -386,7 +387,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('threads.mts')) {
 
   const open = (name: string) => {
     const window = system({ side: 'window' })
-    const link = window.connect(backend)
+    const link = connect(window, backend)
     const surface = window.start('threads', threadsSurface((line) => say(`      ${name}   (${line})`)))
     window.subscribe(() => {
       const now = window.read(surface)

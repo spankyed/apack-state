@@ -20,6 +20,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { answered, reaching, system } from '../src/index.ts'
+import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -205,7 +206,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
   const backend = system({ side: 'backend' })
   backend.start('code', git(() => turns(3), said))
   const window = system({ side: 'window' })
-  window.connect(backend)
+  connect(window, backend)
   const surface = window.start('commit', commit)
   window.subscribe(() => {
     const { data: d, making } = window.read(surface)

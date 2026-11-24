@@ -12,10 +12,19 @@
 import { beforeAll, it } from 'vitest'
 import { type System } from '../src/index.ts'
 import { system as kernel } from '../src/kernel.ts'
-import type { Explored } from '@apackdev/orderings'
+import { connect as connectOverLink, type Connected } from '../src/testing.ts'
+import type { Explored, Schedule } from '@apackdev/orderings'
 import { nextTurn } from '../src/turn.ts'
 
 const made: System[] = []
+const links: Connected[] = []
+let inFlight = 0
+const tracked: Pick<Schedule, 'later'> = {
+  later: (_lane, run) => {
+    inFlight++
+    queueMicrotask(() => { try { run() } finally { inFlight-- } })
+  },
+}
 /** More steps than this in one check is a kernel that does not come to rest. */
 const LIMIT = 200_000
 
@@ -24,17 +33,23 @@ export const system: typeof kernel = (host) => {
   made.push(one)
   return one
 }
+/** Joins a window and a backend across a real `@apackdev/link`, closed when the check ends. */
+export const connect = (window: System, backend: System, schedule?: Pick<Schedule, 'later'>, name?: string): Connected => {
+  const joined = connectOverLink(window, backend, schedule ?? tracked, name)
+  links.push(joined)
+  return joined
+}
 /** More turns than this without coming to rest is waiting on what never comes. */
 const TURNS = 5_000
 const turn = (): Promise<void> => new Promise<void>((resolve) => { nextTurn(resolve) })
 
 /**
- * Waits until everything a check started has come to rest: every system it made has nothing under way. That is what
- * a check means by waiting, where a count of turns is a guess at how long that takes. One that never comes to rest
- * fails, saying so.
+ * Waits until everything a check started has come to rest: every system it made has nothing under way and no link
+ * message is in flight. That is what a check means by waiting, where a count of turns is a guess at how long that
+ * takes. One that never comes to rest fails, saying so.
  */
 export async function rest(): Promise<void> {
-  const atRest = (): boolean => made.every((one) => one.idle())
+  const atRest = (): boolean => inFlight === 0 && made.every((one) => one.idle())
   for (let turns = 0; turns < TURNS; turns++) {
     await turn()
     // Twice, a turn apart: what one thing ending leads to has had its turn to begin.
@@ -43,7 +58,10 @@ export async function rest(): Promise<void> {
   throw new Error(`Still not at rest after ${TURNS} turns: something is waiting on what never comes`)
 }
 
-const stopAll = (): void => { for (const one of made.splice(0).reverse()) { try { one.stop() } catch { /* it was stopping anyway */ } } }
+const stopAll = (): void => {
+  for (const one of made.splice(0).reverse()) { try { one.stop() } catch { /* it was stopping anyway */ } }
+  for (const joined of links.splice(0).reverse()) { try { joined.close() } catch { /* it was closing anyway */ } }
+}
 
 /** The first lines of what was thrown, which is what a failure says. */
 const said = (error: unknown, lines: number): string => String(error).split('\n').slice(0, lines).join(' ')

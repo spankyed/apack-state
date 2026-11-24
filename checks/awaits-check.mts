@@ -3,9 +3,9 @@
 //
 //   npx vitest run awaits
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
-import { explore, type Schedule } from '@apackdev/orderings'
+import { sample, type Schedule } from '@apackdev/orderings'
 import { reaching } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -211,7 +211,7 @@ const selecting = (schedule: Schedule): (() => void) => {
   const backend = system({ side: 'backend', later: schedule.later })
   backend.start('code', git((what) => schedule.work(what, null)))
   const window = system({ side: 'window', later: schedule.later })
-  window.connect(backend)
+  connect(window, backend, schedule)
   const surface = window.start('commit', commit)
   const send = (event: CommitEvent): void => window.send(surface, event)
   schedule.does('the user', ['selects a', () => send({ type: 'commit.VIEW_DIFF', path: 'a.ts', staged: false })], ['selects c', () => send({ type: 'commit.VIEW_DIFF', path: 'c.ts', staged: false })])
@@ -219,5 +219,5 @@ const selecting = (schedule: Schedule): (() => void) => {
 }
 
 await run(checks, async (tally) => {
-  await tally.every('the diff shown is of the file selected last, whichever read ends first', () => explore(selecting))
+  await tally.every('the diff shown is of the file selected last, whichever read ends first', () => sample(selecting, { seed: 1, runs: 5_000 }), 'sampled')
 })

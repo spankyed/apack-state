@@ -1,16 +1,30 @@
-// What joins two systems: what one offers the other, and the link between a window and its backend that what they
-// say crosses. A link here is in memory, with a lane each way; what is said across a real one is apack-link's.
-import type { AnyEvent, AnyOutcome, ViewUpdate } from './types.ts'
+// What joins two systems: the port one offers another across a link, and the lane a schedule orders.
+//
+// `Port`, `Following`, `Failure` and `PortOutcome` match `@apackdev/link` structurally with no runtime dependency
+// between the two packages: a system's `port` passes straight to `join(link, system.port)`, and the port `join`
+// returns passes straight to `system.attach(peer)`, with no adapter and a single hold owned by the link.
 
-/** What a system is handed of what is said to it before an answer. @internal */
-export type Heard = (update: unknown) => void
-/** What one system offers another over a link. @internal */
+/** Why an ask or a view ended without a result. */
+export interface Failure { readonly kind: string; readonly message: string }
+/** How an ask ended across a port. */
+export type PortOutcome = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly failure: Failure }
+/** A view being followed across a port. */
+export interface Following {
+  stop(): void
+  /**
+   * Calls `then` once this view has been shown everything kept before the call. `soon` says something is blocked on
+   * it. Offered by a system that runs views; one reached across a link has none.
+   */
+  caughtUp?(then: () => void, soon: boolean): void
+}
+/** What one system offers another across a link. */
 export interface Port {
-  event(ref: string, event: AnyEvent): void
-  /** Returns what to call when whoever asked has gone. */
-  ask(ref: string, name: string, args: object, heard: Heard, settle: (outcome: AnyOutcome) => void): () => void
-  /** Follows a view the other system runs. Returns what to call to stop following it. */
-  view(feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void): () => void
+  /** Something happened. Nobody waits. */
+  tell(to: string, event: unknown): void
+  /** Asks. `heard` takes what is said before the answer, `ended` how it ended. Returns what to call when whoever asked has gone. */
+  ask(to: string, name: string, args: unknown, heard: (update: unknown) => void, ended: (outcome: PortOutcome) => void): () => void
+  /** Follows a view. `shown` takes its result and each changed result after it, `over` that it has ended and why. */
+  follow(feature: string, view: string, args: unknown, shown: (update: unknown) => void, over: (failure: Failure) => void): Following
 }
 /**
  * Things that happen one after another: what crosses a link in one direction, or a system's frames. What is in one
@@ -18,7 +32,3 @@ export interface Port {
  * whole of what a schedule may choose.
  */
 export interface Lane { readonly label: string }
-/** A link between a window and its backend. What crosses it arrives later, and not at all once it is closed. @internal */
-export interface Link { open: boolean; readonly up: Lane; readonly down: Lane }
-/** Where a system keeps the port it offers. @internal */
-export const PORT = Symbol('port')

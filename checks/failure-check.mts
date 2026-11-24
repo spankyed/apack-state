@@ -3,7 +3,7 @@
 //
 //   npx vitest run failure
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
-import { rest, run, system } from './checks.mts'
+import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
 import { given, reaching } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
@@ -86,7 +86,7 @@ const wired = () => {
   const backend = system({ side: 'backend', trace: (line) => { if (/failed|DEFECT/.test(line)) backendTraced.push(line) } })
   const theSlow = backend.start('slow', slow)
   const window = system({ side: 'window', trace: (line) => { if (/failed|DEFECT/.test(line)) traced.push(line) } })
-  window.connect(backend)
+  connect(window, backend)
   const handle = window.start('panel', panel(released))
   const value = () => window.read(handle)
   return { released, traced, backendTraced, askBreak: () => backend.ask(theSlow, 'BREAK', {}), send: (event: PanelEvent): void => window.send(handle, event), at: (): string => value().at, problem: (): string | null => value().data.problem, count: (): number => value().data.count, stop: (): void => { window.stop(); backend.stop() } }

@@ -183,6 +183,14 @@ export interface EachOf<D, X> {
 export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask'>;
 
 // @public
+export interface Failure {
+    // (undocumented)
+    readonly kind: string;
+    // (undocumented)
+    readonly message: string;
+}
+
+// @public
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: {
     from?: readonly K[];
     each?: Many;
@@ -211,6 +219,13 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
     readonly heard: Function;
     // (undocumented)
     readonly view: string;
+}
+
+// @public
+export interface Following {
+    caughtUp?(then: () => void, soon: boolean): void;
+    // (undocumented)
+    stop(): void;
 }
 
 // @public
@@ -354,6 +369,22 @@ export type Outcome<V, F = AskFailure> = {
 export type OutcomeOf<A extends AskShape> = Outcome<A['answer'], AskFailure<A>>;
 
 // @public
+export interface Port {
+    ask(to: string, name: string, args: unknown, heard: (update: unknown) => void, ended: (outcome: PortOutcome) => void): () => void;
+    follow(feature: string, view: string, args: unknown, shown: (update: unknown) => void, over: (failure: Failure) => void): Following;
+    tell(to: string, event: unknown): void;
+}
+
+// @public
+export type PortOutcome = {
+    readonly ok: true;
+    readonly value: unknown;
+} | {
+    readonly ok: false;
+    readonly failure: Failure;
+};
+
+// @public
 export type ProgressOf<A extends AskShape> = A extends {
     progress: infer P;
 } ? P : never;
@@ -471,11 +502,10 @@ export interface StepLog {
 export interface System {
     // (undocumented)
     ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
+    attach(peer: Port): () => void;
     child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
-    connect(backend: System): {
-        close(): void;
-    };
     idle(): boolean;
+    readonly port: Port;
     // (undocumented)
     read<V>(of: Started<V, never, Asks, any>): V | undefined;
     // (undocumented)

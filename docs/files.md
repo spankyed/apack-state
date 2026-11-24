@@ -18,8 +18,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `.oxlintrc.json` | oxlint's rules: its defaults, less those whose findings here are deliberate |
 | `scripts/api.mjs` | Writes or checks those reports, from declarations emitted afresh from the source |
 | `src/types.ts` | The types a state's code is checked against: its shape, its definition, what a handler is handed and may return, and how one state reaches another |
-| `src/kernel.ts` | The kernel: systems, steps, asks, and the link between a backend and its windows |
-| `src/port.ts` | What one system offers another, and the link in memory between a window and its backend |
+| `src/kernel.ts` | The kernel: systems, steps, asks, and the port boundary between a backend and its windows |
+| `src/port.ts` | What one system offers another across a link (`Port`, `Following`, `Failure`, `PortOutcome`) and a schedule's `Lane` |
 | `src/draft.ts` | Data edited in place, from which a new value is made. What the kernel uses for a nested change |
 | `measure/append-cost.mts` | What a growing list costs one change at a time and in batches, on the draft and through an ask. Runs, for about 25 seconds |
 | `measure/frozen-cost.mts` | What a frozen list costs to read and to copy, beside the same list unfrozen. A measurement: it prints, and refuses nothing |
@@ -32,7 +32,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `type-tests/vue-templates/` | A component file with a template, and the states it reads, for `vue-tsc` to check: what a template may read, and six lines that have to be errors |
 | `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
-| `src/testing.ts` | `@apackdev/state/testing`: the schedule of `@apackdev/orderings` (`everyOrder`, `explore`, `sample`, `replay`, its clock), a system on it (`onSchedule`), and scenarios made from the events a state declares (`fromEvents`) |
+| `src/testing.ts` | `@apackdev/state/testing`: the schedule of `@apackdev/orderings` (`everyOrder`, `explore`, `sample`, `replay`, its clock), `connect(window, backend, schedule?)` over `@apackdev/link`, a system on a schedule (`onSchedule`), and scenarios made from the events a state declares (`fromEvents`) |
 | `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, and that nothing carried is in it |
 | `checks/testing-check.mts` | That kit, held to what it says |
 | `src/turn.ts` | The next turn of the event loop, in Node and in a window: what the kernel puts off with when it is given nothing, and what every check waits a turn with |
@@ -55,7 +55,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
 | `checks/graph-check.mts` | The graph tool (`tools/graph.mts`) run on states that are hard to read, in `checks/graphs/`: a state entered at one inside it before itself, and what is written short; and its command line |
-| `checks/link-check.mts` | A backend and a window joined by `@apackdev/link` in place of the kernel's link in memory, held to what a window is promised: answered and told after its view shows the step, under a seed's worth of orderings of the two packages; a link that goes ends what was asked as disconnected, and the backend goes on |
+| `checks/link-check.mts` | A backend and a window joined directly by `@apackdev/link` on their ports with no adapter and one hold owned by the link, held to what a window is promised: answered and told after its view shows the step, under a seed's worth of orderings of the two packages; a link that goes ends what was asked as disconnected, and the backend goes on |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
 | `scripts/mutants.mjs` | Reads a mutants run's reports and fails on a survivor not in `mutants.allowed.json`, or (`--all`) an entry that survives in none |
