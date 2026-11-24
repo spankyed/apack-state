@@ -38,6 +38,14 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `void sys.child(handle, 'card')` | TS2554: Expected 3 arguments, but got 2. | a card is one of many, so reaching one takes its key |
 | `void sys.child(handle, 'deck', 'a')` | TS2345: Argument of type '"deck"' is not assignable to parameter of type '"card"'. | the board starts no such state |
 
+## Sleeping is for a state's work and an ask's handler, where a `Left` can be taken.
+
+`type-tests/clock.ts`
+
+| What was written | What TypeScript says | Why |
+|---|---|---|
+| `START: (_, { sleep }) => { void sleep },` | TS2339: Property 'sleep' does not exist on type 'EventScope&lt;Timer, "", TimerEvent, Nothing>'. | sleeping is for `run` and for an ask's handler |
+
 ## What a handler is handed and what is read from a state: what cannot be written, and what can be handed on.
 
 `type-tests/data.ts`

@@ -70,6 +70,7 @@ export type Makers<E extends AnyEvent> = {
 export function onSchedule(schedule: Schedule, name?: string): {
     later(lane: Lane, run: () => void): void;
     frame(run: () => void): void;
+    clock: Clock;
 };
 
 // @public
@@ -88,7 +89,7 @@ export { Schedule }
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:24:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:25:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

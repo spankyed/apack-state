@@ -470,16 +470,6 @@
     "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | try { return apply(item.of, followed.heard(item.update, item.key === undefined ? scope : { ...scope, key: item.key })) } catch (error) { | false",
-    "original": "item.key === undefined",
-    "why": "Only whether the handler's scope has a key property at all differs, holding undefined, which no handler can tell from not having one"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | const given = item.key === undefined ? scope : { ...scope, key: item.key } | false",
-    "original": "item.key === undefined",
-    "why": "Only whether the handler's scope has a key property at all differs, holding undefined, which no handler can tell from not having one"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (!of || of.controller.signal.aborted) return MADE | false",
     "original": "!of || of.controller.signal.aborted",
     "why": "A make taken for a state already left is made with that state's aborted signal, which ends the ask with Left before it is sent, kept on a record no value reads; and a make is only ever said for a name the state declares (types), so the state is always found"
@@ -555,7 +545,7 @@
     "why": "What a state started as it is is given: nothing, as an empty object or as undefined, which begin takes as an empty object either way"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | } else if (made !== undefined) inside.push({ kind: 'result', of: active, value: made }) | true",
+    "key": "src/kernel.ts | ConditionalExpression | if (made !== undefined) inside.push({ kind: 'result', of: active, value: made }) | true",
     "original": "made !== undefined",
     "why": "Work that returns nothing pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
   },
