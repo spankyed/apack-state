@@ -4,6 +4,11 @@ name: mutants
 # and fails on a mutant that survived and is not listed in mutants.allowed.json with why; one more job, given every
 # report, fails on a listed mutant that survived in none. It runs on a pull request that touches what is mutated or
 # what holds it, on master, and by hand.
+#
+# On master every mutant is run, and each job's results are cached. A pull request starts from the latest cached
+# results and runs again only what its diff can have changed (stryker.config.mjs says which); a change to what the
+# specs are run with or written with, which Stryker cannot see, runs everything. What a pull request's run cannot
+# see, master's says after the merge, and a failing master opens an issue (the last job).
 on:
   push:
     branches: [master]
@@ -36,15 +41,45 @@ jobs:
           - 'src/**/*.ts,!src/kernel.ts'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Enough history for a pull request's diff from where it branched
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Run everything, or only what changed
+        id: scope
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "force=--force" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # What the specs are run with or written with, other than a spec file itself: Stryker diffs src/ and each
+          # spec file, and sees nothing else.
+          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD")"
+          support="$(grep -E '^(checks/|examples/|stryker\.config\.mjs$|vitest\.[a-z]+\.mts$|package(-lock)?\.json$|tsconfig)' <<< "$changed" | grep -vE '^checks/([^/]*-check|rows-property)\.mts$' || true)"
+          if [ -n "$support" ]; then
+            echo "force=--force" >> "$GITHUB_OUTPUT"
+            printf 'Everything is run: this changes what the specs are run with:\n%s\n' "$support" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Results so far
+        if: steps.scope.outputs.force == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: mutants-${{ strategy.job-index }}-${{ github.sha }}
+          restore-keys: mutants-${{ strategy.job-index }}-
       - name: Mutate ${{ matrix.part }}
-        run: npx stryker run
+        id: stryker
+        run: npx stryker run ${{ steps.scope.outputs.force }}
         env:
           MUTATE: ${{ matrix.part }}
+      - name: Keep these results
+        if: steps.stryker.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: mutants-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
       - name: What survived
         if: always()
         run: node scripts/mutants.mjs reports/mutation/mutation.json "$GITHUB_STEP_SUMMARY"
@@ -76,3 +111,21 @@ jobs:
         run: |
           test "$(ls reports/*/mutation.json | wc -l)" -eq 5 || { echo 'A job left no report, so the list cannot be checked'; exit 1; }
           node scripts/mutants.mjs --all "$GITHUB_STEP_SUMMARY" reports/*/mutation.json
+
+  # Master's result, said where it is seen (.github/scripts/master-status.sh)
+  master:
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    needs: [mutate, listed]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/master-status.sh ${{ (needs.mutate.result == 'success' && needs.listed.result == 'success') && 'passed' || 'failed' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
