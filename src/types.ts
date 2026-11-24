@@ -37,12 +37,14 @@ export type AnyState = State<any, any, any, any>
 /** In a shape's `starts`: one of these for each key, where a bare state is the one. */
 export interface Each<T> { readonly _each?: T }
 
-/** What some code can reach by name: the backend's systems, and the surfaces a window runs. */
+/** What some code can reach by name: the backend's systems, the surfaces a window runs, views, and named peers. */
 export type Net = {
   systems: Record<string, { events: AnyEvent; asks: Asks }>
   surfaces: Record<string, { events: AnyEvent }>
   /** The live reads a feature offers, by feature and then by name. */
   views: Record<string, Record<string, { args: object; result: unknown }>>
+  /** Non-window peers attached to a system by name (tell-only). Optional. */
+  peers?: Record<string, { events: AnyEvent }>
 }
 type Nothing = { systems: {}; surfaces: {}; views: {} }
 
@@ -207,6 +209,8 @@ export interface Started<V, E extends AnyEvent, A extends Asks, C = {}> extends 
 
 type SystemsOf<N extends Net> = keyof N['systems'] & string
 type AskOf<N extends Net, K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks']> = N['systems'][K]['asks'][Q]
+type PeersOf<N extends Net> = N['peers'] extends Record<string, { events: AnyEvent }> ? keyof N['peers'] & string : never
+type PeerEventOf<N extends Net, K extends PeersOf<N>> = N['peers'] extends Record<string, { events: AnyEvent }> ? N['peers'][K]['events'] : never
 
 export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   /** The data that exists here: this state's own and that of every state around it. */
@@ -240,6 +244,12 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    * backend system can be called the same, so a surface is named as one. From the backend a surface is broadcast to.
    */
   tell<K extends keyof N['surfaces'] & string>(to: { readonly surface: K }, event: Read<N['surfaces'][K]['events']>): void
+  /**
+   * Tells a named non-window peer attached to this system an event. Nobody waits. Delivered after the step commits,
+   * with no view hold; dropped (recorded in `StepLog.left` with `outcome: 'dropped'`) if no peer is attached under
+   * that name.
+   */
+  tell<K extends PeersOf<N>>(to: { readonly peer: K }, event: Read<PeerEventOf<N, K>>): void
 
   /**
    * Asks a backend system, or a state this one started. `heard` is called with the progress made since it was last

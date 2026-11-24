@@ -1212,9 +1212,11 @@ projects. Each would loosen the fit to this app.
   an agent's loop is one thing leading to the next for as long as it runs, and so is reading results a page at a
   time, so a limit would stop what the app is for. A circle of views is different, and is refused (rule 14), because
   what a view is asked for is declared and a circle among declarations is a mistake whatever its length.
-- **A peer that is not a window.** What leaves a backend's system leaves to its windows and to nothing else. A
-  name bound by the host to something outside, told with `{ peer }` and handed what a step told it at the commit,
-  is what the run history needs ([What it does not cover](#what-it-does-not-cover)).
+- **A peer that is not a window.** Built: any system can attach a named tell-only peer via
+  `attach(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
+  one-method sink), declare optional `peers` on `Net`, and send to it via `tell({ peer: name }, event)`. Tells
+  deliver `peer.tell(name, event)` after the step commits with no view hold (or record `outcome: 'dropped'` in
+  `StepLog.left` if unattached).
 - **Field names unique along a path** are assumed and not enforced.
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be

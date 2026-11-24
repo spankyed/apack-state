@@ -21,7 +21,7 @@
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
-import type { Clock, Following, Lane, Port, PortOutcome } from './port.ts'
+import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ type Item =
   | { kind: 'make'; of: Active; name: string; key: string | undefined }
   | { kind: 'drop'; of: Active; name: string; key: string | undefined }
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
-  | { kind: 'out'; leave: () => void; said?: Sent }
+  | { kind: 'out'; leave: () => void; said?: Said }
 
 /**
  * A database's `transact`, which is all the kernel knows of one: it runs a function as one unit, whose writes are kept
@@ -133,12 +133,13 @@ export interface Handled {
 }
 /** One thing that left at a step's commit: what kind, to whom, and its name. Never what it carried. */
 export interface Sent {
-  readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'ask' | 'broadcast' | 'follow' | 'unfollow'
+  readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow'
   readonly to?: string
   readonly name?: string
-  /** How an answer ended: `ok`, or its failure's kind. */
+  /** How an answer ended (`ok`, or its failure's kind), or `dropped` for a peer tell with no attached peer. */
   readonly outcome?: string
 }
+type Said = Sent | (() => Sent)
 /**
  * One step, once it has ended, as a timeline or a devtools panel would read it: what began it and everything it
  * handled after, the fields of each state that changed, and what left at its commit. Never what any of it carried.
@@ -187,6 +188,11 @@ export interface System {
    * window that `broadcast` reaches; on a window, the attached port is its backend (one at a time).
    */
   attach(peer: Port): () => void
+  /**
+   * Attaches a named non-window peer to this system, and returns what detaches it. `tell({ peer: name }, event)`
+   * delivers `port.tell(name, event)` after the step commits, with no view hold. Duplicate names throw.
+   */
+  attach(name: string, peer: PeerPort): () => void
   /**
    * Whether nothing is under way here: no work a state is doing, no ask being answered or waited on, nothing put off
    * and nothing gathered. For a check, to wait until what it did has come to rest and not for a count of turns.
@@ -258,7 +264,8 @@ export function system(host: {
    * the kernel's own word, which leaves whether or not what it was said while handling was made. `unsaid` is what
    * taking one back has to end: an ask that will now never cross the link.
    */
-  const leaving: Array<(() => void) & { lost?: () => void; said?: Sent; anyway?: true; unsaid?: () => void }> = []
+  const leaving: Array<(() => void) & { lost?: () => void; said?: Said; anyway?: true; unsaid?: () => void }> = []
+  const sentOf = (entry: Said): Sent => (typeof entry === 'function' ? entry() : entry)
   /** For each ask a state here was asked, which it was: what its answer is said to be to. */
   const askedOf = new WeakMap<Question, { readonly ref: string; readonly name: string }>()
   /** The state answering each ask it answers later, until the answer is taken; and each ask it left unanswered. */
@@ -337,6 +344,8 @@ export function system(host: {
   let up: Port | undefined
   /** A backend's attached window ports. */
   const down = new Set<Port>()
+  /** Named non-window peers attached to this system. */
+  const peers = new Map<string, PeerPort>()
 
   /**
    * What a state holds is a value: once it is the state's, nothing changes it but a handler, which makes another.
@@ -370,18 +379,31 @@ export function system(host: {
   }
   const refOf = (to: string | { ref: string }): string => (typeof to === 'string' ? to : to.ref)
   const isSurface = (to: unknown): to is { surface: string } => typeof to === 'object' && to !== null && 'surface' in to
+  const isPeer = (to: string | { ref: string } | { surface: string } | { peer: string }): to is { peer: string } => typeof to === 'object' && 'peer' in to
 
   /** Something to leave at the commit: of this step, or of one of its own if none is running. */
-  const out = (leave: () => void, said?: Sent, unsaid?: () => void): void => { if (stepping) leaving.push(Object.assign(leave, { said, unsaid })); else arrive({ kind: 'out', leave, ...(said ? { said } : {}) }) }
+  const out = (leave: () => void, said?: Said, unsaid?: () => void): void => { if (stepping) leaving.push(Object.assign(leave, { said, unsaid })); else arrive({ kind: 'out', leave, ...(said ? { said } : {}) }) }
 
   /** A name is a backend system: here on the backend, across the link from a window. A handle is always here. */
   const isAcross = (to: string | { ref: string }): boolean => typeof to === 'string' && host.side === 'window'
 
-  const tell = (to: string | { ref: string } | { surface: string }, event: AnyEvent): void => {
+  const tell = (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent): void => {
     if (isSurface(to)) {
       // A surface is in a window, and is told there. The backend has one of it in every window, and broadcasts.
       if (host.side !== 'window') { trace(`DEFECT: ${called} told the surface ${to.surface} ${event.type}. A surface is told from its own window, and broadcast to from the backend`); return }
       enqueue({ kind: 'event', ref: to.surface, event })
+      return
+    }
+    if (isPeer(to)) {
+      let dropped = false
+      out(
+        () => {
+          const target = peers.get(to.peer)
+          if (!target) { dropped = true; trace(`no peer named ${to.peer} to tell ${event.type}`); return }
+          target.tell(to.peer, event)
+        },
+        () => ({ kind: 'peer', to: to.peer, name: event.type, ...(dropped ? { outcome: 'dropped' } : {}) }),
+      )
       return
     }
     const ref = refOf(to)
@@ -492,7 +514,7 @@ export function system(host: {
       get now() { return stepNow ?? readNow() },
       signal: mine.controller.signal,
       send: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
-      tell: (to: string | { ref: string } | { surface: string }, event: AnyEvent) => { if (alive()) tell(to, event) },
+      tell: (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent) => { if (alive()) tell(to, event) },
       broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) },
       make: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'make', of: mine, name, key: k }) },
       drop: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'drop', of: mine, name, key: k }) },
@@ -1119,7 +1141,7 @@ export function system(host: {
     for (const leave of leaving.splice(0)) {
       if (!leave.lost) continue
       safely('what leaves at the commit', leave.lost)
-      if (logging && leave.said) logging.left.push({ ...leave.said, outcome: 'failed' })
+      if (logging && leave.said) logging.left.push({ ...sentOf(leave.said), outcome: 'failed' })
     }
     if (logging) logging.ended = 'lost'
     turnAway(inside, STOPPED); turnAway(outside, STOPPED); turnAway(held, STOPPED)
@@ -1128,7 +1150,7 @@ export function system(host: {
     changed.clear(); fields.clear(); places.clear()
     committed = {}
     for (const leave of leaving.splice(0)) {
-      if (logging && leave.said) logging.left.push(leave.said)
+      if (logging && leave.said) logging.left.push(sentOf(leave.said))
       safely('what leaves as it stops', leave)
     }
     for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
@@ -1149,8 +1171,10 @@ export function system(host: {
       leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) })
     }
     const now = leaving.splice(0)
-    if (logging) for (const leave of now) if (leave.said) logging.left.push(leave.said)
-    for (const leave of now) safely('what leaves at the commit', leave)
+    for (const leave of now) {
+      safely('what leaves at the commit', leave)
+      if (logging && leave.said) logging.left.push(sentOf(leave.said))
+    }
   }
 
   /** One step: something from outside, then everything it caused inside, then the commit. */
@@ -1259,15 +1283,21 @@ export function system(host: {
       listeners.push(listener)
       return () => { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1) }
     },
-    attach: (peer) => {
+    attach: ((peerOrName: Port | string, peer?: PeerPort) => {
+      if (typeof peerOrName === 'string') {
+        const port = peer!
+        if (peers.has(peerOrName)) throw new Error(`${called} already has a peer named ${peerOrName}`)
+        peers.set(peerOrName, port)
+        return () => { if (peers.get(peerOrName) === port) peers.delete(peerOrName) }
+      }
       if (host.side === 'backend') {
-        down.add(peer)
-        return () => { down.delete(peer) }
+        down.add(peerOrName)
+        return () => { down.delete(peerOrName) }
       }
       if (up) throw new Error(`${called} is already attached to a backend`)
-      up = peer
-      return () => { if (up === peer) up = undefined }
-    },
+      up = peerOrName
+      return () => { if (up === peerOrName) up = undefined }
+    }) as System['attach'],
     idle: () => pending === 0 && !due && !stepping && outside.length === 0,
     stop: () => step(() => { for (const ref of [...running.keys()].reverse()) end(ref) }),
   }

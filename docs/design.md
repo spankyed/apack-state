@@ -185,6 +185,7 @@ follows: (follow) => ({
 | `send(event)` | A state | Itself: an event only it sends, or one others may send it |
 | `tell(name, event)` | A state | A backend system. Nobody waits |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
+| `tell({ peer }, event)` | A state | A named non-window peer attached via `attach(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
