@@ -204,6 +204,14 @@ await run([
     throws(() => connect(window, other, { later: (_lane, run) => { queued.push(run) } }), /the window is already attached to a backend/)
     strictEqual(queued.length, 2, 'expected hello and close to be queued on the aborted link')
     while (queued.length) queued.shift()!()
+    // `connect` also detaches the first side and closes the link if `backend.attach` throws.
+    const fresh = system({ side: 'window', name: 'fresh window' })
+    const secondQueued: Array<() => void> = []
+    throws(() => connect(fresh, window, { later: (_lane, run) => { secondQueued.push(run) } }), /the window is already attached to a backend/)
+    strictEqual(secondQueued.length, 2, 'expected hello and close to be queued when backend.attach throws')
+    while (secondQueued.length) secondQueued.shift()!()
+    const recovered = connect(fresh, backend)
+    recovered.close()
     joined.close()
   }],
   ['a remote ask whose asker leaves in the same step is never sent, and a completed ask does not call leave on stop', async () => {
@@ -245,6 +253,39 @@ await run([
     window.stop()
     await rest()
     strictEqual(left, 0)
+
+    // An async completed remote ask also removes its abort listener so stopping the window does not call `leave`.
+    let asyncLeft = 0
+    const asyncWindow = system({ side: 'window', name: WINDOW })
+    asyncWindow.attach({
+      tell: () => {},
+      ask: (_to, _name, _args, _heard, ended) => {
+        nextTurn(() => ended({ ok: true, value: { id: 'async' } }))
+        return () => { asyncLeft++ }
+      },
+      follow: () => ({ stop: () => {} }),
+    })
+    const asyncAsker = asyncWindow.start('asker', asker)
+    deepStrictEqual(await soon(asyncWindow.ask(asyncAsker, 'MAKE', { id: 'y' })), { ok: true, value: 'made' })
+    asyncWindow.stop()
+    await rest()
+    strictEqual(asyncLeft, 0)
+
+    // A custom `peer.ask` that throws synchronously settles the ask as `failed`, logs a DEFECT, and leaves the system idle.
+    const traced: string[] = []
+    const broken = system({ side: 'window', name: WINDOW, trace: (line) => { traced.push(line) } })
+    broken.attach({
+      tell: () => {},
+      ask: () => { throw new Error('ask broke') },
+      follow: () => ({ stop: () => {} }),
+    })
+    const failing = broken.start('asker', asker)
+    deepStrictEqual(await soon(broken.ask(failing, 'MAKE', { id: 'z' })), { ok: true, value: 'failed' })
+    await rest()
+    ok(broken.idle())
+    strictEqual(traced.filter((line) => line.startsWith('DEFECT') && line.includes('ask broke')).length, 1)
+    broken.stop()
+    await rest()
   }],
   ['a remote follow stopped before commit is never sent, and stopping after a throwing follow causes no defect', async () => {
     let followed = 0

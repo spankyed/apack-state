@@ -36,7 +36,8 @@ export function connect(window: System, backend: System, schedule?: Pick<Schedul
   let detachBackend: () => void
   try { detachBackend = window.attach(toBackend) } catch (error) { windowLink.close(); throw error }
   const toWindow = join(backendLink, backend.port)
-  const detachWindow = backend.attach(toWindow)
+  let detachWindow: () => void
+  try { detachWindow = backend.attach(toWindow) } catch (error) { detachBackend(); windowLink.close(); throw error }
   windowLink.onEnd(detachBackend)
   backendLink.onEnd(detachWindow)
   return { close: () => { windowLink.close() }, window: windowLink, backend: backendLink }
