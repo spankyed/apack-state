@@ -6,14 +6,108 @@
 // stays what is true. One job's report cannot say that: a job mutates part of a file, and the same line as written
 // can be in another job's part.
 //
+// With `--prune [--expect-none] <mutate>`, it drops any mutant outside `<mutate>` from each report in place. Stryker's
+// incremental mode carries over cached mutants whose diff-shifted lines fall outside the current `MUTATE` range;
+// pruning them keeps each sharded job's report and incremental file within its own part. `--expect-none` fails if
+// anything was out of scope, so forced full runs check that the prune agrees with Stryker.
+//
 //   node scripts/mutants.mjs reports/mutation/mutation.json [summary.md]
 //   node scripts/mutants.mjs --all summary.md reports/*/mutation.json
+//   node scripts/mutants.mjs --prune [--expect-none] <mutate> <report.json> [...]
 //
 // `npm run mutants:list` writes the list from a run's reports, for what this fails on.
 import * as fs from 'node:fs'
-import { LIST, nameOf, survivorsOf } from './mutants-names.mjs'
+import * as path from 'node:path'
+import { LIST, nameOf, root, survivorsOf } from './mutants-names.mjs'
 
 const args = process.argv.slice(2)
+
+// Same range syntax as Stryker's ProjectReader (`file:startLine[:startCol]-endLine[:endCol]`), 1-based lines and
+// 0-based columns when given (defaulting to 0..Infinity). Report positions are 1-based and converted to 0-based.
+const RANGE = /^(.*?):(\d+)(?::(\d+))?-(\d+)(?::(\d+))?$/
+const gte = (a, b) => a.line > b.line || (a.line === b.line && a.column >= b.column)
+const inRange = (range, loc) => {
+  const start = { line: loc.start.line - 1, column: loc.start.column - 1 }
+  const end = { line: loc.end.line - 1, column: loc.end.column - 1 }
+  return gte(start, range.start) && gte(range.end, end)
+}
+const scopeOf = (rel, patterns) => {
+  let scope = false
+  for (const raw of patterns) {
+    if (raw.startsWith('!')) {
+      if (path.posix.matchesGlob(rel, raw.slice(1))) scope = false
+      continue
+    }
+    const match = RANGE.exec(raw)
+    if (match) {
+      const [, filePattern, startLine, startCol = '0', endLine, endCol] = match
+      if (!path.posix.matchesGlob(rel, filePattern) || scope === true) continue
+      const range = {
+        start: { line: Number(startLine) - 1, column: Number(startCol) },
+        end: { line: Number(endLine) - 1, column: endCol === undefined ? Number.POSITIVE_INFINITY : Number(endCol) },
+      }
+      scope = Array.isArray(scope) ? [...scope, range] : [range]
+    } else if (path.posix.matchesGlob(rel, raw)) {
+      scope = true
+    }
+  }
+  return scope
+}
+
+if (args[0] === '--prune') {
+  const rest = args.slice(1)
+  const expectNone = rest[0] === '--expect-none'
+  const [mutate, ...files] = expectNone ? rest.slice(1) : rest
+  if (!mutate || !files.length) {
+    console.error('Usage: node scripts/mutants.mjs --prune [--expect-none] <mutate> <report.json> [...]')
+    process.exit(1)
+  }
+  const patterns = mutate.split(',')
+  let unexpected = false
+  for (const reportPath of files) {
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
+    let removedMutants = 0
+    let removedFiles = 0
+    const samples = []
+    for (const [file, entry] of Object.entries(report.files ?? {})) {
+      const rel = path.relative(root, path.resolve(root, file)).split(path.sep).join('/')
+      const scope = scopeOf(rel, patterns)
+      if (scope === false) {
+        removedFiles++
+        removedMutants += entry.mutants.length
+        if (samples.length < 5) samples.push(`${rel} (${entry.mutants.length} mutant(s))`)
+        delete report.files[file]
+      } else if (Array.isArray(scope)) {
+        const kept = []
+        for (const mutant of entry.mutants) {
+          if (scope.some((range) => inRange(range, mutant.location))) {
+            kept.push(mutant)
+          } else {
+            removedMutants++
+            if (samples.length < 5) samples.push(`${rel}:${mutant.location.start.line}-${mutant.location.end.line}`)
+          }
+        }
+        entry.mutants = kept
+      }
+    }
+    if (removedMutants > 0 || removedFiles > 0) {
+      if (expectNone) {
+        unexpected = true
+        const detail = [
+          removedMutants > 0 ? `${removedMutants} out-of-scope mutant(s)` : '',
+          removedFiles > 0 ? `${removedFiles} out-of-scope file(s)` : '',
+        ].filter(Boolean).join(' and ')
+        console.error(`Expected no out-of-scope results for ${mutate} in ${reportPath}, found ${detail}: ${samples.join(', ')}`)
+      } else {
+        fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+        const what = removedMutants > 0 ? `${removedMutants} out-of-scope mutant(s)` : `${removedFiles} out-of-scope file(s)`
+        console.log(`Pruned ${what} from ${reportPath}`)
+      }
+    }
+  }
+  process.exit(unexpected ? 1 : 0)
+}
+
 const all = args[0] === '--all'
 const [summary, ...reports] = all ? args.slice(1) : [args[1], args[0]]
 const allowed = JSON.parse(fs.readFileSync(LIST, 'utf8'))

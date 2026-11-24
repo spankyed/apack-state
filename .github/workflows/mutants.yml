@@ -5,15 +5,16 @@ name: mutants
 # report, fails on a listed mutant that survived in none. It runs on a pull request that touches what is mutated or
 # what holds it, on master, and by hand.
 #
-# On master every mutant is run, and each job's results are cached. A pull request starts from the latest cached
-# results and runs again only what its diff can have changed (stryker.config.mjs says which); a change to what the
-# specs are run with or written with, which Stryker cannot see, runs everything. What a pull request's run cannot
-# see, master's says after the merge, and a failing master opens an issue (the last job).
+# On master every mutant is run, and each job's results are cached under a key that includes its part and a hash of
+# what the specs are run with or written with (which Stryker cannot see). A pull request restores the latest cache
+# matching that key and runs again only what its diff can have changed (stryker.config.mjs says which); any change to
+# those support files misses the cache and runs everything. What a pull request's run cannot see, master's says after
+# the merge, and a failing master opens an issue (the last job).
 on:
   push:
     branches: [master]
   pull_request:
-    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'vitest.mutants.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', 'scripts/mutants-names.mjs', '.github/workflows/mutants.yml', 'package-lock.json']
+    paths: ['src/**', 'checks/**', 'examples/**', 'stryker.config.mjs', 'vitest.config.mts', 'vitest.mutants.mts', 'package.json', 'mutants.allowed.json', 'scripts/mutants.mjs', 'scripts/mutants-names.mjs', '.github/workflows/mutants.yml', 'package-lock.json', 'tsconfig*.json']
   workflow_dispatch:
 
 concurrency:
@@ -33,60 +34,75 @@ jobs:
       matrix:
         # The kernel in four, the last to its end however long it grows, and every other file of src/ in one: a file
         # added to src/ is mutated without being named here.
-        part:
-          - 'src/kernel.ts:1-275'
-          - 'src/kernel.ts:276-550'
-          - 'src/kernel.ts:551-825'
-          - 'src/kernel.ts:826-99999'
-          - 'src/**/*.ts,!src/kernel.ts'
+        include:
+          - id: kernel-1-275
+            part: 'src/kernel.ts:1-275'
+          - id: kernel-276-550
+            part: 'src/kernel.ts:276-550'
+          - id: kernel-551-825
+            part: 'src/kernel.ts:551-825'
+          - id: kernel-826-end
+            part: 'src/kernel.ts:826-99999'
+          - id: other
+            part: 'src/**/*.ts,!src/kernel.ts'
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Enough history for a pull request's diff from where it branched
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Run everything, or only what changed
-        id: scope
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" != pull_request ]; then echo "force=--force" >> "$GITHUB_OUTPUT"; exit 0; fi
-          # What the specs are run with or written with, other than a spec file itself: Stryker diffs src/ and each
-          # spec file, and sees nothing else.
-          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD")"
-          support="$(grep -E '^(checks/|examples/|stryker\.config\.mjs$|vitest\.[a-z]+\.mts$|package(-lock)?\.json$|tsconfig)' <<< "$changed" | grep -vE '^checks/([^/]*-check|rows-property)\.mts$' || true)"
-          if [ -n "$support" ]; then
-            echo "force=--force" >> "$GITHUB_OUTPUT"
-            printf 'Everything is run: this changes what the specs are run with:\n%s\n' "$support" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      # Keyed by this job's part and everything the specs are run with or written with, other than the spec files
+      # themselves (Stryker diffs src/ and each spec file, and sees nothing else). Any change to these support files —
+      # on the pull request or on master — misses older caches and runs everything cleanly.
+      - name: Cache key
+        id: cache
+        run: echo "prefix=mutants-${{ matrix.id }}-${{ hashFiles('checks/**', '!checks/*-check.mts', '!checks/rows-property.mts', 'examples/**', 'scripts/mutants.mjs', 'scripts/mutants-names.mjs', 'stryker.config.mjs', 'vitest.*.mts', 'package.json', 'package-lock.json', 'tsconfig*.json', '.github/workflows/mutants.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Results so far
-        if: steps.scope.outputs.force == ''
+        if: github.event_name == 'pull_request'
+        id: restored
+        continue-on-error: true
         uses: actions/cache/restore@v4
         with:
           path: reports/stryker-incremental.json
-          key: mutants-${{ strategy.job-index }}-${{ github.sha }}
-          restore-keys: mutants-${{ strategy.job-index }}-
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ steps.cache.outputs.prefix }}-${{ github.sha }}-
+            ${{ steps.cache.outputs.prefix }}-
+      - name: Note uncached run
+        if: github.event_name == 'pull_request' && steps.restored.outputs.cache-matched-key == ''
+        run: |
+          echo 'Everything is run: no cached results match these support files.' >> "$GITHUB_STEP_SUMMARY"
       - name: Mutate ${{ matrix.part }}
-        id: stryker
-        run: npx stryker run ${{ steps.scope.outputs.force }}
+        run: npx stryker run --incremental ${{ github.event_name != 'pull_request' && '--force' || '' }}
+        env:
+          MUTATE: ${{ matrix.part }}
+      # Stryker carries over cached mutants whose diff-shifted lines fall outside MUTATE; drop them so lines moving
+      # across shard boundaries never leave phantom results in this job's report or cache. On a forced full run
+      # (master / dispatch) every mutant must already be in scope, so --expect-none verifies the prune agrees with Stryker.
+      - name: Drop mutants outside this job's part
+        id: prune
+        run: node scripts/mutants.mjs --prune ${{ github.event_name != 'pull_request' && '--expect-none' || '' }} "$MUTATE" reports/mutation/mutation.json reports/stryker-incremental.json
         env:
           MUTATE: ${{ matrix.part }}
       - name: Keep these results
-        if: steps.stryker.outcome == 'success'
+        id: saved
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: reports/stryker-incremental.json
-          key: mutants-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Note unsaved cache
+        if: steps.saved.outcome == 'failure'
+        run: |
+          echo 'Warning: failed to save incremental cache; subsequent PR runs will not reuse these results.' >> "$GITHUB_STEP_SUMMARY"
       - name: What survived
-        if: always()
+        if: ${{ !cancelled() && steps.prune.outcome == 'success' }}
         run: node scripts/mutants.mjs reports/mutation/mutation.json "$GITHUB_STEP_SUMMARY"
-      - if: always()
+      - if: ${{ !cancelled() && steps.prune.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: mutants-${{ strategy.job-index }}
+          name: mutants-${{ matrix.id }}
           path: reports/mutation/mutation.json
           if-no-files-found: ignore
 
@@ -114,7 +130,7 @@ jobs:
 
   # Master's result, said where it is seen (.github/scripts/master-status.sh)
   master:
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     needs: [mutate, listed]
     runs-on: ubuntu-24.04
     permissions:
