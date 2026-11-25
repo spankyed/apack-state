@@ -84,7 +84,7 @@
   },
   "devDependencies": {
     "@apackdev/link": "https://github.com/spankyed/apack-link/releases/download/pkg-04c2b37933c53b77413480a19187e428c582b51d/apackdev-link-0.1.0.tgz",
-    "@apackdev/orderings": "https://github.com/spankyed/apack-orderings/releases/download/pkg-ca848222e7b453e14ae6649eb6d158c81acb1669/apackdev-orderings-0.1.0.tgz",
+    "@apackdev/orderings": "https://github.com/spankyed/apack-orderings/releases/download/pkg-f4170ad27f86dd33dd1faa27e15016e4322e5b80/apackdev-orderings-0.1.0.tgz",
     "@arethetypeswrong/cli": "^0.18.5",
     "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-ears-0.1.0.tgz",
     "@microsoft/api-extractor": "^7.60.1",
