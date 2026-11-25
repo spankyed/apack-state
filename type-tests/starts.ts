@@ -74,9 +74,10 @@ sys.start('card', card([]), { id: 'a' })
 // @ts-expect-error a root state with no given fields takes no third argument
 sys.start('plain', plain, {})
 
-// A root state that marks an optional field `given` requires that field to be provided at start.
+// A root state that marks an optional field `given` requires that field to be provided at start (preserving `undefined`).
 const optGiven = state<{ data: { note?: string } }, never>()({ data: { note: given } })
 sys.start('optGiven', optGiven, { note: 'hi' })
+sys.start('optGiven', optGiven, { note: undefined })
 // @ts-expect-error an optional field marked given cannot be omitted when starting the root state
 sys.start('optGiven', optGiven, {})
 

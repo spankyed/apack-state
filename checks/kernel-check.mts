@@ -691,6 +691,41 @@ const moves: Array<[string, () => void]> = [
     sys.send(h, { type: 'NOTE', tag: 'next-step' })
     deepStrictEqual(seen, ['next-step'])
   }],
+  ['a move supplying data for an inner substate does not expose that field to an enclosing state run() before the inner state is entered', () => {
+    const outerSawKeys: string[][] = []
+    const nested = state<{
+      states: {
+        idle: {}
+        outer: {
+          states: {
+            a: {}
+            inner: { data: { secret: string } }
+          }
+        }
+      }
+    }, { type: 'ENTER' }>()({
+      start: 'idle',
+      states: {
+        idle: {
+          on: { ENTER: () => ({ at: 'outer.inner', data: { secret: 'shh' } }) },
+        },
+        outer: {
+          start: 'a',
+          run({ data }) { outerSawKeys.push(Object.keys(data)) },
+          states: {
+            a: {},
+            inner: { data: { secret: given } },
+          },
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('nested', nested)
+    sys.send(h, { type: 'ENTER' })
+    deepStrictEqual(outerSawKeys, [[]])
+    strictEqual(sys.read(h).at, 'outer.inner')
+    deepStrictEqual(sys.read(h).data, { secret: 'shh' })
+  }],
 ]
 
 await runChecks([...checks, ...moves])

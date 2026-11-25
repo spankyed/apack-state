@@ -34,6 +34,7 @@ const isPlain = (value: unknown): value is object => {
  */
 export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()
+  const touchedTop = new Set<string>()
   let open = true
   /** Whether any nested draft or whole wrapper has been handed out; skips walking fresh assignments when none has. */
   let handed = false
@@ -54,12 +55,11 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
 
   const note = (node: Node, key: string): void => {
     if (options.topLevel) {
-      const top = node.path[0] ?? key
-      if (!touched.has(top)) touched.set(top, [top])
-      return
+      touchedTop.add(node.path[0] ?? key)
+    } else {
+      const path = [...node.path, key]
+      touched.set(JSON.stringify(path), path)
     }
-    const path = [...node.path, key]
-    touched.set(JSON.stringify(path), path)
   }
 
   /** What a draft or a plain value stands for right now, with every draft inside it resolved. */
@@ -182,5 +182,8 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     throw new Error('An edit cannot be async: a draft is closed as soon as the function returns')
   }
   if (returned !== undefined) throw new Error('An edit changes its draft and returns nothing. To replace a field, give the field')
-  return { value: settle((draft as { [NODE]: Node })[NODE]) as T, touched: [...touched.values()] }
+  return {
+    value: settle((draft as { [NODE]: Node })[NODE]) as T,
+    touched: options.topLevel ? [...touchedTop].map((field) => [field]) : [...touched.values()],
+  }
 }
