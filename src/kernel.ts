@@ -582,7 +582,7 @@ export function system(host: {
           (error) => {
             own.abort()
             if (error instanceof Left) return
-            if (active.controller.signal.aborted) { trace(`${active.top.ref}${active.path ? ` in ${active.path}` : ''} failed after it was left: ${said(error)}`); return }
+            if (active.controller.signal.aborted) { leftFailed(active, error); return }
             arrive({ kind: 'failure', of: active, error })
           },
         )
@@ -925,9 +925,15 @@ export function system(host: {
   }
 
   /**
-   * A state's work failed while the state is still the case: it goes where its `failed` says, with the error.
+   * A state's work failed. If the state is still the case it goes where its `failed` says, with the error. If it was
+   * left first (for example, an enclosing state's failure moved away in the same step), there is nowhere to go and the
+   * failure is only reported.
    */
+  const leftFailed = (active: Active, error: unknown): void => {
+    trace(`${active.top.ref}${active.path ? ` in ${active.path}` : ''} failed after it was left: ${said(error)}`)
+  }
   const fail = (active: Active, error: unknown): boolean => {
+    if (active.controller.signal.aborted) { leftFailed(active, error); return MADE }
     const where = `${active.top.ref}${active.path ? ` in ${active.path}` : ''}`
     trace(`${where} failed: ${said(error)}`)
     const failed = active.def.failed

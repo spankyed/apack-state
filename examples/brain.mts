@@ -111,7 +111,7 @@ export const makeStepState = (execute: StepExecutor) => state<StepShape, never>(
 
 type ActiveStep = { readonly runNodeId: string; readonly step: StepDef; readonly payload: unknown; readonly trackId: string }
 type ActiveSubflow = { readonly runNodeId: string; readonly flowId: string; readonly blueprint: FlowBlueprint; readonly stepId: string; readonly trackId: string }
-type TrackState = { readonly live: number; readonly eventType: string; readonly failed?: boolean; readonly error?: string }
+type TrackState = { readonly live: number; readonly eventType: string; readonly failed?: boolean }
 
 export type FlowEvent =
   | { readonly type: 'TRIGGER'; readonly eventType: string; readonly payload: unknown; readonly targetFlowId?: string }
@@ -208,15 +208,11 @@ export const makeFlowState = (
     const { nextStep, nextLive, shouldComplete, shouldFail } = nextOutcome({ blueprint, tracks: draft.tracks }, stepId, trackId, failed)
     const track = draft.tracks[trackId]
     const trackFailed = Boolean(track?.failed) || failed
-    const trackError = track?.error ?? error
-    if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}), ...(trackError !== undefined ? { error: trackError } : {}) }
+    if (error !== undefined && draft.finalError === undefined) draft.finalError = error
+    if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}) }
     if (nextLive === 0) tellPeer({ type: 'NODE_FINISHED', id: trackId, status: trackFailed ? 'failed' : 'completed', at: now })
     if (shouldComplete) { draft.finalResult = result; return }
-    if (shouldFail) {
-      const firstError = Object.values(draft.tracks).find((t) => t.error !== undefined)?.error
-      draft.finalError = firstError ?? 'flow failed'
-      return
-    }
+    if (shouldFail) { draft.finalError ??= 'flow failed'; return }
     if (nextStep) spawnChild(draft, nextStep, result, trackId, parentId, now, tellPeer)
   }
 

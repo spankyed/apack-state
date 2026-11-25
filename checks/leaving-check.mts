@@ -560,6 +560,28 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(released, ['after-leave', 'on-after-leave'])
     ok(traced.some((line) => /DEFECT: a release of inflight threw: late boom/.test(line)), traced.join('\n'))
   }],
+  ['a child state whose synchronous run throws does not run failed if its parent already moved away in the same step', async () => {
+    const traces: string[] = []
+    let childFailed = 0
+    const parentAndChild = reaching()<{ states: { a: {}; b: {} } }>()({
+      start: 'a',
+      run() { throw new Error('root boom') },
+      failed: () => ({ at: 'b' }),
+      states: {
+        a: {
+          run() { throw new Error('child boom') },
+          failed: () => { childFailed++ },
+        },
+        b: {},
+      },
+    })
+    const sys = system({ side: 'backend', trace: (line) => { traces.push(line) } })
+    const h = sys.start('s', parentAndChild)
+    await rest()
+    strictEqual(sys.read(h).at, 'b')
+    strictEqual(childFailed, 0)
+    ok(traces.includes('s in a failed after it was left: child boom'), traces.join('\n'))
+  }],
 ]
 
 await run([...checks, ...lingeringChecks])
