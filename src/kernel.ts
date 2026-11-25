@@ -106,7 +106,7 @@ type Item =
   | { kind: 'ask'; ref: string; name: string; args: object; question: Question; heard?: (update: unknown) => void; gone?: AbortSignal }
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
-  | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; update: ViewUpdate<unknown> }
+  | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown> }
   | { kind: 'ended'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; outcome: AnyOutcome }
   | { kind: 'progressed'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; updates: unknown[] }
   | { kind: 'make'; of: Active; name: string; key: string | undefined }
@@ -160,10 +160,7 @@ export interface StepLog {
 }
 
 
-/**
- * What changed in one running state in one step: whether it is somewhere else now, and each place in its data that
- * changed, as a path. `['messages', 'THR-1', '3']` is the fourth message of one thread, and nothing else.
- */
+/** What changed in one running state in one step: whether it moved to another state, and whether what it is making changed. */
 export interface Changes { readonly moved: boolean; /** Whether what it is making changed. */ readonly making: boolean }
 
 export interface System {
@@ -310,6 +307,8 @@ export function system(host: {
     leaving.push(Object.assign(() => question.end(outcome), { lost: () => question.end(refusal('failed', 'What this step wrote could not be kept, so nothing was changed')), said, anyway: true as const }))
   }
   const changed = new Set<string>()
+  /** Running states that were committed before this step and started afresh within it, so commit diffs them against their prior snapshot. */
+  const restarted = new Set<string>()
   /** For each running state that changed in this step, the fields of its data that did. */
   const fields = new Map<string, Set<string>>()
   /**
@@ -333,12 +332,13 @@ export function system(host: {
     mark(top.ref)
     placesOf(top.ref).moved = true
     for (const field of new Set([...Object.keys(was), ...Object.keys(top.data)])) {
-      if (field in was !== field in top.data || !Object.is(was[field], top.data[field])) touch(top.ref, field)
+      if (Object.hasOwn(was, field) !== Object.hasOwn(top.data, field) || !Object.is(was[field], top.data[field])) touch(top.ref, field)
     }
   }
   const listeners: Array<(changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void> = []
   let committed: Record<string, unknown> = {}
   let stepping = false
+  let flushing = false
 
   /** A window's attached backend port. */
   let up: Port | undefined
@@ -527,7 +527,7 @@ export function system(host: {
         if (!starter) { trace(`${ref} was started by nothing, so it has nobody to report ${event.type} to`); return }
         enqueue({ kind: 'event', ref: starter.ref, event: { ...event, from: starter.from } as AnyEvent })
       },
-      read: (target: { ref: string }) => valueOf(running.get(target.ref)!),
+      read: (target: { ref: string }) => { const found = running.get(target.ref); return found ? valueOf(found) : undefined },
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
       use: (release: () => void) => {
         if (alive()) mine.releases.push(release)
@@ -557,23 +557,52 @@ export function system(host: {
     leaving.push(Object.assign(stop, { anyway: true as const, lost: stop }))
   }
 
+  const isPlainObject = (value: unknown): value is Plain => typeof value === 'object' && value !== null && !Array.isArray(value)
+
   const enter = (top: Running, def: LooseDef, name: string, around: Active | undefined, entering: Plain): Active => {
     const path = around?.path ? `${around.path}.${name}` : name
     const active: Active = { top, def, name, path, around, inside: undefined, controller: new AbortController(), releases: [], questions: new Set(), started: new Set(), following: new Map(), awaiting: new Map(), making: new Map() }
     if (around) around.inside = active; else top.root = active
     for (const [field, initial] of Object.entries(def.data ?? {})) {
-      top.data = { ...top.data, [field]: field in entering ? entering[field] : initial }
+      top.data = { ...top.data, [field]: Object.hasOwn(entering, field) ? entering[field] : initial }
     }
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.run) {
       const own = new AbortController()
       const workSignal = AbortSignal.any([active.controller.signal, own.signal])
       let made: unknown
+      let deferred: unknown
       // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
-      // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
-      const begin = (): void => { made = def.run!(workScopeOf(active, active.controller.signal, own.signal, workSignal)) }
+      // And what it wrote and said before it threw — or returned a refused change — is taken back whole.
+      const runNow = (): void => {
+        made = def.run!(workScopeOf(active, active.controller.signal, own.signal, workSignal))
+        if (made === undefined || made === null || made instanceof Promise) return
+        const { at, data } = made as { at?: string; data?: Plain | ((draft: Plain) => void) }
+        if (at === undefined) {
+          if (!apply(active, made)) throw UNDONE
+          return
+        }
+        const nextData = data === undefined || typeof data === 'function' ? {} : data
+        if (!isPlainObject(nextData)) {
+          trace(`DEFECT: ${top.ref} cannot change data with a non-object value`)
+          throw UNDONE
+        }
+        const cannot = cannotGo(top, at, nextData)
+        if (cannot) { trace(`DEFECT: ${top.ref} ${cannot}`); throw UNDONE }
+        if (typeof data === 'function') {
+          if (!apply(active, { data })) throw UNDONE
+          deferred = { at }
+        } else {
+          deferred = made
+        }
+      }
       const before = sayings()
-      try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); if (!(error instanceof Left)) inside.push({ kind: 'failure', of: active, error }); return active }
+      try { if (host.transact) host.transact(runNow); else runNow() } catch (error) {
+        unsay(before)
+        abortAfterUnsay(own)
+        if (error !== UNDONE && !(error instanceof Left)) inside.push({ kind: 'failure', of: active, error })
+        return active
+      }
       if (made instanceof Promise) {
         under(made,
           (value) => { own.abort(); if (!active.controller.signal.aborted) arrive({ kind: 'result', of: active, value }) },
@@ -586,7 +615,7 @@ export function system(host: {
         )
       } else {
         own.abort()
-        if (made !== undefined) inside.push({ kind: 'result', of: active, value: made })
+        if (deferred !== undefined) inside.push({ kind: 'result', of: active, value: deferred })
       }
     }
     return active
@@ -606,7 +635,12 @@ export function system(host: {
       // Ended as abandoned: an answer its handler gives later has nobody to go to, and is not one.
       abandoned.add(question)
       const asked = askedOf.get(question)
-      leaving.push(Object.assign(() => question.end(refusal('abandoned', 'It stopped before answering')), { said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent }))
+      const endAbandoned = (): void => question.end(refusal('abandoned', 'It stopped before answering'))
+      leaving.push(Object.assign(endAbandoned, {
+        lost: endAbandoned,
+        anyway: true as const,
+        said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent,
+      }))
     }
     for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release)
     const { ...rest } = active.top.data
@@ -750,22 +784,29 @@ export function system(host: {
           following = peer.follow(
             feature, view, args,
             (update) => heard(update as ViewUpdate<unknown>),
-            (failure) => heard({ ok: false, error: failure.message }),
+            (failure) => { following = undefined; heard({ ok: false, error: failure.message }) },
           )
         }, { kind: 'follow', to: feature, name: view })
         return () => {
           stopped = true
-          if (following) { const live = following; out(() => live.stop(), { kind: 'unfollow', to: feature, name: view }) }
+          if (following) { const live = following; following = undefined; out(() => live.stop(), { kind: 'unfollow', to: feature, name: view }) }
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => settle(at.following, id, seen, (live) => {
           let asked: object
           try { asked = args() as object } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return undefined }
-          const running = views(declared.feature, declared.view, asked, (update) => {
-            if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, update })
-          })
-          return typeof running === 'function' ? running : () => running.stop()
+          let runningView: (() => void) | Viewing
+          try {
+            runningView = views(declared.feature, declared.view, asked, (update) => {
+              if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
+            })
+          } catch (error) {
+            trace(`DEFECT: ${top.ref} could not follow ${id}: ${said(error)}`)
+            return undefined
+          }
+          const stop = typeof runningView === 'function' ? runningView : () => runningView.stop()
+          return () => safely(`stopping ${top.ref}'s view ${id}`, stop)
         })
         if (declared.each !== undefined) {
           for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key))
@@ -822,7 +863,7 @@ export function system(host: {
     const enters = (inner: LooseDef, path: string): string | undefined => {
       for (const [field, initial] of Object.entries(inner.data ?? {})) {
         after.add(field)
-        if (initial === given && !(field in entering)) return `cannot enter ${path} without ${field}`
+        if (initial === given && !Object.hasOwn(entering, field)) return `cannot enter ${path} without ${field}`
       }
       return undefined
     }
@@ -847,22 +888,34 @@ export function system(host: {
   }
 
   /** Why a state cannot start with what it is given, checked before anything registers or runs. */
-  const cannotBegin = (def: LooseDef, entering: Plain | undefined): string | undefined => {
-    const provided = entering ?? {}
+  const cannotBegin = (def: LooseDef, entering: unknown): string | undefined => {
+    if (entering !== undefined && !isPlainObject(entering)) return 'cannot start with non-object given data'
+    const provided: Plain = entering ?? {}
     for (const [field, initial] of Object.entries(def.data ?? {})) {
-      if (initial === given && !(field in provided)) return `cannot start without ${field}`
+      if (initial === given && !Object.hasOwn(provided, field)) return `cannot start without ${field}`
+    }
+    for (let cur = def, path = ''; cur.start !== undefined; ) {
+      const nextName = cur.start
+      path = path ? `${path}.${nextName}` : nextName
+      const inner = cur.states?.[nextName]
+      if (!inner) return `has no state ${path} to start at`
+      for (const [field, initial] of Object.entries(inner.data ?? {})) {
+        if (initial === given) return `cannot start at ${path} without ${field}`
+      }
+      cur = inner
     }
     return undefined
   }
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): { ref: string } => {
-    mark(ref)
     const makes = new Map<string, 'one' | 'each'>()
     const survey = (of: LooseDef): void => {
       for (const [name, made] of Object.entries(declaredBy(of).makes)) makes.set(name, made.kind)
       for (const inner of Object.values(of.states ?? {})) survey(inner)
     }
     survey(def)
+    restarted.add(ref)
+    mark(ref)
     const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, makes }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
@@ -917,15 +970,16 @@ export function system(host: {
       if (at !== undefined) { const was = top.data; go(top, at, {}); moved(top, was) }
       return MADE
     }
+    if (!isPlainObject(data)) { trace(`DEFECT: ${top.ref} cannot change data with a non-object value`); return NOT_MADE }
     // The same rule for fields as for an edit: every one of them has to be a field there will be, or none is taken.
     // Without a move those are the fields there are. With one, they are the fields of the states the move leaves it in.
     const cannot = at === undefined
-      ? Object.keys(data).filter((field) => !(field in top.data)).map((field) => `has no field ${field} to change`)[0]
+      ? Object.keys(data).filter((field) => !Object.hasOwn(top.data, field)).map((field) => `has no field ${field} to change`)[0]
       : cannotGo(top, at, data)
     if (cannot) { trace(`DEFECT: ${top.ref} ${cannot}`); return NOT_MADE }
     // Data first, then the move: the work of a state that is entered reads the data as the handler left it.
     for (const [field, value] of Object.entries(data)) {
-      if (!(field in top.data)) continue
+      if (!Object.hasOwn(top.data, field)) continue
       if (!Object.is(top.data[field], value)) touch(top.ref, field)
       top.data = { ...top.data, [field]: value }
     }
@@ -1005,8 +1059,8 @@ export function system(host: {
     if (item.kind === 'failure') return fail(item.of, item.error)
     if (item.kind === 'view') {
       const followed = declaredBy(item.of.def).follows[item.name]
-      if (!followed || item.of.controller.signal.aborted) return MADE
-      hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.of.following.get(item.id)?.because ?? new Set() }
+      if (!followed || item.of.following.get(item.id) !== item.live) return MADE
+      hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
       try { return apply(item.of, followed.heard(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
         trace(`DEFECT: ${item.of.top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`)
         return NOT_MADE
@@ -1053,7 +1107,7 @@ export function system(host: {
       const table = item.made ? declaredBy(item.of.def).makes : declaredBy(item.of.def).awaits
       const live = item.made ? item.of.making : item.of.awaiting
       const declared = table[item.name]
-      if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE
+      if (!declared || live.get(item.id) !== item.live) return MADE
       const top = item.of.top
       const given = eventScopeOf(item.of, item.key)
       // What a read delivers may not lead round to itself. An ask that was made once has nothing to come round to.
@@ -1150,53 +1204,78 @@ export function system(host: {
     for (const item of waiting.splice(0)) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why)))
   }
   const STOPPED = 'It stopped when it could not keep what a step wrote'
+  const CUT_SHORT = 'The step was cut short after running away'
+  const LIMIT_REACHED = 'It has taken every step it is allowed'
   /**
    * A step's rows could not be kept. Nothing has left yet, so nobody was told of a change that was not made. The
    * states are ahead of the rows now, and the system stops, all of it: an ask in the step is told it failed, one
    * that was waiting to be taken is told there is nothing to take it, and every state ends, which ends the work it
    * was doing and the asks it was answering. Nothing is left that somebody could be waiting on.
    */
-  const lost = (error: unknown): void => {
+  const lost = (error: unknown, told: typeof logging): (() => void) => {
     broken = true
     trace(`DEFECT: ${called} could not keep what a step wrote, and has stopped: its states were ahead of its rows. ${said(error)}`)
-    changed.clear(); fields.clear(); places.clear()
+    changed.clear(); fields.clear(); places.clear(); stale.clear(); restarted.clear()
     // Whoever asked in this step is told it failed. Nothing else the step would have sent leaves.
+    if (told) told.ended = 'lost'
     for (const leave of leaving.splice(0)) {
       if (!leave.lost) continue
       safely('what leaves at the commit', leave.lost)
-      if (logging && leave.said) logging.left.push({ ...sentOf(leave.said), outcome: 'failed' })
+      if (told && leave.said) {
+        const entry = sentOf(leave.said)
+        told.left.push(entry.kind === 'answer' ? { ...entry, outcome: 'failed' } : entry)
+      }
     }
-    if (logging) logging.ended = 'lost'
     turnAway(inside, STOPPED); turnAway(outside, STOPPED); turnAway(held, STOPPED)
     for (const ref of [...running.keys()].reverse()) end(ref)
     const refs = [...changed]
-    changed.clear(); fields.clear(); places.clear()
+    changed.clear(); fields.clear(); places.clear(); stale.clear(); restarted.clear()
     committed = {}
-    for (const leave of leaving.splice(0)) {
-      safely('what leaves as it stops', leave)
-      if (logging && leave.said) logging.left.push(sentOf(leave.said))
+    const stopLeaving = leaving.splice(0)
+    return () => {
+      for (const leave of stopLeaving) {
+        safely('what leaves as it stops', leave)
+        if (told && leave.said) told.left.push(sentOf(leave.said))
+      }
+      for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
+      turnAway(outside, STOPPED)
     }
-    for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
   }
-  const commit = (): void => {
+  const prepareCommit = (told: typeof logging): (() => void) => {
     if (changed.size) {
       const refs = [...changed]
       changed.clear()
-      committed = Object.fromEntries([...running].map(([ref, top]) => [ref, valueOf(top)]))
+      const previous = committed
+      const next = Object.fromEntries([...running].map(([ref, top]) => [ref, valueOf(top)]))
+      for (const ref of restarted) {
+        const before = previous[ref] as { at?: string; data: Plain; making?: Plain } | undefined
+        const after = next[ref] as { at?: string; data: Plain; making?: Plain } | undefined
+        if (!before || !after) continue
+        if (before.at !== after.at) placesOf(ref).moved = true
+        for (const field of new Set([...Object.keys(before.data), ...Object.keys(after.data)])) {
+          if (Object.hasOwn(before.data, field) !== Object.hasOwn(after.data, field) || !Object.is(before.data[field], after.data[field])) {
+            fields.set(ref, (fields.get(ref) ?? new Set()).add(field))
+          }
+        }
+      }
+      restarted.clear()
+      committed = next
       const which = Object.fromEntries([...fields].map(([ref, touched]) => [ref, [...touched]]))
       fields.clear()
       const where = Object.fromEntries(places)
       places.clear()
-      if (logging) logging.changed = Object.fromEntries(refs.map((ref) => [ref, {
+      if (told) told.changed = Object.fromEntries(refs.map((ref) => [ref, {
         fields: which[ref] ?? [], moved: where[ref]?.moved ?? false, making: where[ref]?.making ?? false,
         at: (committed[ref] as { at?: string } | undefined)?.at ?? '',
       }]))
       leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) })
     }
     const now = leaving.splice(0)
-    for (const leave of now) {
-      safely('what leaves at the commit', leave)
-      if (logging && leave.said) logging.left.push(sentOf(leave.said))
+    return () => {
+      for (const leave of now) {
+        safely('what leaves at the commit', leave)
+        if (told && leave.said) told.left.push(sentOf(leave.said))
+      }
     }
   }
 
@@ -1207,7 +1286,7 @@ export function system(host: {
     if (!stopping && host.limit !== undefined && steps >= host.limit) {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
-      turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
+      turnAway(inside, LIMIT_REACHED); turnAway(outside, LIMIT_REACHED)
       return
     }
     if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); return }
@@ -1215,23 +1294,30 @@ export function system(host: {
     const log = host.log
     // Whether everything was handled. A throw before that is the kernel's own; one after is the database not keeping it.
     let handled = false
+    let told: typeof logging
+    let flush: (() => void) | undefined
     const all = (): void => {
       first()
       let count = 0
+      let cutShort = false
       for (;;) {
         for (; inside.length; count++) {
           const item = inside.shift()!
           if (count < RUNAWAY) { handle(item); continue }
           // What it had done is committed, so that the states can be read and the report says where they got to.
+          cutShort = true
           trace(`DEFECT: a step was cut short after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`)
-          if (logging) logging.ended = 'cut short'
-          inside.length = 0
-          held.length = 0
+          if (told) told.ended = 'cut short'
+          if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', CUT_SHORT)))
+          turnAway(inside, CUT_SHORT)
+          turnAway(held, CUT_SHORT)
+          break
         }
         // What runs is matched to the data once everything sent so far is handled, and not in between. So which
         // states run depends on the data the step leaves and not on the way it got there: a key taken out and put
         // back is a key that stayed, whether one handler did both or two did one each.
         matchStale()
+        if (cutShort) { turnAway(inside, CUT_SHORT); turnAway(held, CUT_SHORT); break }
         const ready = held.filter((item) => running.has(item.ref))
         if (!ready.length && !inside.length) break
         for (const item of ready) { held.splice(held.indexOf(item), 1); inside.push(item) }
@@ -1247,26 +1333,33 @@ export function system(host: {
         else stepNow = readNow()
       }
       steps++
-      logging = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, left: [], ended: 'committed' } : undefined
+      told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, left: [], ended: 'committed' } : undefined
+      logging = told
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {
         // The kernel's own throw: not a step that ended any way a log says, and not logged.
-        if (!handled) { logging = undefined; throw error }
-        lost(error)
-        return
+        if (!handled) {
+          told = undefined
+          changed.clear(); fields.clear(); places.clear(); stale.clear(); restarted.clear()
+          throw error
+        }
+        flush = lost(error, told)
       }
-      commit()
+      if (!flush) flush = prepareCommit(told)
     } finally {
-      stepping = false; stepNow = undefined; hearing = undefined
-      const told = logging
-      logging = undefined
+      stepping = false; stepNow = undefined; hearing = undefined; logging = undefined
+    }
+    const wasFlushing = flushing
+    flushing = true
+    try { flush() } finally {
+      flushing = wasFlushing
       if (log && told) safely('the step log', () => log({ number: ++logged, ...told }))
     }
   }
   /** What was sent in this step to a state that is not running, until the step's match says whether it is to be. */
   const held: Array<Extract<Item, { ref: string }>> = []
   let settling = false
-  const pump = (): void => { while (!stepping && outside.length) step(() => handle(outside.shift()!)) }
+  const pump = (): void => { while (!stepping && !flushing && outside.length) step(() => handle(outside.shift()!)) }
   const arrive = (item: Item): void => { handOver(); outside.push(item); pump() }
   const enqueue = (item: Item): void => { if (stepping) inside.push(item); else arrive(item) }
 
@@ -1296,6 +1389,9 @@ export function system(host: {
   const self: System = {
     port,
     start: (ref, made, ...entering) => {
+      if (broken) throw new Error(`${called} cannot start ${ref}: ${STOPPED}`)
+      if (host.limit !== undefined && steps >= host.limit) throw new Error(`${called} cannot start ${ref}: ${LIMIT_REACHED}`)
+      if (running.has(ref)) throw new Error(`${called} already has a running state named ${ref}`)
       const def = made.def as LooseDef
       const initial = entering[0] as Plain | undefined
       const problem = cannotBegin(def, initial)
@@ -1327,10 +1423,29 @@ export function system(host: {
       }
       if (up) throw new Error(`${called} is already attached to a backend`)
       up = peerOrName
-      return () => { if (up === peerOrName) up = undefined }
+      if (!host.views && running.size && !broken) {
+        const markAll = (): void => { for (const ref of running.keys()) stale.set(ref, 'all') }
+        if (stepping) markAll()
+        else { step(markAll); pump() }
+      }
+      return () => {
+        if (up !== peerOrName) return
+        up = undefined
+        if (host.views) return
+        for (const top of running.values()) {
+          for (let active: Active | undefined = top.root; active; active = active.inside) {
+            for (const live of active.following.values()) live.stop()
+            active.following.clear()
+          }
+        }
+      }
     }) as System['attach'],
-    idle: () => pending === 0 && !due && !stepping && outside.length === 0,
-    stop: () => step(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
+    idle: () => pending === 0 && !due && !stepping && !flushing && outside.length === 0,
+    stop: () => {
+      const stopAll = (): void => { for (const ref of [...running.keys()].reverse()) end(ref) }
+      if (stepping) stopAll()
+      else { step(stopAll, true); pump() }
+    },
   }
   return self
 }

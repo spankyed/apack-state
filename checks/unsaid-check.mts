@@ -3,7 +3,7 @@
 // is still told that it failed: that is the kernel's word, not the handler's.
 //
 //   npx vitest run unsaid
-import { deepStrictEqual, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { answered, given, reaching, type StepLog } from '../src/index.ts'
 import { memory } from './store.mts'
@@ -415,5 +415,140 @@ await run([
     await rest()
     strictEqual(outer.ok, false)
     deepStrictEqual(ended, [TAKEN_BACK])
+  }],
+  ['a synchronous run() returning a refused change rolls back its database writes and everything it said, while valid returns commit cleanly', async () => {
+    for (const kind of ['stray', 'bad move', 'draft throws', 'non-object'] as const) {
+      const rows = memory()
+      const defects: string[] = []
+      const sys = system({ side: 'backend', transact: rows.transact, trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+      const earH = sys.start('ear', ear())
+      const actor = state<{ data: { n: number }; states: { idle: {}; bad: {} } }, { type: 'GO' }>()({
+        data: { n: 0 },
+        start: 'idle',
+        on: { GO: () => ({ at: 'bad' }) },
+        states: {
+          idle: {},
+          bad: {
+            run({ tell }) {
+              rows.put('thread', kind, { topic: 'must-roll-back' })
+              tell('ear', { type: 'NOTE', text: `from ${kind}` })
+              if (kind === 'stray') return { data: { nope: 1 } } as never
+              if (kind === 'bad move') return { at: 'missing' } as never
+              if (kind === 'draft throws') return { at: 'idle', data: () => { throw new Error('draft broke') } }
+              return { at: 'idle', data: null as never }
+            },
+          },
+        },
+      })
+      const h = sys.start('actor', actor)
+      sys.send(h, { type: 'GO' })
+      strictEqual(rows.get('thread', kind), undefined, `${kind} must roll back DB writes`)
+      deepStrictEqual(sys.read(earH).data.heard, [], `${kind} must unsay tell`)
+      strictEqual(sys.read(h).at, 'bad', `${kind} keeps entered state without applying refused return`)
+      strictEqual(defects.length, 1, `${kind} reports one defect`)
+      if (kind === 'non-object') ok(defects[0]!.includes('non-object'), defects[0])
+    }
+    // A parent state whose synchronous run() returns a move defers the move until its start substate has finished entering.
+    const order: string[] = []
+    const parentMove = state<{
+      states: {
+        idle: {}
+        outer: { states: { inner: {} } }
+        other: {}
+      }
+    }, { type: 'GO' }>()({
+      start: 'idle',
+      on: { GO: () => ({ at: 'outer' }) },
+      states: {
+        idle: {},
+        outer: {
+          run() { order.push('outer'); return { at: 'other' } },
+          start: 'inner',
+          states: {
+            inner: {
+              run({ use }) { order.push('inner'); use(() => { order.push('left-inner') }) },
+            },
+          },
+        },
+        other: {
+          run() { order.push('other') },
+        },
+      },
+    })
+    const psys = system({ side: 'backend' })
+    const ph = psys.start('p', parentMove)
+    psys.send(ph, { type: 'GO' })
+    strictEqual(psys.read(ph).at, 'other')
+    deepStrictEqual(order, ['outer', 'inner', 'left-inner', 'other'])
+    // Valid synchronous run() returns: null (no-op), data-only, move without data, move with plain data, and move with draft edit.
+    for (const kind of ['null', 'data-only', 'move-plain', 'move-data', 'move-draft'] as const) {
+      const defects: string[] = []
+      const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+      const actor = state<{ data: { n: number }; states: { idle: {}; step: {}; done: { data: { tag?: string | undefined } } } }, { type: 'GO' }>()({
+        data: { n: 0 },
+        start: 'idle',
+        on: { GO: () => ({ at: 'step' }) },
+        states: {
+          idle: {},
+          step: {
+            run() {
+              if (kind === 'null') return null as never
+              if (kind === 'data-only') return { data: { n: 5 } }
+              if (kind === 'move-plain') return { at: 'done' }
+              if (kind === 'move-data') return { at: 'done', data: { n: 7, tag: 'ok' } }
+              return { at: 'done', data: (d) => { d.n = 9 } }
+            },
+          },
+          done: { data: { tag: undefined as never } },
+        },
+      })
+      const h = sys.start('actor', actor)
+      sys.send(h, { type: 'GO' })
+      deepStrictEqual(defects, [], kind)
+      const snap = sys.read(h)
+      if (kind === 'null') deepStrictEqual([snap.at, snap.data.n], ['step', 0])
+      if (kind === 'data-only') deepStrictEqual([snap.at, snap.data.n], ['step', 5])
+      if (kind === 'move-plain') deepStrictEqual([snap.at, snap.data.n], ['done', 0])
+      if (kind === 'move-data') deepStrictEqual([snap.at, snap.data.n, (snap.data as { tag?: string }).tag], ['done', 7, 'ok'])
+      if (kind === 'move-draft') deepStrictEqual([snap.at, snap.data.n], ['done', 9])
+    }
+  }],
+  ['a lost commit still settles asks abandoned during exit in the failing step and logs them as abandoned', async () => {
+    const logs: StepLog[] = []
+    let failCommit = false
+    let depth = 0
+    const sys = system({
+      side: 'backend',
+      log: (step) => logs.push(step),
+      transact: (fn) => {
+        depth++
+        try {
+          const result = fn()
+          if (depth === 1 && failCommit) throw new Error('disk full')
+          return result
+        } finally { depth-- }
+      },
+    })
+    const worker = state<{ states: { busy: {}; done: {} } }, { type: 'LEAVE' }, { SLOW: { args: {}; answer: string } }>()({
+      start: 'busy',
+      states: {
+        busy: {
+          on: { LEAVE: () => ({ at: 'done' }) },
+          asks: { SLOW: async () => new Promise<string>(() => {}) },
+        },
+        done: {},
+      },
+    })
+    const h = sys.start('worker', worker)
+    const pending = sys.ask(h, 'SLOW', {})
+    await new Promise<void>((resolve) => { nextTurn(resolve) })
+    failCommit = true
+    sys.send(h, { type: 'LEAVE' })
+    const outcome = await pending
+    strictEqual(outcome.ok, false)
+    if (!outcome.ok) strictEqual(outcome.failure.kind, 'abandoned')
+    const lostLog = logs.at(-1)!
+    strictEqual(lostLog.ended, 'lost')
+    deepStrictEqual(lostLog.left.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
   }],
 ])

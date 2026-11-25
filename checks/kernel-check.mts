@@ -520,6 +520,61 @@ const moves: Array<[string, () => void]> = [
     it.send({ type: 'COUNT_THE_SAME' })
     strictEqual(it.told.length, before, 'a field given the value it holds is not a change')
   }],
+  ['inherited prototype names and non-object data payloads are refused cleanly', () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const s = state<{ data: { count: number } }, { type: 'PROTO' } | { type: 'NULL_DATA' } | { type: 'ARR_DATA' }>()({
+      data: { count: 0 },
+      on: {
+        PROTO: () => ({ data: { toString: 'bad' } as never }),
+        NULL_DATA: () => ({ data: null as never }),
+        ARR_DATA: () => ({ data: [] as never }),
+      },
+    })
+    const handle = sys.start('s', s)
+    sys.send(handle, { type: 'PROTO' })
+    sys.send(handle, { type: 'NULL_DATA' })
+    sys.send(handle, { type: 'ARR_DATA' })
+    strictEqual(sys.read(handle).data.count, 0)
+    strictEqual(Object.hasOwn(sys.read(handle).data, 'toString'), false)
+    strictEqual(defects.length, 3)
+    ok(defects[0]!.includes('has no field toString'))
+    ok(defects[1]!.includes('non-object'))
+    ok(defects[2]!.includes('non-object'))
+  }],
+  ['a move whose target starts at a substate with a missing given field is refused cleanly', () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const badStartMove = {
+      def: {
+        start: 'a',
+        on: { GO: () => ({ at: 'b' }) },
+        states: {
+          a: {},
+          b: { start: 'inner', states: { inner: { data: { req: given } } } },
+        },
+      },
+    }
+    const handle = sys.start('m', badStartMove as never)
+    sys.send(handle as never, { type: 'GO' } as never)
+    strictEqual((sys.read(handle as never) as { at: string }).at, 'a')
+    deepStrictEqual(defects, ['DEFECT: m cannot enter b.inner without req'])
+  }],
+  ['an error thrown by a nested transact propagates instead of being swallowed as rollback', () => {
+    let depth = 0
+    const sys = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try {
+          if (depth === 2) throw new Error('nested db broken')
+          return fn()
+        } finally { depth-- }
+      },
+    })
+    const handle = sys.start('f', flat)
+    throws(() => sys.send(handle, { type: 'BUMP' }), /nested db broken/)
+  }],
 ]
 
 await runChecks([...checks, ...moves])

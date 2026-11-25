@@ -344,6 +344,181 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
     await rest()
     ok(/runs no views/.test(it.data().problem ?? ''), String(it.data().problem))
   }],
+  ['a local ViewHost that throws in views() or stop() is isolated without aborting exit or leaving zombie states', () => {
+    const defects: string[] = []
+    let throwInStop = false
+    const flakyViews: ViewHost = (_feature, _view, args) => {
+      if ((args as { currency: string }).currency === 'BOOM') throw new Error('views host crashed')
+      return {
+        stop: () => { if (throwInStop) throw new Error('view stop crashed') },
+      }
+    }
+    const sys = system({ side: 'window', views: flakyViews, trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const it = sys.start('two', two)
+    sys.send(it, { type: 'SET_CURRENCY', currency: 'BOOM' })
+    ok(defects.some((line) => line.includes('views host crashed')), defects.join('\n'))
+    // State is still healthy and responsive.
+    sys.send(it, { type: 'SET_CURRENCY', currency: 'USD' })
+    strictEqual(sys.read(it).data.currency, 'USD')
+    // Now throw in stop() during system.stop(): state must still exit cleanly with no zombie left behind.
+    throwInStop = true
+    sys.stop()
+    deepStrictEqual(sys.snapshot(), {})
+    ok(defects.some((line) => line.includes("stopping two's view total") && line.includes('view stop crashed')), defects.join('\n'))
+  }],
+  ['stale view deliveries after leaving or changing fields do not trigger a step', () => {
+    const callbacks: Array<(u: ViewUpdate<number>) => void> = []
+    let steps = 0
+    const sys = system({
+      side: 'window',
+      log: () => { steps++ },
+      views: (_f, _v, _a, heard) => { callbacks.push(heard); return () => {} },
+    })
+    const watcher = state<{ data: { currency: string; total: number }; states: { on: {}; off: {} } }, { type: 'CHANGE'; currency: string } | { type: 'OFF' }>()({
+      data: { currency: 'EUR', total: 0 },
+      start: 'on',
+      states: {
+        on: {
+          follows: (follow) => ({
+            total: follow('shop', 'total', {
+              from: ['currency'],
+              args: ({ currency }) => ({ currency }),
+              heard: (u) => (u.ok ? { data: { total: u.value } } : undefined),
+            }),
+          }),
+          on: {
+            CHANGE: ({ currency }) => ({ data: { currency } }),
+            OFF: () => ({ at: 'off' }),
+          },
+        },
+        off: {},
+      },
+    })
+    const h = sys.start('w', watcher)
+    const first = callbacks[0]!
+    sys.send(h, { type: 'CHANGE', currency: 'USD' })
+    const second = callbacks[1]!
+    const stepsAfterChange = steps
+    // Stale callback from EUR must be dropped before arrive() (no extra step).
+    first({ ok: true, value: 1 })
+    strictEqual(steps, stepsAfterChange)
+    sys.send(h, { type: 'OFF' })
+    const stepsAfterOff = steps
+    // Stale callback after leaving `on` must also be dropped before arrive() (no extra step).
+    second({ ok: true, value: 2 })
+    strictEqual(steps, stepsAfterOff)
+    strictEqual(sys.read(h).data.total, 0)
+  }],
+  ['queued view, ended, and progressed deliveries arriving after leave or replacement do not run stale handlers', async () => {
+    const calls: string[] = []
+    let deliverView!: (update: ViewUpdate<number>) => void
+    let triggerProgress!: (u: string) => void
+    let triggerEnd!: (o: { ok: true; value: string }) => void
+    type StaleNet = {
+      systems: { svc: { events: never; asks: { FETCH: { args: { k: string }; answer: string; progress: string } } } }
+      surfaces: {}
+      views: { shop: { total: { args: { currency: string }; result: number } } }
+    }
+    const s = reaching<StaleNet>()
+    const actor = s<{
+      data: { currency: string }
+      states: { active: {}; gone: {} }
+    }, { type: 'LEAVE' } | { type: 'CHANGE'; currency: string } | { type: 'TRIGGER' }>()({
+      data: { currency: 'EUR' },
+      start: 'active',
+      states: {
+        active: {
+          follows: (follow) => ({
+            total: follow('shop', 'total', {
+              from: ['currency'],
+              args: ({ currency }) => ({ currency }),
+              heard: (update) => { calls.push(`view:${update.ok ? update.value : update.error}`); return undefined },
+            }),
+          }),
+          awaits: (asking) => ({
+            fetch: asking('svc', 'FETCH', {
+              from: ['currency'],
+              args: ({ currency }) => ({ k: currency }),
+              heard: (updates) => { calls.push(`progress:${updates.join(',')}`); return undefined },
+              ended: (outcome) => { calls.push(`ended:${outcome.ok ? outcome.value : outcome.failure.kind}`); return undefined },
+            }),
+          }),
+          on: {
+            LEAVE: () => ({ at: 'gone' }),
+            CHANGE: ({ currency }) => ({ data: { currency } }),
+            TRIGGER: (_, { data }) => ({ data: { currency: data.currency } }),
+          },
+        },
+        gone: {},
+      },
+    })
+
+    // Case 1: queued while flushing, before LEAVE executes (tests `aborted` guard).
+    const sys1 = system({
+      side: 'window',
+      views: (_f, _v, _a, heard) => { deliverView = heard; return () => {} },
+    })
+    sys1.attach({
+      tell: () => {},
+      follow: () => ({ stop: () => {} }),
+      ask: (_to, _name, _args, heard, ended) => {
+        triggerProgress = (u) => heard(u)
+        triggerEnd = (o) => ended(o)
+        return () => {}
+      },
+    })
+    const h1 = sys1.start('a', actor)
+    let armed = false
+    sys1.subscribe(() => {
+      if (!armed) return
+      armed = false
+      // Inside flushing: queue LEAVE first, then view + progress + end behind it in `outside`.
+      sys1.send(h1, { type: 'LEAVE' })
+      deliverView({ ok: true, value: 99 })
+      triggerProgress('p1')
+      triggerEnd({ ok: true, value: 'late' })
+    })
+    armed = true
+    sys1.send(h1, { type: 'CHANGE', currency: 'USD' })
+    await rest()
+    strictEqual(sys1.read(h1).at, 'gone')
+    deepStrictEqual(calls, [])
+
+    // Case 2: queued while flushing, before CHANGE replaces live without aborting controller (tests `live.get(id) !== live` guard).
+    const sys2 = system({
+      side: 'window',
+      views: (_f, _v, _a, heard) => { deliverView = heard; return () => {} },
+    })
+    sys2.attach({
+      tell: () => {},
+      follow: () => ({ stop: () => {} }),
+      ask: (_to, _name, _args, heard, ended) => {
+        triggerProgress = (u) => heard(u)
+        triggerEnd = (o) => ended(o)
+        return () => {}
+      },
+    })
+    const h2 = sys2.start('a', actor)
+    let armed2 = false
+    sys2.subscribe(() => {
+      if (!armed2) return
+      armed2 = false
+      const staleView = deliverView
+      const staleProgress = triggerProgress
+      const staleEnd = triggerEnd
+      sys2.send(h2, { type: 'CHANGE', currency: 'GBP' })
+      staleView({ ok: true, value: 111 })
+      staleProgress('stale-p')
+      staleEnd({ ok: true, value: 'stale-end' })
+    })
+    armed2 = true
+    sys2.send(h2, { type: 'CHANGE', currency: 'JPY' })
+    strictEqual(sys2.read(h2).data.currency, 'GBP')
+    deepStrictEqual(calls, [])
+    sys1.stop()
+    sys2.stop()
+    await rest()
+  }],
 ]
 
 await run([...checks, ...moreChecks])

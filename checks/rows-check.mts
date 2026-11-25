@@ -3,7 +3,7 @@
 // on a temporary database. The kernel is given the `transact` of each and nothing else.
 //
 //   npx vitest run rows
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { explore, type Schedule } from '@apackdev/orderings'
 import { answered, given, reaching } from '../src/index.ts'
@@ -374,7 +374,7 @@ const checks = ([, open]: Kept): Array<readonly [string, () => void | Promise<vo
     const after = await sys.ask(handle, 'CREATE', { id: 'c', topic: 'after' })
     ok(!after.ok && after.failure.kind === 'unavailable' && /stopped/.test(after.failure.message), JSON.stringify(after))
     // Nor does it start anything more.
-    sys.start('later', noting('later', []))
+    throws(() => sys.start('later', noting('later', [])), /stopped/)
     strictEqual('later' in sys.snapshot(), false)
     strictEqual(store.get('thread', 'c'), undefined)
     strictEqual(store.writing, false)

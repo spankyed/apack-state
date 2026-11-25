@@ -433,6 +433,125 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.stop()
     deepStrictEqual(log, ['stopped b', 'stopped a', 'stopped helper'])
   }],
+  ['start refuses non-object given data, start substates with given or missing targets, duplicate refs, and post-limit starts', async () => {
+    const sys = system({ side: 'backend', limit: 3 })
+    throws(() => sys.start('c1', card([]), null as never), /non-object/)
+    throws(() => sys.start('c2', card([]), 42 as never), /non-object/)
+    throws(() => sys.start('c3', card([]), [] as never), /non-object/)
+    const startWithGiven = { def: { start: 'a', states: { a: { data: { note: given } } } } }
+    throws(() => sys.start('bad1', startWithGiven as never), /cannot start at a without note/)
+    const deepStartWithGiven = { def: { start: 'outer', states: { outer: { start: 'inner', states: { inner: { data: { note: given } } } } } } }
+    throws(() => sys.start('badDeep', deepStartWithGiven as never), /cannot start at outer\.inner without note/)
+    const missingStart = { def: { start: 'missing', states: {} } }
+    throws(() => sys.start('bad2', missingStart as never), /has no state missing to start at/)
+    const missingStatesMap = { def: { start: 'missing' } }
+    throws(() => sys.start('bad3', missingStatesMap as never), /has no state missing to start at/)
+    strictEqual('bad1' in sys.snapshot(), false)
+    strictEqual('bad2' in sys.snapshot(), false)
+    strictEqual('bad3' in sys.snapshot(), false)
+
+    const h = sys.start('c', card([]), { id: 'a', label: 'Alpha' })
+    throws(() => sys.start('c', card([]), { id: 'b', label: 'Beta' }), /already has a running state named c/)
+    // Consume remaining steps up to limit (3): start was step 1, two bumps reach step 3.
+    sys.send(h, { type: 'BUMP' })
+    sys.send(h, { type: 'BUMP' })
+    throws(() => sys.start('afterLimit', card([]), { id: 'z', label: 'Zed' }), /every step it is allowed/)
+    strictEqual('afterLimit' in sys.snapshot(), false)
+  }],
+  ['read(child(...)) returns undefined when the child is not running, and its snapshot when it is', async () => {
+    const seen: Array<string | undefined> = []
+    const reader = state<{ data: { items: Record<string, string> }; starts: { card: Each<ReturnType<typeof card>> } }, { type: 'PEEK'; id: string } | { type: 'ADD'; id: string; label: string }>()({
+      data: { items: {} },
+      starts: (start) => ({ card: start(card([]), { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }) }),
+      on: {
+        ADD: ({ id, label }) => ({ data: (d) => { d.items[id] = label } }),
+        PEEK: ({ id }, { read, child }) => { seen.push(read(child('card', id))?.data.label) },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('r', reader)
+    sys.send(h, { type: 'PEEK', id: 'missing' })
+    sys.send(h, { type: 'ADD', id: 'a', label: 'Alpha' })
+    sys.send(h, { type: 'PEEK', id: 'a' })
+    deepStrictEqual(seen, [undefined, 'Alpha'])
+  }],
+  ['calling sys.start() from inside a handler joins the open step', async () => {
+    let commits = 0
+    let depth = 0
+    const sys = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try { const r = fn(); if (depth === 1) commits++; return r } finally { depth-- }
+      },
+    })
+    let startedHandle: unknown
+    const spawner = state<{ data: { n: number } }, { type: 'SPAWN' }>()({
+      data: { n: 0 },
+      on: {
+        SPAWN: (_, { data }) => {
+          startedHandle = sys.start('spawned', card([]), { id: 's', label: 'Spawned' })
+          return { data: { n: data.n + 1 } }
+        },
+      },
+    })
+    const h = sys.start('spawner', spawner)
+    const before = commits
+    sys.send(h, { type: 'SPAWN' })
+    strictEqual(commits, before + 1)
+    strictEqual(sys.read(startedHandle as never) !== undefined, true)
+    strictEqual((sys.snapshot().spawned as { data: Card['data'] }).data.label, 'Spawned')
+  }],
+  ['dropping a parent child with in-flight sleep, ask, and use cleanup unwinds cleanly under every ordering', async () => {
+    await explore((schedule) => {
+      const released: string[] = []
+      let askOutcome: unknown
+      const sleeper = state<{ data: { id: string } }, never, { WAIT: { args: {}; answer: string } }>()({
+        data: { id: given },
+        run: async ({ use, sleep, data }) => {
+          use(() => { released.push(`released ${data.id}`) })
+          await sleep(10)
+        },
+        failed: () => undefined,
+        asks: {
+          WAIT: async () => {
+            await schedule.work('waiter', null)
+            return 'done'
+          },
+        },
+      })
+      const host = state<{ data: { kids: string[] }; starts: { kid: Each<typeof sleeper> } }, { type: 'DROP' }>()({
+        data: { kids: ['a'] },
+        starts: (start) => ({ kid: start(sleeper, { each: 'kids', given: (id) => ({ id }) }) }),
+        on: { DROP: () => ({ data: { kids: [] } }) },
+      })
+      let now = 0
+      const timers = new Map<number, () => void>()
+      let nextId = 1
+      const clock = {
+        now: () => now,
+        after: (ms: number, fn: () => void) => {
+          const id = nextId++
+          timers.set(id, fn)
+          schedule.does(`timer ${id}`, [`fire ${ms}`, () => { now += ms; const run = timers.get(id); if (run) { timers.delete(id); run() } }])
+          return () => { timers.delete(id) }
+        },
+      }
+      const sys = system({ side: 'backend', clock, later: schedule.later })
+      const h = sys.start('host', host)
+      const asking = sys.ask(sys.child(h, 'kid', 'a'), 'WAIT', {})
+      void asking.then((o) => { askOutcome = o })
+      schedule.does('parent', ['drop child', () => sys.send(h, { type: 'DROP' })])
+      return () => {
+        deepStrictEqual(released, ['released a'])
+        strictEqual(timers.size, 0)
+        strictEqual('host/kid/a' in sys.snapshot(), false)
+        ok(askOutcome !== undefined)
+      }
+    }).then((result) => {
+      strictEqual(result.failure, undefined, String(result.failure?.error))
+    })
+  }],
 ]
 
 /** Two asks that each add the same item after work of their own. Checking and starting are one step: one card. */

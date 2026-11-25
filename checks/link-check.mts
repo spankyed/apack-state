@@ -357,6 +357,55 @@ await run([
     await rest()
     strictEqual(brokenTraced.filter((line) => line.startsWith('DEFECT')).length, 1)
   }],
+  ['attaching a window port after start follows views immediately, and detach/reconnect re-follows cleanly', async () => {
+    let follows = 0
+    let stops = 0
+    const callbacks: Array<{ shown: (value: unknown) => void; over: (failure: Failure) => void }> = []
+    const makePort = (): Port => ({
+      tell: () => {},
+      ask: () => () => {},
+      follow: (_f, _v, _a, shown, over) => {
+        follows++
+        callbacks.push({ shown, over })
+        return { stop: () => { stops++ } }
+      },
+    })
+    const window = system({ side: 'window', name: WINDOW })
+    // Start BEFORE attaching any port.
+    const ph = window.start('panel', panel)
+    await rest()
+    strictEqual(follows, 0)
+
+    // Attaching now must immediately match and follow panel's view.
+    const detach1 = window.attach(makePort())
+    await rest()
+    strictEqual(follows, 1)
+    callbacks.at(-1)!.shown({ ok: true, value: 10 })
+    await rest()
+    strictEqual(window.read(ph).data.count, 10)
+
+    // Manual detach stops the old follow cleanly.
+    detach1()
+    strictEqual(stops, 1)
+
+    // Re-attaching a new port follows again cleanly.
+    const detach2 = window.attach(makePort())
+    await rest()
+    strictEqual(follows, 2)
+    callbacks.at(-1)!.shown({ ok: true, value: 25 })
+    await rest()
+    strictEqual(window.read(ph).data.count, 25)
+
+    // Disconnection via `over` clears the follow so a subsequent detach does NOT double-stop, and re-attach re-follows.
+    callbacks.at(-1)!.over({ kind: 'disconnected', message: 'gone' })
+    await rest()
+    detach2()
+    strictEqual(stops, 1)
+    window.attach(makePort())
+    await rest()
+    strictEqual(follows, 3)
+    window.stop()
+  }],
 ], async (tally) => {
   for (const how of ['one after the other', 'both at once'] as const) {
     // Two systems and a link have more orderings than a check can run each of: a seed's worth of them, as the checks

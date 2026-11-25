@@ -3,7 +3,7 @@
 // compiled would fail the check as an unused directive.
 
 import type * as from from '../checks/starts-check.mts'
-import type { System } from '../src/index.ts'
+import { given, type System } from '../src/index.ts'
 declare const state: typeof from.state
 declare const card: typeof from.card
 declare const helper: typeof from.helper
@@ -71,3 +71,50 @@ sys.start('card', card([]))
 sys.start('card', card([]), { id: 'a' })
 // @ts-expect-error a root state with no given fields takes no third argument
 sys.start('plain', plain, {})
+
+// A `start` substate cannot mark an optional field `given` (direct or nested).
+type OptStart = { states: { a: { data: { note?: string } }; b: { data: { id: string } } } }
+state<OptStart, never>()({
+  start: 'a',
+  states: {
+    // @ts-expect-error a start substate is entered with no supplied data, so it cannot mark a field given
+    a: { data: { note: given } },
+    b: { data: { id: given } },
+  },
+})
+type DeepOptStart = {
+  states: {
+    idle: {}
+    outer: { states: { inner: { data: { note?: string } } } }
+  }
+}
+state<DeepOptStart, never>()({
+  start: 'idle',
+  states: {
+    idle: {},
+    outer: {
+      start: 'inner',
+      states: {
+        // @ts-expect-error even inside a non-start branch, its own start substate cannot mark a field given
+        inner: { data: { note: given } },
+      },
+    },
+  },
+})
+
+// Reading a started child via `read(child(...))` can return `undefined` when it is not running.
+state<Board, BoardEvent, BoardAsks>()({
+  data: { title: '', items: {}, lastBump: null },
+  start: 'open',
+  starts: (start) => ({ card: start(card([]), { each: 'items', given: (id) => ({ id, label: '' }) }) }),
+  on: {
+    BUMP: (_, { read, child }) => {
+      const okLabel: string | undefined = read(child('card', 'a'))?.data.label
+      void okLabel
+      // @ts-expect-error a started child might not be running, so read() may be undefined
+      const unsafe: string = read(child('card', 'a')).data.label
+      void unsafe
+    },
+  },
+  states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} },
+})

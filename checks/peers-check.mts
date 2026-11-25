@@ -179,6 +179,101 @@ await run([
     deepStrictEqual(seenB, [{ type: 'STEP_RECORDED', id: 'r1', detail: 'to-b' }])
   }],
 
+  ['a peer that detaches mid-flush drops subsequent queued tells, and re-entering start/send/stop in peer.tell stays consistent', async () => {
+    // 1. Mid-flush detach: a step emits two peer tells; the first detaches the peer, so the second is dropped.
+    const received: unknown[] = []
+    const traces: string[] = []
+    const backend = system({ side: 'backend', trace: (line) => traces.push(line) })
+    const doubleTeller = state<{}, { type: 'TWO' }>()({
+      on: {
+        TWO: (_, { tell }) => {
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '1', detail: 'first' })
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '2', detail: 'second' })
+        },
+      },
+    })
+    const h = backend.start('double', doubleTeller)
+    let detach!: () => void
+    detach = backend.attach('runHistory', {
+      tell: (_to, event) => {
+        received.push(event)
+        detach()
+      },
+    })
+    backend.send(h, { type: 'TWO' })
+    deepStrictEqual(received, [{ type: 'STEP_RECORDED', id: '1', detail: 'first' }])
+    ok(traces.some((line) => line.includes('no peer named runHistory')), traces.join('\n'))
+
+    // 2. Re-entrant start() and send() from inside peer.tell() commit their own steps without clobbering the outer StepLog,
+    //    and `flushing` defers pumping `outside` until the outer step finishes flushing its remaining leaving items.
+    const logs: StepLog[] = []
+    const flushOrder: string[] = []
+    const sys2 = system({ side: 'backend', log: (step) => logs.push(step) })
+    const counter = state<{ data: { n: number } }, { type: 'INC' }>()({
+      data: { n: 0 },
+      on: { INC: (_, { data }) => { flushOrder.push('inc'); return { data: { n: data.n + 1 } } } },
+    })
+    let spawnedHandle: unknown
+    let readInCallback: unknown
+    let idleInCallback: boolean | undefined
+    sys2.attach('runHistory', {
+      tell: (_to, event) => {
+        const id = (event as { id: string }).id
+        flushOrder.push(`peer:${id}`)
+        if (!spawnedHandle) {
+          idleInCallback = sys2.idle()
+          const ch = sys2.start('counter', counter)
+          spawnedHandle = ch
+          readInCallback = sys2.read(ch)
+          sys2.send(ch, { type: 'INC' })
+        }
+      },
+    })
+    const twoRunner = state<{}, { type: 'TWO' }>()({
+      on: {
+        TWO: (_, { tell }) => {
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '1', detail: 'first' })
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '2', detail: 'second' })
+        },
+      },
+    })
+    const r2 = sys2.start('runner', twoRunner)
+    sys2.send(r2, { type: 'TWO' })
+    await rest()
+    strictEqual(idleInCallback, false)
+    deepStrictEqual(flushOrder, ['peer:1', 'peer:2', 'inc'])
+    deepStrictEqual(readInCallback, { data: { n: 0 } })
+    strictEqual((sys2.snapshot().counter as { data: { n: number } }).data.n, 1)
+    ok(logs.some((step) => step.handled.some((item) => item.kind === 'event' && item.name === 'TWO')))
+    ok(logs.some((step) => step.handled.some((item) => item.kind === 'event' && item.name === 'INC')))
+
+    // 3. Re-entrant stop() from inside peer.tell() AND from inside a handler ends all states cleanly and drains outside.
+    const sys3 = system({ side: 'backend' })
+    const r3 = sys3.start('runner', runner)
+    sys3.attach('runHistory', {
+      tell: () => {
+        sys3.send(r3, { type: 'RECORD', id: 'queued-before-stop', detail: 'x' })
+        sys3.stop()
+      },
+    })
+    sys3.send(r3, { type: 'RECORD', id: 'r3', detail: 'stop-me' })
+    await rest()
+    deepStrictEqual(sys3.snapshot(), {})
+    strictEqual(sys3.idle(), true)
+
+    const logs4: StepLog[] = []
+    const sys4 = system({ side: 'backend', log: (step) => logs4.push(step) })
+    const stopper = state<{ data: { n: number } }, { type: 'HALT' }>()({
+      data: { n: 0 },
+      on: { HALT: () => { sys4.stop() } },
+    })
+    const h4 = sys4.start('stopper', stopper)
+    sys4.send(h4, { type: 'HALT' })
+    deepStrictEqual(sys4.snapshot(), {})
+    strictEqual(sys4.idle(), true)
+    strictEqual(logs4.length, 2)
+  }],
+
   ['telling a peer after await in run delivers in its own step', async () => {
     const seen: unknown[] = []
     const logs: StepLog[] = []

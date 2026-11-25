@@ -320,6 +320,50 @@ const either: Array<[string, () => Promise<void>]> = [
     strictEqual(pick('b'), 'Beta')
     app.unmount()
   }],
+  ['unmounting a Vue component while an async ask and view update are in flight cleans up cleanly', async () => {
+    let deliver!: (u: { ok: true; value: string }) => void
+    let resolveAsk!: (v: string) => void
+    const s = reaching<{
+      systems: { panel: { events: never; asks: { LOAD: { args: {}; answer: string } } } }
+      surfaces: {}
+      views: { notes: { title: { args: {}; result: string } } }
+    }>()
+    const panelState = s<{ data: { title: string } }, never, { LOAD: { args: {}; answer: string } }>()({
+      data: { title: 'init' },
+      follows: (follow) => ({
+        title: follow('notes', 'title', {
+          args: () => ({}),
+          heard: (u) => (u.ok ? { data: { title: u.value } } : undefined),
+        }),
+      }),
+      asks: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },
+    })
+    const sys = system({
+      side: 'window',
+      views: (_f, _v, _a, heard) => { deliver = heard; return () => {} },
+    })
+    const handle = sys.start('panel', panelState)
+    const appBinding = vueBinding<{ panel: typeof panelState }>()
+    let renders = 0
+    const app = createApp(defineComponent(() => {
+      const { state } = appBinding.useState('panel')
+      return () => { renders++; return h('p', state.value.data.title) }
+    }))
+    appBinding.provide(app, sys)
+    app.mount(node('page'))
+    strictEqual(renders, 1)
+    const pendingAsk = sys.ask(handle, 'LOAD', {})
+    // Unmount while both the view and ask are still in flight.
+    app.unmount()
+    const rendersAtUnmount = renders
+    deliver({ ok: true, value: 'updated after unmount' })
+    resolveAsk('done')
+    const outcome = await pendingAsk
+    await nextTick()
+    strictEqual(outcome.ok, true)
+    strictEqual(sys.read(handle).data.title, 'updated after unmount')
+    strictEqual(renders, rendersAtUnmount)
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>
