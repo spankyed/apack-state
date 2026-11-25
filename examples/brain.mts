@@ -111,7 +111,7 @@ export const makeStepState = (execute: StepExecutor) => state<StepShape, never>(
 
 type ActiveStep = { readonly runNodeId: string; readonly step: StepDef; readonly payload: unknown; readonly trackId: string }
 type ActiveSubflow = { readonly runNodeId: string; readonly flowId: string; readonly blueprint: FlowBlueprint; readonly stepId: string; readonly trackId: string }
-type TrackState = { readonly live: number; readonly eventType: string; readonly failed?: boolean }
+type TrackState = { readonly live: number; readonly eventType: string; readonly failed?: boolean; readonly error?: string }
 
 export type FlowEvent =
   | { readonly type: 'TRIGGER'; readonly eventType: string; readonly payload: unknown; readonly targetFlowId?: string }
@@ -208,10 +208,15 @@ export const makeFlowState = (
     const { nextStep, nextLive, shouldComplete, shouldFail } = nextOutcome({ blueprint, tracks: draft.tracks }, stepId, trackId, failed)
     const track = draft.tracks[trackId]
     const trackFailed = Boolean(track?.failed) || failed
-    if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}) }
+    const trackError = track?.error ?? error
+    if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}), ...(trackError !== undefined ? { error: trackError } : {}) }
     if (nextLive === 0) tellPeer({ type: 'NODE_FINISHED', id: trackId, status: trackFailed ? 'failed' : 'completed', at: now })
     if (shouldComplete) { draft.finalResult = result; return }
-    if (shouldFail) { draft.finalError = error ?? 'flow failed'; return }
+    if (shouldFail) {
+      const firstError = Object.values(draft.tracks).find((t) => t.error !== undefined)?.error
+      draft.finalError = firstError ?? 'flow failed'
+      return
+    }
     if (nextStep) spawnChild(draft, nextStep, result, trackId, parentId, now, tellPeer)
   }
 
@@ -308,9 +313,10 @@ export const makeFlowState = (
       },
       failed: {
         run({ data, now, tell, report }) {
+          const error = data.finalError ?? 'flow failed'
           tell({ peer: 'runHistory' }, { type: 'STOP_ACTIVE', under: data.runNodeId, at: now })
-          tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'failed', ...(data.finalError ? { error: data.finalError } : {}), at: now })
-          report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, error: data.finalError ?? 'flow failed' })
+          tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'failed', error, at: now })
+          report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, error })
         },
       },
     },

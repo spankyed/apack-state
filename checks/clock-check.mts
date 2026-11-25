@@ -508,6 +508,7 @@ await run([
   ['stop shuts down cleanly even when clock.now fails, and failed clock reads do not consume step limit', async () => {
     const manual = manualClock(5_000)
     const logs: StepLog[] = []
+    const traces: string[] = []
     let released = 0
     const sleeper = state<{ states: { waiting: {} } }>()({
       start: 'waiting',
@@ -532,18 +533,56 @@ await run([
         },
       },
     })
-    const sys = system({ side: 'window', clock: manual.clock, log: (step) => logs.push(step) })
+    const abortThrower = state<{ states: { waiting: {} } }>()({
+      start: 'waiting',
+      states: {
+        waiting: {
+          run({ signal }) {
+            return new Promise<void>((_, reject) => {
+              signal.addEventListener('abort', () => reject(new Error('aborted fetch')))
+            })
+          },
+          failed: () => {},
+        },
+      },
+    })
+    const abortThrowerRoot = state<{}>()({
+      run({ signal }) {
+        return new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('root aborted')))
+        })
+      },
+      failed: () => {},
+    })
+    type WaitAsks = { WAIT_REJECT: { args: {}; answer: string }; WAIT_RESOLVE: { args: {}; answer: string } }
+    const waiter = state<{}, never, WaitAsks>()({
+      asks: {
+        WAIT_REJECT: async (_, { sleep }) => { await sleep(30_000); return 'late' },
+        WAIT_RESOLVE: async (_, { sleep }) => { try { await sleep(30_000) } catch { return 'caught' } return 'late' },
+      },
+    })
+    const sys = system({ side: 'window', clock: manual.clock, log: (step) => logs.push(step), trace: (line) => traces.push(line) })
     const h = sys.start('s', sleeper)
     sys.start('c', catcher)
-    strictEqual(manual.pending(), 2)
+    sys.start('a', abortThrower)
+    sys.start('r', abortThrowerRoot)
+    const wh = sys.start('w', waiter)
+    const p1 = sys.ask(wh, 'WAIT_REJECT', {})
+    const p2 = sys.ask(wh, 'WAIT_RESOLVE', {})
+    strictEqual(manual.pending(), 4)
     manual.setTime(Number.NaN)
     sys.stop()
+    const [r1, r2] = await Promise.all([p1, p2])
+    ok(!r1.ok && r1.failure.kind === 'abandoned')
+    ok(!r2.ok && r2.failure.kind === 'abandoned')
     await rest()
     strictEqual(sys.read(h), undefined)
     strictEqual(manual.pending(), 0)
     strictEqual(released, 1)
     strictEqual(sys.idle(), true)
     strictEqual(logs.at(-1)!.now, 5_000, 'stop falls back to lastNow when clock.now fails')
+    ok(traces.some((line) => /a in waiting failed after it was left: aborted fetch/.test(line)), traces.join('\n'))
+    ok(traces.some((line) => /^r failed after it was left: root aborted$/.test(line)), traces.join('\n'))
 
     // Even if clock.now throws before any step has ever succeeded, stop still completes cleanly and omits now.
     const brokenLogs: StepLog[] = []
@@ -556,7 +595,7 @@ await run([
     strictEqual(brokenLogs.length, 1)
     strictEqual('now' in brokenLogs[0]!, false)
 
-    // A non-finite clock.now() throw does not consume host.limit.
+    // A non-finite clock.now() throw does not consume host.limit, and stop() still shuts down after limit is hit.
     const limManual = manualClock(1_000)
     const limTimes: number[] = []
     const limTraces: string[] = []
@@ -574,6 +613,9 @@ await run([
     limited.send(lh, { type: 'PING' }) // step 4 exceeds limit: 3
     deepStrictEqual(limTimes, [2_000, 2_000])
     strictEqual(limTraces.filter((line) => line.startsWith('DEFECT')).length, 1)
+    limited.stop()
+    strictEqual(limited.read(lh), undefined)
+    strictEqual(limited.idle(), true)
   }],
 
   ['unawaited sleep is cancelled when run or an ask handler finishes by returning or throwing', async () => {
