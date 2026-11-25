@@ -1,0 +1,26 @@
+# Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
+
+StepShape
+  states: executing, completed, failed
+    executing        (its work ends)    → completed
+    executing        (its work fails)   → failed
+  reaches: tell { peer: 'runHistory' }
+  findings: none
+
+FlowShape
+  states: active, completed
+    active           STEP_DONE          → completed
+    active           FLOW_DONE          → completed
+  changes data only: TRIGGER in active
+  starts: step (one for each key) in active, subflow (one for each key) in active
+  reaches: tell its 'subflow', tell { peer: 'runHistory' }
+  findings: none
+
+BrainShape
+  states: stopped, running
+    stopped          START_BRAIN        → running
+    running          KILL_BRAIN         → stopped
+  changes data only: TRIGGER_BRAIN_EVENT in running, FLOW_DONE in running
+  starts: rootFlow in running
+  reaches: tell { peer: 'runHistory' }, broadcast 'brain', tell its 'rootFlow'
+  findings: none
