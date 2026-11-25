@@ -77,17 +77,17 @@
   {
     "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending) | changes[ref]?.pending && into.pending || latest.pending",
     "original": "changes[ref]?.pending && into.pending && latest.pending",
-    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
+    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
     "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending) | true",
     "original": "changes[ref]?.pending && into.pending",
-    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
+    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
     "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending) | changes[ref]?.pending || into.pending",
     "original": "changes[ref]?.pending && into.pending",
-    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has making on every value or on none, so into.making and latest.making are there together or not at all"
+    "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
     "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",
@@ -112,22 +112,22 @@
   {
     "key": "src/kernel.ts | OptionalChaining | kept = index < names.length - 1 && kept?.inside?.name === name ? kept.inside : undefined | kept?.inside.name",
     "original": "kept?.inside?.name",
-    "why": "Every state with states inside it has a start, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
+    "why": "Every state with states inside it has an initial, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | while (shared < names.length - 1 && kept.inside?.name === names[shared]) { kept = kept.inside!; shared++ } | kept.inside.name",
     "original": "kept.inside?.name",
-    "why": "Every state with states inside it has a start, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
+    "why": "Every state with states inside it has an initial, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | def = def.states?.[def.initial] ?? {} | def.states[def.initial]",
     "original": "def.states?.[def.initial]",
-    "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
+    "why": "The initial a move's target leads to is checked by the types: an initial names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (kept.inside) exit(kept.inside) | true",
     "original": "kept.inside",
-    "why": "The last state a move keeps always has one inside it, since it has states (the path goes on below it) and so a start: there is always something to leave, and the guard is never false"
+    "why": "The last state a move keeps always has one inside it, since it has states (the path goes on below it) and so an initial: there is always something to leave, and the guard is never false"
   },
   {
     "key": "src/kernel.ts | ObjectLiteral | const frames: Lane = { label: `${called}'s frame` } | {}",
@@ -232,7 +232,7 @@
   {
     "key": "src/kernel.ts | EqualityOperator | if (cut < 0) pending[id] = true; else (pending[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true | cut <= 0",
     "original": "cut < 0",
-    "why": "An id that a make is kept under starts with the ask's declared name, which is never empty, so a slash is never its first character"
+    "why": "An id that a pending call is kept under starts with the ask's declared name, which is never empty, so a slash is never its first character"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const isSurface = (to: unknown): to is { surface: string } => typeof to === 'object' && to !== null && 'surface' in to | true",
@@ -242,7 +242,7 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
     "original": "!signal?.aborted",
-    "why": "When the asker's signal is aborted the ask has already been rejected with Left (the abort listener runs first), so resolving it after does nothing"
+    "why": "When the asker's signal is aborted the ask has already been rejected with Cancelled (the abort listener runs first), so resolving it after does nothing"
   },
   {
     "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', left, { once: true }) | {}",
@@ -272,17 +272,17 @@
   {
     "key": "src/kernel.ts | OptionalChaining | for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering) | active.def.states[name]",
     "original": "active.def.states?.[name]",
-    "why": "A move's path is checked before it is made (cannotGo), and a start names one of the states beside it, so the states a step enters are always there to read"
+    "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },
   {
     "key": "src/kernel.ts | OptionalChaining | while (active.def.initial !== undefined) active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering) | active.def.states[active.def.initial]",
     "original": "active.def.states?.[active.def.initial]",
-    "why": "A move's path is checked before it is made (cannotGo), and a start names one of the states beside it, so the states a step enters are always there to read"
+    "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },
   {
     "key": "src/kernel.ts | StringLiteral | one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }), | \"\"",
     "original": "'one'",
-    "why": "A make declared one at a time is told from one for each key only by being each or not, so the name of its kind is never read"
+    "why": "A call declared one at a time is told from one for each key only by being each or not, so the name of its kind is never read"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!found) { | true",
@@ -342,52 +342,52 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
     "original": "at.awaiting.get(id) === live && !signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
     "original": "at.awaiting.get(id) === live",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | at.awaiting.get(id) === live || !signal.aborted",
     "original": "at.awaiting.get(id) === live && !signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) }) | true",
     "original": "mine()",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {}) | true",
     "original": "mine()",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | true",
     "original": "at.pending.get(id) === live && !signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | true",
     "original": "at.pending.get(id) === live",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | at.pending.get(id) === live || !signal.aborted",
     "original": "at.pending.get(id) === live && !signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, live, updates }) }) | true",
     "original": "mine()",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, live, outcome }) }, () => {}) | true",
     "original": "mine()",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const field of fields.get(top.ref) ?? []) large(top, field) | [\"Stryker was here\"]",
@@ -402,12 +402,12 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!of || of.controller.signal.aborted) return MADE | false",
     "original": "!of || of.controller.signal.aborted",
-    "why": "A make taken for a state already left is made with that state's aborted signal, which ends the ask with Left before it is sent, kept on a record no value reads; and a make is only ever said for a name the state declares (types), so the state is always found"
+    "why": "A call taken for a state already exited runs with that state's aborted signal, which ends the ask with Cancelled before it is sent, kept on a record no value reads; and a call is only ever invoked for a name the state declares (types), so the state is always found"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | if (!of || of.controller.signal.aborted) return MADE | !of && of.controller.signal.aborted",
     "original": "!of || of.controller.signal.aborted",
-    "why": "A make taken for a state already left is made with that state's aborted signal, which ends the ask with Left before it is sent, kept on a record no value reads; and a make is only ever said for a name the state declares (types), so the state is always found"
+    "why": "A call taken for a state already exited runs with that state's aborted signal, which ends the ask with Cancelled before it is sent, kept on a record no value reads; and a call is only ever invoked for a name the state declares (types), so the state is always found"
   },
   {
     "key": "src/kernel.ts | BooleanLiteral | const apply = (active: Active, next: unknown, mayRefuse = false): boolean => { | true",
@@ -417,17 +417,17 @@
   {
     "key": "src/kernel.ts | StringLiteral | if (error instanceof Cancelled) return refusal('abandoned', error.message) | \"\"",
     "original": "'abandoned'",
-    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
+    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Cancelled, here or across the link"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (error instanceof Cancelled) return refusal('abandoned', error.message) | false",
     "original": "error instanceof Cancelled",
-    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
+    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Cancelled, here or across the link"
   },
   {
     "key": "src/kernel.ts | StringLiteral | if (signal.aborted) { trace(`${item.ref} stopped answering ${name}, as whoever asked had gone: ${message}`); return refusal('abandoned', message) } | \"\"",
     "original": "'abandoned'",
-    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
+    "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Cancelled, here or across the link"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!stopping && host.limit !== undefined && steps >= host.limit) { | true",
@@ -472,7 +472,7 @@
   {
     "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
     "original": "[]",
-    "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a make is said, not compared, and never reads it"
+    "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a call is invoked, not compared, and never reads it"
   },
   {
     "key": "src/kernel.ts | Regex | const WRITE_TO_FROZEN = /^Cannot (assign to read only property|add property|delete property|define property|redefine property)\\b/ | /Cannot (assign to read only property|add property|delete property|define property|redefine property)\\b/",
@@ -560,7 +560,7 @@
     "why": "Work that returns no deferred move pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', CUT_SHORT))) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', HALTED))) | \"\"",
     "original": "'answering an ask that will not be taken'",
     "why": "The label passed to safely is traced only if Question.end throws; Question.end only resolves a promise and never throws"
   },

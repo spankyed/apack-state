@@ -1123,7 +1123,7 @@ export function system(host: {
       if (!followed || item.of.following.get(item.id) !== item.live) return MADE
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
       try { return apply(item.of, followed.updated(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
-        trace(`DEFECT: ${item.of.top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`)
+        trace(`DEFECT: ${item.of.top.ref} threw in ${item.id} updated, and nothing changed: ${said(error)}`)
         return NOT_MADE
       }
     }
@@ -1174,7 +1174,7 @@ export function system(host: {
       // What a read delivers may not lead round to itself. An imperative call has nothing to come round to.
       hearing = item.made ? undefined : { id: `${top.ref}#${item.id}`, because: item.live.because }
       if (item.kind === 'progress') {
-        try { return apply(item.of, declared.progress!(item.updates, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`); return NOT_MADE }
+        try { return apply(item.of, declared.progress!(item.updates, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw in ${item.id} progress, and nothing changed: ${said(error)}`); return NOT_MADE }
       }
       // One that was called has finished, so it is no longer pending. That is the kernel's to say, and it is said before
       // the handler, which may call it again.
@@ -1265,7 +1265,7 @@ export function system(host: {
     for (const item of items) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why)))
   }
   const STOPPED = 'It stopped when it could not keep what a step wrote'
-  const CUT_SHORT = 'The step was cut short after running away'
+  const HALTED = 'The step was halted after running away'
   const LIMIT_REACHED = 'It has taken every step it is allowed'
   /**
    * A step's rows could not be kept. Nothing has left yet, so nobody was told of a change that was not made. The
@@ -1364,25 +1364,25 @@ export function system(host: {
     const all = (): void => {
       first()
       let count = 0
-      let cutShort = false
+      let halted = false
       for (;;) {
         for (; inside.any; count++) {
           const item = inside.shift()
           if (count < RUNAWAY) { handle(item); continue }
           // What it had done is committed, so that the states can be read and the report says where they got to.
-          cutShort = true
-          trace(`DEFECT: a step was cut short after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`)
+          halted = true
+          trace(`DEFECT: a step was halted after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`)
           if (told) told.status = 'halted'
-          if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', CUT_SHORT)))
-          turnAway(inside.drain(), CUT_SHORT)
-          turnAway(held.splice(0), CUT_SHORT)
+          if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', HALTED)))
+          turnAway(inside.drain(), HALTED)
+          turnAway(held.splice(0), HALTED)
           break
         }
         // What runs is matched to the data once everything sent so far is handled, and not in between. So which
         // states run depends on the data the step leaves and not on the way it got there: a key taken out and put
         // back is a key that stayed, whether one handler did both or two did one each.
         matchStale()
-        if (cutShort) { turnAway(inside.drain(), CUT_SHORT); turnAway(held.splice(0), CUT_SHORT); break }
+        if (halted) { turnAway(inside.drain(), HALTED); turnAway(held.splice(0), HALTED); break }
         const ready = held.filter((item) => running.has(item.ref))
         if (!ready.length && !inside.any) break
         for (const item of ready) { held.splice(held.indexOf(item), 1); inside.push(item) }

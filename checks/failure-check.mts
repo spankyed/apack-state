@@ -210,10 +210,10 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.backendTraced, ['slow failed answering BREAK: the answer broke'])
     it.stop()
   }],
-  ['a state that tells itself without end is cut short and reported, and takes events afterwards', async () => {
+  ['a state that tells itself without end is halted and reported, and takes events afterwards', async () => {
     const it = wired()
     it.send({ type: 'SPIN' })
-    ok(it.traced.some((line) => line.includes('a step was cut short after 10000 things, at panel')))
+    ok(it.traced.some((line) => line.includes('a step was halted after 10000 things, at panel')))
     strictEqual(it.traced.filter((line) => line.startsWith('DEFECT')).length, 1)
     const spun = it.count()
     ok(spun >= 10_000, `it counted ${spun}`)
@@ -325,10 +325,10 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(askOutcomes.length, 2)
     for (const outcome of askOutcomes) {
       const f = (outcome as { ok: false; failure: { kind: string; message: string } }).failure
-      ok(!(outcome as { ok: boolean }).ok && f.kind === 'unavailable' && /cut short/.test(f.message), JSON.stringify(outcome))
+      ok(!(outcome as { ok: boolean }).ok && f.kind === 'unavailable' && /halted/.test(f.message), JSON.stringify(outcome))
     }
 
-    // Also verify when matchStale() after RUNAWAY starts a child whose run() queues an ask: cutShort turns it away cleanly without a second defect.
+    // Also verify when matchStale() after RUNAWAY starts a child whose run() queues an ask: halted turns it away cleanly without a second defect.
     const prDefects: string[] = []
     const prSys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) prDefects.push(line) } })
     prSys.start('spinAsk', spinAsk)
@@ -355,7 +355,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     await rest()
     strictEqual(prSys.idle(), true)
     strictEqual(prDefects.length, 1)
-    ok(childAskOutcome !== undefined && !(childAskOutcome as { ok: boolean }).ok && (childAskOutcome as { failure: { kind: string; message: string } }).failure.kind === 'unavailable' && /cut short/.test((childAskOutcome as { failure: { message: string } }).failure.message), JSON.stringify(childAskOutcome))
+    ok(childAskOutcome !== undefined && !(childAskOutcome as { ok: boolean }).ok && (childAskOutcome as { failure: { kind: string; message: string } }).failure.kind === 'unavailable' && /halted/.test((childAskOutcome as { failure: { message: string } }).failure.message), JSON.stringify(childAskOutcome))
   }],
   // ── what code a state declares throws, and what is thrown that is not an Error ──────────────────────────────────
 
