@@ -12,7 +12,7 @@ const from = ['query'] as const
 export const reader = state<{ data: { query: string; found: string } }, { type: 'SHELVE' }>()({
   data: { query: '', found: '' },
   on: { SHELVE: (_, { tell }) => { tell(where(), { type: 'SHELVED' }) } },
-  awaits: (asking) => ({
-    lookup: asking('library', 'LOOKUP', { from, args: ({ query }) => query !== '' && { query }, ended: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : undefined) }),
+  loads: (load) => ({
+    lookup: load('library', 'LOOKUP', { from, args: ({ query }) => query !== '' && { query }, done: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : undefined) }),
   }),
 })

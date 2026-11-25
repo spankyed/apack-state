@@ -87,10 +87,10 @@ class Queue<T> {
 const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({ ok: false, failure: { ...data, kind, message } })
 
 type Plain = Record<string, unknown>
-type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; asks?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
-  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; heard: Function }>
-  awaits?: (asking: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; ended: Function; heard?: Function }>
-  makes?: (asking: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; of: string; ask: string; args: Function; ended: Function; heard?: Function }>
+type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
+  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; update: Function }>
+  loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; done: Function; progress?: Function }>
+  makes?: (asking: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; of: string; ask: string; args: Function; done: Function; progress?: Function }>
 }
 
 interface Active {
@@ -134,8 +134,8 @@ type Item =
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
   | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown> }
-  | { kind: 'ended'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; outcome: AnyOutcome }
-  | { kind: 'progressed'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; updates: unknown[] }
+  | { kind: 'done'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; outcome: AnyOutcome }
+  | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; updates: unknown[] }
   | { kind: 'make'; of: Active; name: string; key: string | undefined }
   | { kind: 'drop'; of: Active; name: string; key: string | undefined }
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
@@ -151,7 +151,7 @@ export type Transact = <T>(run: () => T) => T
 
 /** One thing a step handled, as its log says it: what kind, for which running state, and its name. Never what it carried. */
 export interface Handled {
-  readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'ended' | 'progressed' | 'make' | 'drop' | 'answer'
+  readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'make' | 'drop' | 'answer'
   readonly ref: string
   /** An event's type, an ask's name, what is followed, awaited or made, as the state declares it. */
   readonly name?: string
@@ -702,14 +702,14 @@ export function system(host: {
   }
 
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
-  const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; awaits: ReturnType<NonNullable<LooseDef['awaits']>>; makes: ReturnType<NonNullable<LooseDef['makes']>> }>()
+  const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; makes: ReturnType<NonNullable<LooseDef['makes']>> }>()
   const declaredBy = (def: LooseDef) => {
     let found = declared.get(def)
     if (!found) {
       found = {
         starts: def.starts?.((state: unknown, options: { each?: string; given: Function }) => ({ each: options.each, state, given: options.given })) ?? {},
         follows: def.follows?.((feature: string, view: string, options: object) => ({ feature, view, ...options })) ?? {},
-        awaits: def.awaits?.((of: string, ask: string, options: object) => ({ of, ask, ...options })) ?? {},
+        loads: def.loads?.((of: string, ask: string, options: object) => ({ of, ask, ...options })) ?? {},
         makes: def.makes?.({
           one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }),
           each: (of: string, ask: string, options: object) => ({ kind: 'each', of, ask, ...options }),
@@ -854,7 +854,7 @@ export function system(host: {
         }
       }
 
-      for (const [name, declared] of Object.entries(declaredBy(at.def).awaits)) {
+      for (const [name, declared] of Object.entries(declaredBy(at.def).loads)) {
         const awaited = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
           let asked: object | null | undefined | false
           try { asked = args() as object | null | undefined | false } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return }
@@ -865,10 +865,10 @@ export function system(host: {
           const given = new AbortController()
           const signal = AbortSignal.any([at.controller.signal, given.signal])
           const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted
-          const hears = declared.heard && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progressed', made: false, of: at, name, id, key, live, updates }) })
+          const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) })
           const made = ask(declared.of, declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
-          // Given up, it ends with `Left`, which is that and nothing to hear of.
-          made.then((outcome) => { if (mine()) arrive({ kind: 'ended', made: false, of: at, name, id, key, live, outcome }) }, () => {})
+          // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
+          made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {})
           return () => given.abort()
           }, !what)
         }
@@ -1074,7 +1074,7 @@ export function system(host: {
   }
   const isAnswered = (made: unknown): made is Answered<unknown, unknown> => typeof made === 'object' && made !== null && ANSWERED in made
 
-  const taker = (top: Running, table: 'on' | 'internal' | 'asks', name: string): { handler: Function; of: Active } | undefined => {
+  const taker = (top: Running, table: 'on' | 'internal' | 'answers', name: string): { handler: Function; of: Active } | undefined => {
     let of: Active | undefined = innermost(top)
     while (of && !of.def[table]?.[name]) of = of.around
     return of ? { handler: of.def[table]![name]!, of } : undefined
@@ -1086,7 +1086,7 @@ export function system(host: {
       case 'event': return { kind: 'event', ref: item.ref, name: item.event.type, ...(item.own ? { own: true as const } : {}) }
       case 'ask': return { kind: 'ask', ref: item.ref, name: item.name }
       case 'result': case 'failure': return { kind: item.kind, ref: item.of.top.ref, name: item.of.path || item.of.name }
-      case 'view': case 'ended': case 'progressed': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
+      case 'view': case 'done': case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
       case 'make': case 'drop': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
       // Every ask an answer comes back to was noted where it was made, or where it arrived to be answered.
       case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name } }
@@ -1116,7 +1116,7 @@ export function system(host: {
       const followed = declaredBy(item.of.def).follows[item.name]
       if (!followed || item.of.following.get(item.id) !== item.live) return MADE
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
-      try { return apply(item.of, followed.heard(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
+      try { return apply(item.of, followed.update(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
         trace(`DEFECT: ${item.of.top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`)
         return NOT_MADE
       }
@@ -1152,14 +1152,14 @@ export function system(host: {
       const mine = (): boolean => at.making.get(id) === live && !signal.aborted
       at.making.set(id, live)
       madeChanged(top)
-      const hears = declared.heard && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progressed', made: true, of: at, name, id, key, live, updates }) })
+      const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, live, updates }) })
       const made = ask(declared.of, declared.ask, asked, signal, hears) as unknown as Promise<AnyOutcome>
-      // Given up, it ends with `Left`, which is that and nothing to hear of.
-      made.then((outcome) => { if (mine()) arrive({ kind: 'ended', made: true, of: at, name, id, key, live, outcome }) }, () => {})
+      // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
+      made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, live, outcome }) }, () => {})
       return MADE
     }
-    if (item.kind === 'ended' || item.kind === 'progressed') {
-      const table = item.made ? declaredBy(item.of.def).makes : declaredBy(item.of.def).awaits
+    if (item.kind === 'done' || item.kind === 'progress') {
+      const table = item.made ? declaredBy(item.of.def).makes : declaredBy(item.of.def).loads
       const live = item.made ? item.of.making : item.of.awaiting
       const declared = table[item.name]
       if (!declared || live.get(item.id) !== item.live) return MADE
@@ -1167,8 +1167,8 @@ export function system(host: {
       const given = eventScopeOf(item.of, item.key)
       // What a read delivers may not lead round to itself. An ask that was made once has nothing to come round to.
       hearing = item.made ? undefined : { id: `${top.ref}#${item.id}`, because: item.live.because }
-      if (item.kind === 'progressed') {
-        try { return apply(item.of, declared.heard!(item.updates, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`); return NOT_MADE }
+      if (item.kind === 'progress') {
+        try { return apply(item.of, declared.progress!(item.updates, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`); return NOT_MADE }
       }
       // One that was made has ended, so it is no longer under way. That is the kernel's to say, and it is said before
       // the handler, which may have it made again.
@@ -1176,7 +1176,7 @@ export function system(host: {
       // A read that has ended stays as what was asked, so that it is not asked again until its fields change. There
       // is nothing left of it to give up: stopping it later tells nobody.
       else item.live.stop = () => {}
-      try { return apply(item.of, declared.ended(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw taking how ${item.id} ended, and nothing changed: ${said(error)}`); return NOT_MADE }
+      try { return apply(item.of, declared.done(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw taking how ${item.id} ended, and nothing changed: ${said(error)}`); return NOT_MADE }
     }
     if (item.kind === 'answer') {
       answeringOf.get(item.question)?.questions.delete(item.question)
@@ -1212,7 +1212,7 @@ export function system(host: {
     if (gone?.aborted) return MADE
     note()
     askedOf.set(question, { ref: item.ref, name })
-    const found = top && taker(top, 'asks', name)
+    const found = top && taker(top, 'answers', name)
     if (!found) { answer(question, refusal('unavailable', `${item.ref} does not take ${name}`)); return MADE }
     const signal = gone ? AbortSignal.any([found.of.controller.signal, gone]) : found.of.controller.signal
     const own = new AbortController()

@@ -76,19 +76,19 @@ export type Commit = {
 export const commit = state<Commit, CommitEvent>()({
   data: { gitStatus: null, revision: 0, selectedGitFile: null, gitDiff: null, pushPhase: null, gitError: null },
 
-  awaits: (asking) => ({
+  loads: (load) => ({
     // Read as the surface starts, and again whenever the repository changes.
-    status: asking('code', 'commit.GET_GIT_STATUS', {
+    status: load('code', 'commit.GET_GIT_STATUS', {
       from: ['revision'],
       args: () => ({}),
-      ended: (outcome) => (outcome.ok ? { data: { gitStatus: outcome.value } } : { data: { gitError: outcome.failure.message } }),
+      done: (outcome) => (outcome.ok ? { data: { gitStatus: outcome.value } } : { data: { gitError: outcome.failure.message } }),
     }),
 
     // The diff of whichever file is selected. Selecting another gives up the read of the first.
-    diff: asking('code', 'commit.GET_GIT_DIFF', {
+    diff: load('code', 'commit.GET_GIT_DIFF', {
       from: ['selectedGitFile'],
       args: ({ selectedGitFile }) => selectedGitFile,
-      ended: (outcome) => (outcome.ok ? { data: { gitDiff: outcome.value.text } } : { data: { gitDiff: null, gitError: outcome.failure.message } }),
+      done: (outcome) => (outcome.ok ? { data: { gitDiff: outcome.value.text } } : { data: { gitDiff: null, gitError: outcome.failure.message } }),
     }),
   }),
 
@@ -96,18 +96,18 @@ export const commit = state<Commit, CommitEvent>()({
     // Made for a path when a handler says so, and under way for that path until it ends.
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
-      ended: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
+      done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
     }),
     unstage: each('code', 'commit.UNSTAGE_FILES', {
       args: (path) => ({ paths: [path] }),
-      ended: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not unstage ${key}: ${outcome.failure.message}` } }),
+      done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not unstage ${key}: ${outcome.failure.message}` } }),
     }),
 
     // One at a time: a second while one is being made is the same push.
     push: one('code', 'commit.PUBLISH_BRANCH', {
       args: () => ({}),
-      heard: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
-      ended: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
+      progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
+      done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
     }),
   }),
 
@@ -133,7 +133,7 @@ type Repository = { data: { staged: string[]; unstaged: string[]; ahead: number 
 export const git = (work: (what: string) => Promise<unknown>, said: string[] = []) => state<Repository, never, CodeAsks>()({
   data: { staged: [], unstaged: ['a.ts', 'b.ts', 'c.ts'], ahead: 2 },
 
-  asks: {
+  answers: {
     'commit.GET_GIT_STATUS': async (_, { data }) => {
       await work('reading the status')
       return { staged: [...data.staged], unstaged: [...data.unstaged], ahead: data.ahead }

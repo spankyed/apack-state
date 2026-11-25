@@ -67,7 +67,7 @@ const state = forNet()
       // @ts-expect-error a draft's field is typed writable, and what is read is not
       TAKEN: (_, { data }) => ({ data: (d) => { d.picked = data.items } }),
     },
-    asks: {
+    answers: {
       LIST: (_, { data, progress }) => { progress(data.items); return data.items },
       LIST_LATER: async (_, { data }) => data.items,
     },

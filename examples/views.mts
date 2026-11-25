@@ -51,14 +51,14 @@ const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
     list: follow('threads', 'list', {
       from: [],
       args: () => ({}),
-      heard: (update) => (update.ok ? { data: { threads: update.value } } : { data: { problem: `list: ${update.error}` } }),
+      update: (update) => (update.ok ? { data: { threads: update.value } } : { data: { problem: `list: ${update.error}` } }),
     }),
 
     // One for each open tab. Which tabs are open is the data; opening or closing one is all it takes.
     tab: follow('threads', 'tab', {
       each: 'openTabs',
       args: (threadId) => ({ threadId }),
-      heard: (update, { key }) => (update.ok ? { data: (d) => { d.tabs[key] = update.value } } : { data: { problem: `tab: ${update.error}` } }),
+      update: (update, { key }) => (update.ok ? { data: (d) => { d.tabs[key] = update.value } } : { data: { problem: `tab: ${update.error}` } }),
     }),
   }),
 
@@ -83,7 +83,7 @@ const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
         detail: follow('threads', 'detail', {
           from: ['id'],
           args: ({ id }) => ({ id }),
-          heard: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: `detail: ${update.error}` } }),
+          update: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: `detail: ${update.error}` } }),
         }),
       }),
     },

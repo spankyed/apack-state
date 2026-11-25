@@ -15,7 +15,7 @@ export const state = forNet<App>()
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 const slow = state<{}, never, SlowAsks>()({
-  asks: {
+  answers: {
     WAIT: async ({ turns: count }) => { await turns(count); return 'done' },
     BREAK: async () => { await turns(2); throw new Error('the answer broke') },
   },
@@ -106,15 +106,15 @@ const noId = (id: string | null): string => { if (id === null) throw new Error('
 const oddState = state<Odd, OddEvent, OddAsks>()({
   data: { count: 0, id: null, waited: null },
   starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
-  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), heard: () => {} }) }),
-  awaits: (asking) => ({ wait: asking('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), ended: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
-  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), ended: () => {} }) }),
+  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), update: () => {} }) }),
+  loads: (load) => ({ wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), done: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
+  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
   on: {
     THROWS_A_STRING: () => ({ data: (d) => { d.count++; throw 'not an error' } }),
     SET: ({ id }) => ({ data: { id } }),
     SAVE: (_, { make }) => { make('save') },
   },
-  asks: { THROWS: () => { throw 'not an error' } },
+  answers: { THROWS: () => { throw 'not an error' } },
 })
 const brokenAtOnce = state<{ data: { n: number } }, never>()({ data: { n: 0 }, run() { throw new Error('could not start') } })
 
@@ -279,13 +279,13 @@ const checks: Array<[string, () => Promise<void>]> = [
           return { data: { n: data.n + 1 } }
         },
       },
-      asks: { PING: () => 'pong' },
+      answers: { PING: () => 'pong' },
     })
     sys.start('spinner', spinner)
     let heldOutcome: unknown
     let queuedOutcome: unknown
     const launcher = localState<{}, never, { GO: { args: {}; answer: string } }>()({
-      asks: {
+      answers: {
         GO: async (_, { ask, tell }) => {
           const p1 = ask('spinner', 'PING', {})
           const p2 = ask('ghost' as never, 'PING', {})
@@ -308,7 +308,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const spinAsk = localState<{ data: { n: number } }, { type: 'STEP' }, { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } }>()({
       data: { n: 0 },
       on: { STEP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
-      asks: {
+      answers: {
         PING: () => 'pong',
         FLOOD: async (_, { ask, send }) => {
           for (let i = 0; i < 10_000; i++) send({ type: 'STEP' })

@@ -30,7 +30,7 @@ type App = {
 const state = forNet<App>()
 
 const finder = (schedule: Schedule) => state<{}, never, FinderAsks>()({
-  asks: {
+  answers: {
     FIND: async ({ query }, { progress }) => {
       progress(`${query}:1`)
       await schedule.work(`finding ${query}`, null)
@@ -235,7 +235,7 @@ const saying = forNet<Said>()
 const notes = saying<{ data: { heard: number[] } }, { type: 'NOTE'; n: number }, { READ: { args: {}; answer: number[] } }>()({
   data: { heard: [] },
   on: { NOTE: ({ n }) => ({ data: (d) => { d.heard.push(n) } }) },
-  asks: { READ: (_, { data }) => [...data.heard] },
+  answers: { READ: (_, { data }) => [...data.heard] },
 })
 /** Tells the backend one thing, asks it what it has heard, and tells it another. */
 const sayer = (answered: number[][]) => saying<{}, never>()({

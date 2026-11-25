@@ -70,7 +70,7 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
           const signature = real(typeOf(handler))[0]?.getCallSignatures()[0]
           if (signature) read(unwrap(signature.getReturnType()), path, handler.name)
         }
-      } else if (property.name === 'asks') {
+      } else if (property.name === 'answers') {
         for (const handler of type.getProperties()) {
           takes.add(handler.name)
           answers.push(where(path, handler.name))
@@ -105,7 +105,7 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
       if (name === 'states' && made && ts.isObjectLiteralExpression(made)) {
         for (const inner of made.properties) if (ts.isPropertyAssignment(inner) && ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, inner.name.getText()))
       }
-      if ((name !== 'follows' && name !== 'awaits' && name !== 'makes') || !made || !ts.isArrowFunction(made)) continue
+      if ((name !== 'follows' && name !== 'loads' && name !== 'makes') || !made || !ts.isArrowFunction(made)) continue
       let body = made.body
       while (ts.isParenthesizedExpression(body)) body = body.expression
       if (!ts.isObjectLiteralExpression(body)) continue
@@ -123,11 +123,11 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
           : each ? `one for each key of ${text(each)}`
           : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
           : from ? `from what ${text(from)} names` : 'from nothing: once'
-        ;(name === 'follows' ? follows : name === 'awaits' ? awaits : makes).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
-        for (const hears of name === 'follows' ? ['heard'] : ['ended', 'heard']) {
+        ;(name === 'follows' ? follows : name === 'loads' ? awaits : makes).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
+        for (const hears of name === 'follows' ? ['update'] : ['done', 'progress']) {
           const handler = option(hears)
           const signature = handler && checker.getTypeAtLocation(handler.initializer ?? handler).getCallSignatures()[0]
-          if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears === 'ended' ? 'ending' : 'hearing'})`)
+          if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears === 'done' ? 'ending' : 'hearing'})`)
         }
       }
     }
@@ -172,7 +172,7 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
   if (answers.length) say(`  answers: ${answers.join(', ')}`)
   if (startsStates.length) say(`  starts: ${startsStates.join(', ')}`)
   for (const followed of follows) say(`  follows ${followed}`)
-  for (const awaited of awaits) say(`  awaits  ${awaited}`)
+  for (const awaited of awaits) say(`  loads   ${awaited}`)
   for (const made of makes) say(`  makes   ${made}`)
   if (reaches.length) say(`  reaches: ${reaches.join(', ')}`)
   const findings: string[] = []

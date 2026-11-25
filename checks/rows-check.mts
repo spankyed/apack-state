@@ -63,7 +63,7 @@ const threads = (store: Rows, read: (path: string) => Promise<string> = async (p
     // In one step: the join first, and the thread it joins to after.
     JOIN_AHEAD: ({ from, to }, { send }) => { send({ type: 'JOIN', from, to }); send({ type: 'NOTE', id: to }) },
   },
-  asks: {
+  answers: {
     // The thread and its parent's link, and then the refusal: the link is looked for after the thread is written.
     CREATE: ({ id, topic, parent }, { data, refuse }) => {
       if (store.get('thread', id)) throw refuse('taken', `There is a thread ${id}`)
@@ -156,7 +156,7 @@ type Sourced = { systems: { source: { events: never; asks: SourceAsks } }; surfa
 const sourced = forNet<Sourced>()
 /** Says it has begun, waits a turn, and answers. */
 const source = sourced<{}, never, SourceAsks>()({
-  asks: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
+  answers: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
 })
 type KeeperEvents = { type: 'SET'; query: string } | { type: 'SAVE' }
 type Keeper = { data: { query: string; got: string[] }; makes: { save: 'one' } }
@@ -175,19 +175,19 @@ const keeper = (store: Rows) => {
       SET: ({ query }) => ({ data: { query } }),
       SAVE: (_, { make }) => { make('save') },
     },
-    awaits: (asking) => ({
-      lookup: asking('source', 'FIND', {
+    loads: (load) => ({
+      lookup: load('source', 'FIND', {
         from: ['query'],
         args: ({ query }) => query !== '' && { q: query },
-        heard: (_updates, { data }) => { note('read heard', data.query) },
-        ended: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
+        progress: (_updates, { data }) => { note('read heard', data.query) },
+        done: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
       }),
     }),
     makes: ({ one }) => ({
       save: one('source', 'FIND', {
         args: ({ query }) => ({ q: `save ${query}` }),
-        heard: (_updates, { data }) => { note('write heard', data.query) },
-        ended: (_outcome, { data }) => { note('write ended', data.query) },
+        progress: (_updates, { data }) => { note('write heard', data.query) },
+        done: (_outcome, { data }) => { note('write ended', data.query) },
       }),
     }),
   })

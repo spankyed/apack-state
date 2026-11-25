@@ -131,7 +131,7 @@ function resolveHomePath(inputPath: string): string {
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export const librarySystem = state<{}, LibraryEvent, LibraryAsks>()({
-  asks: {
+  answers: {
     // ── documents ───────────────────────────────────────────────────────────────────────────────────────────────────
 
     async CREATE_DOCUMENT({ name, content, tags, collectionId, documentType }) {

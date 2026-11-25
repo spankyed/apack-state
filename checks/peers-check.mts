@@ -329,7 +329,7 @@ await run([
       follows: (follow) => ({
         list: follow('runs', 'list', {
           args: () => ({}),
-          heard: (update) => (update.ok ? { data: { rows: update.value } } : undefined),
+          update: (update) => (update.ok ? { data: { rows: update.value } } : undefined),
         }),
       }),
       on: {
@@ -517,7 +517,7 @@ await run([
         follows: (follow) => ({
           list: follow('runs', 'list', {
             args: () => ({}),
-            heard: (update, { data, tell }) => {
+            update: (update, { data, tell }) => {
               if (!update.ok) return undefined
               if (!data.sent) {
                 tell('runner', { type: 'RECORD', id: 'run-1', detail: 'bulk' })

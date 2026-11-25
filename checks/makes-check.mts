@@ -27,7 +27,7 @@ export const state = forNet<App>()
 const worker = (did: string[]) => {
   const tried = new Set<string>()
   return state<{}, never, WorkerAsks>()({
-    asks: {
+    answers: {
       RUN: async ({ id }, { progress, refuse, signal }) => {
         did.push(`run ${id}`)
         signal.addEventListener('abort', () => { did.push(`gave up ${id}`) })
@@ -78,8 +78,8 @@ const jobs = state<Jobs, JobsEvent>()({
       makes: ({ one, each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
-          heard: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
-          ended: (outcome, { key, data, make }) => {
+          progress: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
+          done: (outcome, { key, data, make }) => {
             if (outcome.ok) return { data: (d) => { d.done.push(outcome.value) } }
             // Refused as busy, it is made again, once.
             const tries = (data.tries[key] ?? 0) + 1
@@ -91,7 +91,7 @@ const jobs = state<Jobs, JobsEvent>()({
         // What it saves is the text as it is when the save is made.
         save: one('worker', 'SAVE', {
           args: (data) => ({ text: data.text }),
-          ended: (outcome) => (outcome.ok ? { data: { saved: outcome.value } } : { data: { problem: outcome.failure.message } }),
+          done: (outcome) => (outcome.ok ? { data: { saved: outcome.value } } : { data: { problem: outcome.failure.message } }),
         }),
       }),
 

@@ -124,7 +124,7 @@ const subject = (store: Rows, { handled, wait = () => new Promise<void>((resolve
         return { data: { count: data.count + does.adds } }
       },
     },
-    asks: {
+    answers: {
       RUN: ({ does }, { send, refuse }) => {
         handled?.({ what: 'asked', does })
         put(does.writes)

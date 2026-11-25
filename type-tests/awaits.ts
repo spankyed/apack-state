@@ -11,21 +11,21 @@ type ReaderEvent = from.ReaderEvent
 state<Reader, ReaderEvent>()({
   data: { title: '', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null, pending: '', got: null },
   initial: 'on',
-  awaits: (asking) => ({
+  loads: (load) => ({
     // @ts-expect-error there is no such system to ask
-    nobody: asking('printer', 'LOOKUP', { args: () => ({ query: '' }), ended: () => {} }),
+    nobody: load('printer', 'LOOKUP', { args: () => ({ query: '' }), done: () => {} }),
     // @ts-expect-error the library answers no such ask
-    nothing: asking('library', 'SLEEP', { args: () => ({}), ended: () => {} }),
+    nothing: load('library', 'SLEEP', { args: () => ({}), done: () => {} }),
     // @ts-expect-error a lookup is asked for a query, not an id
-    wrong: asking('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), ended: () => {} }),
+    wrong: load('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), done: () => {} }),
     // @ts-expect-error a title is neither a list nor keyed, so it cannot say which to look up
-    titled: asking('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), ended: () => {} }),
+    titled: load('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), done: () => {} }),
     // @ts-expect-error it reads the title, which it did not name
-    unnamed: asking('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: title }), ended: () => {} }),
+    unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: title }), done: () => {} }),
     // @ts-expect-error what a lookup answers is a string, so it cannot be put where the list goes
-    misplaced: asking('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), ended: (outcome) => (outcome.ok ? { data: { watched: outcome.value } } : undefined) }),
+    misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), done: (outcome) => (outcome.ok ? { data: { watched: outcome.value } } : undefined) }),
     // @ts-expect-error an ask is awaited from fields or for each key, not both at once
-    both: asking('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ query: id }), ended: () => {} }),
+    both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ query: id }), done: () => {} }),
   }),
   states: { on: {}, off: {} },
 })
@@ -35,11 +35,11 @@ import { forNet } from '../src/index.ts'
 type BatchNet = { systems: { svc: { events: never; asks: { BATCH: { args: { ids: string[] }; answer: number } } } }; surfaces: {}; views: {} }
 forNet<BatchNet>()<{ data: { ids: string[] }; makes: { run: 'one'; each: 'each' } }, never>()({
   data: { ids: [] },
-  awaits: (asking) => ({
-    batch: asking('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), ended: () => {} }),
+  loads: (load) => ({
+    batch: load('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
   }),
   makes: ({ one, each }) => ({
-    run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), ended: () => {} }),
-    each: each('svc', 'BATCH', { args: (_key, data) => ({ ids: data.ids }), ended: () => {} }),
+    run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
+    each: each('svc', 'BATCH', { args: (_key, data) => ({ ids: data.ids }), done: () => {} }),
   }),
 })

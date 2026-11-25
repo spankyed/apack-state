@@ -30,7 +30,7 @@ const state = forNet<App>()
 
 /** Answers at once, having sent every step. */
 const stream = state<{}, never, StreamAsks>()({
-  asks: {
+  answers: {
     STREAM: ({ steps, burst }, { progress, broadcast }) => {
       for (const step of steps) { if ('progress' in step) progress(step.progress); else broadcast('panel', { type: 'NOTE', note: step.note }) }
       for (let i = 0; i < burst; i++) progress(`#${i}`)
@@ -44,7 +44,7 @@ const turns = (count: number): Promise<void> => new Promise((resolve) => { let l
 
 /** Sends its progress and then takes a long while to answer, so the progress is left waiting for a frame. */
 const slowStream = state<{}, never, StreamAsks>()({
-  asks: {
+  answers: {
     STREAM: async ({ steps }, { progress }) => { for (const step of steps) if ('progress' in step) progress(step.progress); await turns(40); return { sent: steps.length } },
     QUICK: ({ word }) => word.toUpperCase(),
   },

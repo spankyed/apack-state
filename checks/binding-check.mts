@@ -356,7 +356,7 @@ const checks: Array<[string, () => void]> = [
     const svc = forNet<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
     const maker = svc<{ data: { label: string }; makes: { save: 'one' } }, { type: 'GO' }>()({
       data: { label: given },
-      makes: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), ended: () => undefined }) }),
+      makes: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), done: () => undefined }) }),
       on: { GO: (_, { make }) => { make('save') } },
     })
     const makerHost = svc<{ states: { open: { data: { label?: string }; starts: { kid: typeof maker } } } }, { type: 'GO' } | { type: 'REOPEN'; label: string }>()({

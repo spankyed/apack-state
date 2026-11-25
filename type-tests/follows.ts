@@ -13,15 +13,15 @@ state<Shop, ShopEvent>()({
   initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error there is no such view
-    stock: follow('shop', 'stock', { from: [], args: () => ({}), heard: () => {} }),
+    stock: follow('shop', 'stock', { from: [], args: () => ({}), update: () => {} }),
     // @ts-expect-error the total is asked for a currency, not an id
-    total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: currency }), heard: () => {} }),
+    total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: currency }), update: () => {} }),
     // @ts-expect-error a currency is neither a list nor keyed, so it cannot say which prices to follow
-    price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), heard: () => {} }),
+    price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), update: () => {} }),
     // @ts-expect-error it reads the note, which it did not name: a field it does not name is not there to read
-    noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: note }), heard: () => {} }),
+    noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: note }), update: () => {} }),
     // @ts-expect-error the shop has no such field to read from
-    missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), heard: () => {} }),
+    missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), update: () => {} }),
   }),
   states: { browsing: {}, away: {} },
 })
@@ -30,9 +30,9 @@ state<Shop, ShopEvent>()({
   initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
-    price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
+    price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), update: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
     // @ts-expect-error a view is followed from fields or for each key, not both at once
-    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), heard: () => {} }),
+    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), update: () => {} }),
   }),
   states: { browsing: {}, away: {} },
 })
@@ -43,6 +43,6 @@ type ListNet = { systems: {}; surfaces: {}; views: { items: { list: { args: { id
 forNet<ListNet>()<{ data: { ids: string[] } }, never>()({
   data: { ids: [] },
   follows: (follow) => ({
-    list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), heard: () => {} }),
+    list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), update: () => {} }),
   }),
 })

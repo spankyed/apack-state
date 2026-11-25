@@ -22,7 +22,7 @@ const state = forNet<App>()
 
 /** The backend: a thread is a row, and making one is told to every window as well as answered. */
 const threads = (store: Rows) => state<{}, never, ThreadAsks>()({
-  asks: {
+  answers: {
     CREATE: ({ id }, { broadcast }) => {
       store.put('thread', id, { topic: 'made' })
       broadcast('panel', { type: 'CREATED', id })
@@ -36,12 +36,12 @@ type Panel = { data: { count: number; atAnswer: number[]; atEvent: number[] } }
 const panel = state<Panel, PanelEvents, PanelAsks>()({
   data: { count: 0, atAnswer: [], atEvent: [] },
   follows: (follow) => ({
-    count: follow('threads', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
+    count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
   }),
   on: {
     CREATED: (_, { data }) => ({ data: { atEvent: [...data.atEvent, data.count] } }),
   },
-  asks: {
+  answers: {
     ADD: async ({ id }, { ask }) => {
       const outcome = await ask('threads', 'CREATE', { id })
       return answered(outcome.ok, { data: (draft) => { draft.atAnswer.push(draft.count) } })
@@ -59,7 +59,7 @@ const soon = async <T,>(made: Promise<T>): Promise<T | 'never settled'> => {
 
 /** A window's state that says how its ask of the backend ended: what was made, or the kind of failure. */
 const asker = state<{}, never, { MAKE: { args: { id: string }; answer: string } }>()({
-  asks: { MAKE: async ({ id }, { ask }) => { const outcome = await ask('threads', 'CREATE', { id }); return outcome.ok ? 'made' : outcome.failure.kind } },
+  answers: { MAKE: async ({ id }, { ask }) => { const outcome = await ask('threads', 'CREATE', { id }); return outcome.ok ? 'made' : outcome.failure.kind } },
 })
 
 /** The views a backend runs over its rows, which say when they have caught up; or, taken away, which cannot. */
@@ -232,7 +232,7 @@ await run([
       initial: 'active',
       states: {
         active: {
-          makes: (make) => ({ create: make.one('threads', 'CREATE', { args: () => ({ id: 'a' }), ended: () => undefined }) }),
+          makes: (make) => ({ create: make.one('threads', 'CREATE', { args: () => ({ id: 'a' }), done: () => undefined }) }),
           on: {
             GO: (_, { make, send }) => { make('create'); send({ type: 'LEAVE' }) },
             LEAVE: () => ({ at: 'done' }),
@@ -323,7 +323,7 @@ await run([
       initial: 'watching',
       states: {
         watching: {
-          follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: () => undefined }) }),
+          follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), update: () => undefined }) }),
           on: { CLOSE: () => ({ at: 'gone' }) },
         },
         gone: {},
@@ -422,8 +422,8 @@ await run([
     const twoViews = state<{ data: { n: number } }, { type: 'BUMP' }>()({
       data: { n: 0 },
       follows: (follow) => ({
-        a: follow('threads', 'count', { args: () => ({}), heard: () => undefined }),
-        b: follow('threads', 'count', { args: () => ({}), heard: () => undefined }),
+        a: follow('threads', 'count', { args: () => ({}), update: () => undefined }),
+        b: follow('threads', 'count', { args: () => ({}), update: () => undefined }),
       }),
       on: { BUMP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
     })

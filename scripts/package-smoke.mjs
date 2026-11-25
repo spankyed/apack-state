@@ -79,7 +79,7 @@ try {
     "const counter = state<{ data: { id: string; count: number } }, { type: 'ADD' }, { GET: { args: {}; answer: number } }>()({",
     "  data: { id: given, count: 0 },",
     "  on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) },",
-    "  asks: { GET: (_, { data }) => answered(data.count, { data: { count: data.count } }) },",
+    "  answers: { GET: (_, { data }) => answered(data.count, { data: { count: data.count } }) },",
     "})",
     "const sys = system({ side: 'window' })",
     "const handle = sys.start('counter', counter, { id: 'c1' })",

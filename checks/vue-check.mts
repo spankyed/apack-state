@@ -333,10 +333,10 @@ const either: Array<[string, () => Promise<void>]> = [
       follows: (follow) => ({
         title: follow('notes', 'title', {
           args: () => ({}),
-          heard: (u) => (u.ok ? { data: { title: u.value } } : undefined),
+          update: (u) => (u.ok ? { data: { title: u.value } } : undefined),
         }),
       }),
-      asks: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },
+      answers: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },
     })
     const sys = system({
       side: 'window',

@@ -27,7 +27,7 @@ const thrown: unknown[] = []
 /** What the backend did, for the checks to read. */
 const backendSaw: string[] = []
 const slow = state<{}, never, SlowAsks>()({
-  asks: {
+  answers: {
     WAIT: async ({ turns: count }, { signal }) => {
       backendSaw.push('WAIT began')
       signal.addEventListener('abort', () => backendSaw.push('WAIT told its asker had gone'))
@@ -124,7 +124,7 @@ const lingers = forNet<Lingered>()
 const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, LingerAsks>()({
   data: { heard: [] },
   initial: 'working',
-  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), ended: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
+  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), done: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
   on: {
     STOP_WORKING: () => ({ at: 'idle' }),
     SELF: () => ({ data: (d) => { d.heard.push('SELF') } }),
@@ -132,7 +132,7 @@ const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, Linge
   states: {
     working: {
       on: { SAVE: (_, { make }) => { make('save') } },
-      asks: { TALK_LATER: async (_, { progress }) => { await gate; progress('late'); return 'talked' } },
+      answers: { TALK_LATER: async (_, { progress }) => { await gate; progress('late'); return 'talked' } },
       async run({ send, tell, report, broadcast, make, drop }) {
         await gate
         send({ type: 'SELF' })
@@ -374,7 +374,7 @@ const checks: Array<[string, () => Promise<void>]> = [
         GO: ({ at }) => ({ at }),
         STRAY: () => { straySent.push('STRAY') },
       },
-      asks: {
+      answers: {
         SLOW: async ({ label }, { signal }) => {
           startedAsks.push(label)
           signal.addEventListener('abort', () => { unwoundAsks.push(label) })
@@ -504,7 +504,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       run({ send, tell, broadcast, onExit }) {
         strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-run') }) }
       },
-      asks: {
+      answers: {
         PING: async (_, { progress, send, tell, broadcast, onExit }) => {
           progress('live')
           strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-ask') }) }

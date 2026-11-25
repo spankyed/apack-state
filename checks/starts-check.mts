@@ -27,7 +27,7 @@ export const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
   on: {
     BUMP: (_, { data, report }) => { report({ type: 'CARD_BUMPED', bumps: data.bumps + 1 }); return { data: { bumps: data.bumps + 1 } } },
   },
-  asks: {
+  answers: {
     LABEL: (_, { data }) => data.label,
     SLOWLY: async (_, { data }) => { await turns(20); return data.label },
   },
@@ -96,7 +96,7 @@ const board = (log: string[], work: (label: string) => Promise<unknown> = () => 
     BRIEFLY: ({ id, label }, { send }) => { send({ type: 'ADD', id, label }); send({ type: 'BUMP', id }); send({ type: 'REMOVE', id }) },
   },
 
-  asks: {
+  answers: {
     ADD_LATER: async ({ id, label }, { refuse }) => {
       await work(`adding ${label}`)
       return answered('added' as const, {
@@ -513,7 +513,7 @@ const checks: Array<[string, () => Promise<void>]> = [
           await sleep(10)
         },
         failed: () => undefined,
-        asks: {
+        answers: {
           WAIT: async () => {
             await schedule.work('waiter', null)
             return 'done'

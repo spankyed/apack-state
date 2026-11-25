@@ -24,7 +24,7 @@ const state = forNet<App>()
 
 const notes = (store: Rows) => state<{ data: { written: string[] } }, never, NotesAsks>()({
   data: { written: [] },
-  asks: {
+  answers: {
     WRITE: ({ text }, { progress, broadcast, refuse }) => {
       if (!text) throw refuse('empty', `Nothing to write: ${MARK}`, { text: MARK })
       store.put('thread', text, { topic: text })
@@ -68,7 +68,7 @@ const kinds = forNet<Kinds>()
 /** Answers a run once its id is let go: `now` at once, anything else when this check says. */
 const worker = (letGo: (id: string) => Promise<void>) => kinds<{}, { type: 'PING' }, WorkAsks>()({
   on: { PING: () => {} },
-  asks: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
+  answers: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
 })
 /** Makes a run of the worker for each id it is given, and lets one go. */
 const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
@@ -79,8 +79,8 @@ const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'ea
       makes: ({ each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
-          heard: () => undefined,
-          ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
+          progress: () => undefined,
+          done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
         }),
       }),
       on: { ADD: ({ id }, { make }) => { make('run', id) }, DROP: ({ id }, { drop }) => { drop('run', id) } },
@@ -91,7 +91,7 @@ const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'ea
 const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { open: {}; shut: {} } }, { type: 'CLOSE' }, WorkAsks>()({
   initial: 'open',
   states: {
-    open: { asks: { RUN: async ({ id }) => { await letGo(id); return id } }, on: { CLOSE: () => ({ at: 'shut' }) } },
+    open: { answers: { RUN: async ({ id }) => { await letGo(id); return id } }, on: { CLOSE: () => ({ at: 'shut' }) } },
     shut: {},
   },
 })
@@ -101,7 +101,7 @@ const saver = kinds<{ data: { id: string }; states: { on: { makes: { save: 'one'
   initial: 'on',
   states: {
     on: {
-      makes: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), ended: () => undefined }) }),
+      makes: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
       on: { SAVE: ({ id }, { make }) => { make('save'); return { data: { id } } } },
     },
   },
@@ -126,7 +126,7 @@ const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => {
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
-  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
 })
 /** Once its work has waited a turn, outside any step, tells the worker something. */
 const teller = kinds<{ states: { telling: {}; told: {} } }, never>()({
@@ -293,9 +293,9 @@ await run([
     await turns()
     const handled = handledIn(logs)
     has(handled, { kind: 'make', ref: 'jobs', name: 'run', key: 'now' })
-    has(handled, { kind: 'progressed', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'progress', ref: 'jobs', name: 'run', key: 'now' })
     has(handled, { kind: 'answer', ref: 'worker', name: 'RUN' })
-    has(handled, { kind: 'ended', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'done', ref: 'jobs', name: 'run', key: 'now' })
     has(handled, { kind: 'drop', ref: 'jobs', name: 'run', key: 'later' })
     has(handled, { kind: 'result', ref: 'ends', name: 'busy' })
     has(handled, { kind: 'failure', ref: 'breaks', name: 'busy' })

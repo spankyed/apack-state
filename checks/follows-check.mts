@@ -38,13 +38,13 @@ const shop = state<Shop, ShopEvent>()({
     total: follow('shop', 'total', {
       from: ['currency'],
       args: ({ currency }) => ({ currency }),
-      heard: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
+      update: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
     }),
     // One for each item being watched.
     price: follow('shop', 'price', {
       each: 'watching',
       args: (id) => ({ id }),
-      heard: (update, { key }) => {
+      update: (update, { key }) => {
         if (!update.ok) return { data: { problem: `${key}: ${update.error}` } }
         if (update.value < 0) throw new Error('a price below nothing')
         return { data: (d) => { d.prices[key] = update.value } }
@@ -68,7 +68,7 @@ const shop = state<Shop, ShopEvent>()({
         echo: follow('shop', 'total', {
           from: ['note'],
           args: ({ note }) => ({ currency: note }),
-          heard: (update) => (update.ok ? { data: { note: `heard ${update.value}` } } : undefined),
+          update: (update) => (update.ok ? { data: { note: `heard ${update.value}` } } : undefined),
         }),
       }),
     },
@@ -87,13 +87,13 @@ const pair = state<Pair, PairEvent>()({
     left: follow('shop', 'total', {
       from: ['left'],
       args: ({ left }) => ({ currency: left }),
-      heard: (update) => (update.ok ? { data: { right: `R${update.value}` } } : undefined),
+      update: (update) => (update.ok ? { data: { right: `R${update.value}` } } : undefined),
     }),
     // And what `right` delivers says what `left` is asked for, which closes the circle.
     right: follow('shop', 'total', {
       from: ['right'],
       args: ({ right }) => ({ currency: right }),
-      heard: (update) => (update.ok ? { data: { left: `L${update.value}` } } : undefined),
+      update: (update) => (update.ok ? { data: { left: `L${update.value}` } } : undefined),
     }),
   }),
 })
@@ -280,7 +280,7 @@ const two = state<Two, TwoEvent>()({
     total: follow('shop', 'total', {
       from: ['currency', 'suffix'],
       args: ({ currency, suffix }) => ({ currency: `${currency}${suffix}` }),
-      heard: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
+      update: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
     }),
   }),
   on: {
@@ -383,7 +383,7 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
             total: follow('shop', 'total', {
               from: ['currency'],
               args: ({ currency }) => ({ currency }),
-              heard: (u) => (u.ok ? { data: { total: u.value } } : undefined),
+              update: (u) => (u.ok ? { data: { total: u.value } } : undefined),
             }),
           }),
           on: {
@@ -432,15 +432,15 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
             total: follow('shop', 'total', {
               from: ['currency'],
               args: ({ currency }) => ({ currency }),
-              heard: (update) => { calls.push(`view:${update.ok ? update.value : update.error}`); return undefined },
+              update: (update) => { calls.push(`view:${update.ok ? update.value : update.error}`); return undefined },
             }),
           }),
-          awaits: (asking) => ({
-            fetch: asking('svc', 'FETCH', {
+          loads: (load) => ({
+            fetch: load('svc', 'FETCH', {
               from: ['currency'],
               args: ({ currency }) => ({ k: currency }),
-              heard: (updates) => { calls.push(`progress:${updates.join(',')}`); return undefined },
-              ended: (outcome) => { calls.push(`ended:${outcome.ok ? outcome.value : outcome.failure.kind}`); return undefined },
+              progress: (updates) => { calls.push(`progress:${updates.join(',')}`); return undefined },
+              done: (outcome) => { calls.push(`ended:${outcome.ok ? outcome.value : outcome.failure.kind}`); return undefined },
             }),
           }),
           on: {

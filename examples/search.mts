@@ -83,7 +83,7 @@ function searchSystem(baseDirectory: string | null) {
   return state<SearchSystem, SearchSystemEvent, SearchSystemAsks>()({
     data: { repository: baseDirectory ? new FileSystemRepository(baseDirectory) : null },
 
-    asks: {
+    answers: {
       async SEARCH_FILES(options, { data, progress, refuse, signal }) {
         if (!data.repository) throw refuse('no-directory', 'No directory selected. Please select a directory first.')
 

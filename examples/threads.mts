@@ -85,7 +85,7 @@ export const state = forNet<App>()
 
 function library(findDocument: (id: string) => Promise<{ id: string; name: string } | undefined>) {
   return state<{}, never, LibraryAsks>()({
-    asks: {
+    answers: {
       async GET_DOCUMENT({ id }, { refuse }) {
         const document = await findDocument(id)
         if (!document) throw refuse('not-found', 'Document not found')
@@ -102,7 +102,7 @@ function library(findDocument: (id: string) => Promise<{ id: string; name: strin
 const brain = state<{ data: { fired: string[] } }, BrainEvent, BrainAsks>()({
   data: { fired: [] },
 
-  asks: {
+  answers: {
     COUNT_FIRED: (_, { data }) => data.fired.length,
   },
 
@@ -132,14 +132,14 @@ export function thread(inference: Inference) {
     states: {
       idle: {
         // Accepting and starting to write are one step, so two messages at once cannot both be accepted.
-        asks: { WRITE: ({ text, attached }) => answered('accepted' as const, { at: 'writing', data: { text, attached } }) },
+        answers: { WRITE: ({ text, attached }) => answered('accepted' as const, { at: 'writing', data: { text, attached } }) },
       },
 
       writing: {
         data: { text: given, attached: given },
 
         // The innermost state that answers an ask wins: while writing, another message is refused.
-        asks: { WRITE: (_, { data, refuse }) => { throw refuse('busy', `A reply is already being written in ${data.threadId}.`) } },
+        answers: { WRITE: (_, { data, refuse }) => { throw refuse('busy', `A reply is already being written in ${data.threadId}.`) } },
 
         async run({ data, tell, broadcast, signal }) {
           const { threadId } = data
@@ -181,7 +181,7 @@ function threads(inference: Inference) {
       thread: start(thread(inference), { each: 'titles', given: (threadId) => ({ threadId }) }),
     }),
 
-    asks: {
+    answers: {
       // Answers and changes data as one step, and the thread is running by the end of it: adding its title is what
       // starts it. Nobody is told a thread exists that was not made.
       CREATE_THREAD: ({ title }, { data, broadcast }) => {

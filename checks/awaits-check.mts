@@ -17,7 +17,7 @@ export const state = forNet<App>()
 
 /** What the library was asked and what it was told to give up, in order. */
 const library = (did: string[]) => state<{}, never, LibraryAsks>()({
-  asks: {
+  answers: {
     LOOKUP: async ({ query }, { progress, signal }) => {
       did.push(`lookup ${query}`)
       signal.addEventListener('abort', () => { did.push(`gave up ${query}`) })
@@ -58,34 +58,34 @@ const reader = state<Reader, ReaderEvent>()({
 
   states: {
     on: {
-      awaits: (asking) => ({
+      loads: (load) => ({
         // Nothing is looked up while there is nothing to look up, and `again` only counts.
-        lookup: asking('library', 'LOOKUP', {
+        lookup: load('library', 'LOOKUP', {
           from: ['query', 'again'],
           args: ({ query }) => query !== '' && { query },
-          heard: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
-          ended: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : { data: { problem: outcome.failure.message } }),
+          progress: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
+          done: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : { data: { problem: outcome.failure.message } }),
         }),
 
         // One for each thing watched. It is asked once for its key, and what it found stays.
-        label: asking('library', 'LOOKUP', {
+        label: load('library', 'LOOKUP', {
           each: 'watched',
           args: (id) => ({ query: id }),
-          ended: (outcome, { key }) => (outcome.ok ? { data: (d) => { d.labels[key] = outcome.value } } : undefined),
+          done: (outcome, { key }) => (outcome.ok ? { data: (d) => { d.labels[key] = outcome.value } } : undefined),
         }),
 
         // Asked from a field that how it ended changes: it would ask itself again for good.
-        circle: asking('library', 'LOOKUP', {
+        circle: load('library', 'LOOKUP', {
           from: ['circling'],
           args: ({ circling }) => circling > 0 && { query: `round ${circling}` },
-          ended: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
+          done: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
         }),
 
         // Asked while something is pending, and how it ended clears it: it asks for nothing, which cannot come round.
-        once: asking('library', 'LOOKUP', {
+        once: load('library', 'LOOKUP', {
           from: ['pending'],
           args: ({ pending }) => pending !== '' && { query: pending },
-          ended: (outcome) => ({ data: { pending: '', got: outcome.ok ? outcome.value : null } }),
+          done: (outcome) => ({ data: { pending: '', got: outcome.ok ? outcome.value : null } }),
         }),
       }),
     },

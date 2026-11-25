@@ -45,7 +45,7 @@ type App = { systems: { finder: { events: never; asks: FinderAsks } }; surfaces:
 const state = forNet<App>()
 
 const finder = state<{}, never, FinderAsks>()({
-  asks: {
+  answers: {
     // Results come off a process in bursts: many at once, then a turn of the event loop.
     async FIND({ count }, { progress }) {
       for (let i = 0; i < count; i++) {

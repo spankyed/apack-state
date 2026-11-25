@@ -18,8 +18,8 @@ state<Jobs, JobsEvent>()({
   states: {
     on: {
       makes: ({ one, each }) => ({
-        run: each('worker', 'RUN', { args: (id) => ({ id }), ended: () => {} }),
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: () => {} }),
+        run: each('worker', 'RUN', { args: (id) => ({ id }), done: () => {} }),
+        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: () => {} }),
       }),
       on: {
         // @ts-expect-error a job is one of many, so making one takes its key
@@ -40,9 +40,9 @@ state<Jobs, JobsEvent>()({
     on: {
       makes: ({ one }) => ({
         // @ts-expect-error a job is one for each of many, so it is made with `each`
-        run: one('worker', 'RUN', { args: () => ({ id: '' }), ended: () => {} }),
+        run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),
         // @ts-expect-error what a save answers is a string, so it cannot be put where the list goes
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
+        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
       }),
     },
     off: {},

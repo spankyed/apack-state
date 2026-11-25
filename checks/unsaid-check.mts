@@ -36,7 +36,7 @@ const state = forNet<App>()
 const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
   data: { heard: [] },
   on: { NOTE: ({ text }, { data }) => ({ data: { heard: [...data.heard, text] } }) },
-  asks: {
+  answers: {
     ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }),
     SLOW: async ({ text }, { progress }) => {
       progress(`working ${text}`)
@@ -63,7 +63,7 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
     WORK: ({ how }) => ({ at: 'working', data: { how } }),
     REST: () => ({ at: 'idle' }),
   },
-  asks: {
+  answers: {
     DO: ({ how }, { tell, send, broadcast, progress, ask, refuse }) => {
       tell('ear', { type: 'NOTE', text: 'doing' })
       send({ type: 'COUNT' })
@@ -118,7 +118,7 @@ const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: strin
       return undefined
     },
   },
-  asks: {
+  answers: {
     RELAY: ({ how }, { ask }) => {
       const done = ask('desk', 'DO', { how: 'made' })
       void done.then(ended)
@@ -300,7 +300,7 @@ await run([
     const gate = new Promise<void>((resolve) => { release = resolve })
     const maker = state<{ data: { done: string[] }; makes: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
       data: { done: [] },
-      makes: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
+      makes: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
       on: {
         START: (_, { make }) => { make('work') },
         FAIL_DROP: (_, { drop }) => { drop('work'); throw new Error('drop broke') },
@@ -324,20 +324,20 @@ await run([
       follows: (follow) => ({
         list: follow('notes', 'list', {
           args: () => ({}),
-          heard: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
+          update: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
         }),
       }),
-      awaits: (wait) => ({
+      loads: (wait) => ({
         read: wait('ear', 'ECHO', {
           from: ['ready'],
           args: () => ({ text: 'read' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
+          done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
         }),
       }),
       makes: ({ one }) => ({
         job: one('ear', 'ECHO', {
           args: () => ({ text: 'job' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
+          done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
         }),
       }),
       on: { GO: (_, { make }) => { make('job') } },
@@ -534,7 +534,7 @@ await run([
       states: {
         busy: {
           on: { LEAVE: () => ({ at: 'done' }) },
-          asks: { SLOW: async () => new Promise<string>(() => {}) },
+          answers: { SLOW: async () => new Promise<string>(() => {}) },
         },
         done: {},
       },

@@ -203,7 +203,7 @@ await run([
         READ_NOW: (_, scope) => { void scope.now },
         SLEEP: () => ({ at: 'sleeping' }),
       },
-      asks: {
+      answers: {
         PING: () => 'pong',
         NOW: (_, scope) => scope.now,
       },
@@ -556,7 +556,7 @@ await run([
     })
     type WaitAsks = { WAIT_REJECT: { args: {}; answer: string }; WAIT_RESOLVE: { args: {}; answer: string } }
     const waiter = state<{}, never, WaitAsks>()({
-      asks: {
+      answers: {
         WAIT_REJECT: async (_, { sleep }) => { await sleep(30_000); return 'late' },
         WAIT_RESOLVE: async (_, { sleep }) => { try { await sleep(30_000) } catch { return 'caught' } return 'late' },
       },
@@ -632,7 +632,7 @@ await run([
     const unawaited = state<UnawaitedShape, UnawaitedEvent, UnawaitedAsks>()({
       initial: 'idle',
       on: { GO: ({ at }) => ({ at }) },
-      asks: {
+      answers: {
         ASYNC_RETURN: async (_, { sleep }) => { void sleep(30_000); await Promise.resolve(); return 'ok' },
         ASYNC_THROW: async (_, { sleep }) => { void sleep(30_000); await Promise.resolve(); throw new Error('boom') },
         SYNC_RETURN: (_, { sleep }) => { void sleep(30_000); return 'ok' },

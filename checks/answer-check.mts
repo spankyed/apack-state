@@ -36,7 +36,7 @@ type Box = { data: { items: Record<string, string[]> } }
 
 const box = (work: (label: string) => Promise<unknown>) => state<Box, never, BoxAsks>()({
   data: { items: { a: [] } },
-  asks: {
+  answers: {
     PUT: async ({ id, text }, { data, refuse }) => {
       if (!(id in data.items)) throw refuse('gone', `There is no ${id}.`, { id })
       await work('storing')
@@ -81,10 +81,10 @@ const counter = (work: (label: string) => Promise<unknown>) => state<Counter, Co
   data: { count: 0 },
   initial: 'open',
   on: { REOPEN: () => ({ at: 'open' }) },
-  asks: { READ: (_, { data }) => data.count },
+  answers: { READ: (_, { data }) => data.count },
   states: {
     open: {
-      asks: {
+      answers: {
         ADD: (_, { data }) => answered(data.count + 1, { data: { count: data.count + 1 } }),
         CLOSE: ({ reason }) => answered('closed' as const, { at: 'closed', data: { reason } }),
         ADD_LATER: async ({ after }) => {
