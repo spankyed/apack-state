@@ -350,6 +350,169 @@ const checks: Array<[string, () => Promise<void>]> = [
     for (const run of frames.splice(0)) run()
     ok(!it.saw.includes('heard one'), it.saw.join(' / '))
   }],
+  ['finishing run or an ask cancels unawaited asks without aborting public scope.signal', async () => {
+    const publicAborted: string[] = []
+    const unwoundAsks: string[] = []
+    const straySent: string[] = []
+    const strayAsks: Array<() => Promise<unknown>> = []
+    const straySends: Array<() => void> = []
+    type ScAsks = {
+      SLOW: { args: { label: string }; answer: string }
+      ASYNC_RETURN: { args: {}; answer: string }
+      ASYNC_THROW: { args: {}; answer: string }
+      SYNC_RETURN: { args: {}; answer: string }
+      SYNC_THROW: { args: {}; answer: string }
+    }
+    type ScNet = { systems: { svc: { events: { type: 'STRAY' }; asks: ScAsks } }; surfaces: {}; views: {} }
+    const scState = reaching<ScNet>()
+    type ScShape = { states: { idle: {}; asyncReturn: {}; asyncThrow: {}; syncReturn: {}; syncThrow: {} } }
+    type ScEvent = { type: 'GO'; at: 'asyncReturn' | 'asyncThrow' | 'syncReturn' | 'syncThrow' } | { type: 'STRAY' }
+    const svc = scState<ScShape, ScEvent, ScAsks>()({
+      start: 'idle',
+      on: {
+        GO: ({ at }) => ({ at }),
+        STRAY: () => { straySent.push('STRAY') },
+      },
+      asks: {
+        SLOW: async ({ label }, { signal }) => {
+          signal.addEventListener('abort', () => { unwoundAsks.push(label) })
+          await turns(30)
+          return 'late'
+        },
+        ASYNC_RETURN: async (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => publicAborted.push('ask:asyncReturn'))
+          void ask('svc', 'SLOW', { label: 'ask:asyncReturn' })
+          await turns(1)
+          return 'ok'
+        },
+        ASYNC_THROW: async (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => publicAborted.push('ask:asyncThrow'))
+          void ask('svc', 'SLOW', { label: 'ask:asyncThrow' })
+          await turns(1)
+          throw new Error('boom')
+        },
+        SYNC_RETURN: (_, { signal, ask }) => {
+          signal.addEventListener('abort', () => publicAborted.push('ask:syncReturn'))
+          void ask('svc', 'SLOW', { label: 'ask:syncReturn' })
+          return 'ok'
+        },
+        SYNC_THROW: (_, { signal, ask, send }) => {
+          signal.addEventListener('abort', () => publicAborted.push('ask:syncThrow'))
+          straySends.push(() => send({ type: 'STRAY' }))
+          strayAsks.push(() => ask('svc', 'SLOW', { label: 'stray:ask:syncThrow' }))
+          throw new Error('sync boom')
+        },
+      },
+      states: {
+        idle: {},
+        asyncReturn: {
+          async run({ signal, ask }) {
+            signal.addEventListener('abort', () => publicAborted.push('run:asyncReturn'))
+            void ask('svc', 'SLOW', { label: 'run:asyncReturn' })
+            await turns(1)
+          },
+          failed: () => {},
+        },
+        asyncThrow: {
+          async run({ signal, ask }) {
+            signal.addEventListener('abort', () => publicAborted.push('run:asyncThrow'))
+            void ask('svc', 'SLOW', { label: 'run:asyncThrow' })
+            await turns(1)
+            throw new Error('run boom')
+          },
+          failed: () => {},
+        },
+        syncReturn: {
+          run({ signal, ask }) {
+            signal.addEventListener('abort', () => publicAborted.push('run:syncReturn'))
+            void ask('svc', 'SLOW', { label: 'run:syncReturn' })
+          },
+        },
+        syncThrow: {
+          run({ signal, ask, send }) {
+            signal.addEventListener('abort', () => publicAborted.push('run:syncThrow'))
+            straySends.push(() => send({ type: 'STRAY' }))
+            strayAsks.push(() => ask('svc', 'SLOW', { label: 'stray:run:syncThrow' }))
+            throw new Error('sync run boom')
+          },
+          failed: () => {},
+        },
+      },
+    })
+
+    const sys = system({ side: 'backend' })
+    const h = sys.start('svc', svc)
+
+    deepStrictEqual(await sys.ask(h, 'ASYNC_RETURN', {}), { ok: true, value: 'ok' })
+    const r2 = await sys.ask(h, 'ASYNC_THROW', {})
+    ok(!r2.ok && r2.failure.kind === 'failed', JSON.stringify(r2))
+    deepStrictEqual(await sys.ask(h, 'SYNC_RETURN', {}), { ok: true, value: 'ok' })
+    const r4 = await sys.ask(h, 'SYNC_THROW', {})
+    ok(!r4.ok && r4.failure.kind === 'failed', JSON.stringify(r4))
+
+    // None of the ask handlers aborted public scope.signal on normal completion or throw.
+    deepStrictEqual([...publicAborted], [])
+
+    // Transitioning across run states checks both unawaited ask cancellation and non-aborting public signal on stay.
+    for (const at of ['asyncReturn', 'asyncThrow', 'syncReturn', 'syncThrow'] as const) {
+      sys.send(h, { type: 'GO', at })
+      await rest()
+      // Staying in `at` after `run` finishes did NOT abort `at`'s public signal; leaving the previous state did.
+      ok(!publicAborted.includes(`run:${at}`), `run:${at} must not abort public scope.signal on completion`)
+    }
+
+    // Even while still in `syncThrow`, stray calls saved before throwing are blocked by the private work signal.
+    for (const call of straySends) call()
+    for (const call of strayAsks) {
+      let err: unknown
+      try { await call() } catch (e) { err = e }
+      ok(err instanceof Left, String(err))
+    }
+    await rest()
+    deepStrictEqual(straySent, [])
+    deepStrictEqual(unwoundAsks, [
+      'ask:asyncReturn', 'ask:asyncThrow', 'run:asyncReturn', 'run:asyncThrow',
+    ])
+    strictEqual(sys.idle(), true)
+    sys.stop()
+    await rest()
+  }],
+  ['a finished ask or run scope drops any stray progress, send, tell or broadcast called after it returned', async () => {
+    const heard: string[] = []
+    const events: string[] = []
+    const broadcasts: string[] = []
+    let strayAsk!: () => void
+    let strayRun!: () => void
+    type StrayAsks = { PING: { args: {}; answer: string; progress: string } }
+    type StrayNet = { systems: { svc: { events: { type: 'NOTE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
+    const strayState = reaching<StrayNet>()
+    const svc = strayState<{}, { type: 'NOTE' }, StrayAsks>()({
+      on: { NOTE: () => { events.push('NOTE') } },
+      run({ send, tell, broadcast }) {
+        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+      },
+      asks: {
+        PING: async (_, { progress, send, tell, broadcast }) => {
+          progress('live')
+          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+          return 'ok'
+        },
+      },
+    })
+    const backend = system({ side: 'backend' })
+    const win = system({ side: 'window' })
+    win.start('panel', strayState<{}, { type: 'BCAST' }>()({ on: { BCAST: () => { broadcasts.push('BCAST') } } }))
+    connect(win, backend)
+    const h = backend.start('svc', svc)
+    deepStrictEqual(await backend.ask(h, 'PING', {}, (updates) => heard.push(...updates)), { ok: true, value: 'ok' })
+    await rest()
+    strayAsk()
+    strayRun()
+    await rest()
+    deepStrictEqual(heard, ['live'])
+    deepStrictEqual(events, [])
+    deepStrictEqual(broadcasts, [])
+  }],
 ]
 
 await run([...checks, ...lingeringChecks])
