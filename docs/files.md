@@ -58,6 +58,11 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
 | `checks/graph-check.mts` | The graph tool (`tools/graph.mts`) run on states that are hard to read, in `checks/graphs/`: a state entered at one inside it before itself, and what is written short; and its command line |
+| `checks/graphs/*.mts` | Small state fixtures for `checks/graph-check.mts` (`child-entered-first.mts`, `written-short.mts`) |
+| `checks/mutants-check.mts` | Holds `scripts/mutants.mjs`, `scripts/mutants-list.mjs`, and `scripts/mutants-merge.mjs` to range pruning, allowlist updating, and entry-level merging |
+| `checks/master-status-check.mts` | Holds the CI master-status issue-management logic to opening, updating, and closing failure issues cleanly |
+| `vitest.config.mts`, `vitest.mutants.mts` | Vitest configurations for the Node and Chromium browser projects and for Stryker mutation runs |
+| `stryker.config.mjs` | Stryker mutation testing configuration (`MUTATE` sharding, `perTest` coverage analysis, timeouts) |
 | `checks/link-check.mts` | A backend and a window joined directly by `@apackdev/link` on their ports with no adapter and one hold owned by the link, held to what a window is promised: answered and told after its view shows the step, under a seed's worth of orderings of the two packages; a link that goes ends what was asked as disconnected, and the backend goes on |
 | `measure/compile-cost.mts` | What TypeScript takes to check 10, 100 and 300 generated states, each as a pack writes one: check time, wall time, types and memory. A measurement |
 | `measure/record.mts` | What a measurement records beside what it prints, for `npm run bench` |
