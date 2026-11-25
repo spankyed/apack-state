@@ -562,9 +562,7 @@ export function system(host: {
     const active: Active = { top, def, name, path, around, inside: undefined, controller: new AbortController(), releases: [], questions: new Set(), started: new Set(), following: new Map(), awaiting: new Map(), making: new Map() }
     if (around) around.inside = active; else top.root = active
     for (const [field, initial] of Object.entries(def.data ?? {})) {
-      if (field in entering) top.data = { ...top.data, [field]: entering[field] }
-      else if (initial === given) trace(`DEFECT: ${top.ref} entered ${path} without ${field}`)
-      else top.data = { ...top.data, [field]: initial }
+      top.data = { ...top.data, [field]: field in entering ? entering[field] : initial }
     }
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.run) {
@@ -685,6 +683,8 @@ export function system(host: {
         const start = (ref: string, def: unknown, from: string, given: () => Plain): void => {
           let entering: Plain
           try { entering = given() } catch (error) { trace(`DEFECT: ${top.ref} could not say what to give ${ref}: ${said(error)}`); return }
+          const problem = cannotBegin(def as LooseDef, entering)
+          if (problem) { trace(`DEFECT: ${ref} ${problem}`); return }
           at.started.add(ref)
           begin(ref, def as LooseDef, entering, { ref: top.ref, from })
         }
@@ -844,6 +844,15 @@ export function system(host: {
     }
     const stray = Object.keys(entering).find((field) => !after.has(field))
     return stray === undefined ? undefined : `will have no field ${stray} at ${at}`
+  }
+
+  /** Why a state cannot start with what it is given, checked before anything registers or runs. */
+  const cannotBegin = (def: LooseDef, entering: Plain | undefined): string | undefined => {
+    const provided = entering ?? {}
+    for (const [field, initial] of Object.entries(def.data ?? {})) {
+      if (initial === given && !(field in provided)) return `cannot start without ${field}`
+    }
+    return undefined
   }
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): { ref: string } => {
@@ -1287,10 +1296,13 @@ export function system(host: {
   const self: System = {
     port,
     start: (ref, made, ...entering) => {
-      let handleOf: { ref: string }
+      const def = made.def as LooseDef
       const initial = entering[0] as Plain | undefined
-      if (stepping) handleOf = begin(ref, made.def as LooseDef, initial)
-      else { step(() => { handleOf = begin(ref, made.def as LooseDef, initial) }); pump() }
+      const problem = cannotBegin(def, initial)
+      if (problem) throw new Error(`${ref} ${problem}`)
+      let handleOf: { ref: string }
+      if (stepping) handleOf = begin(ref, def, initial)
+      else { step(() => { handleOf = begin(ref, def, initial) }); pump() }
       return handleOf!
     },
     child: ((of: { ref: string }, name: string, key?: string) => ({ ref: key === undefined ? `${of.ref}/${name}` : `${of.ref}/${name}/${key}` })) as unknown as System['child'],
