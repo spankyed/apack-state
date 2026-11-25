@@ -288,7 +288,10 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    * a name: asking through one whose state is not running is answered `unavailable`.
    */
   child<K extends keyof StartsAt<R, H> & string>(name: K, ...key: StartsAt<R, H>[K] extends Each<any> ? [key: string] : []): HandleOf<StartsAt<R, H>[K]>
-  /** Released, last first, when this state stops being the case. */
+  /**
+   * Released, last first, when this state stops being the case. If called from in-flight work after the state has
+   * already been left, `release` runs immediately; stray calls after `run` or an ask has already finished are ignored.
+   */
   use(release: () => void): void
   /**
    * Waits `ms` milliseconds on the clock's monotonic timer. Rejects with `RangeError` if `ms` is non-finite (or

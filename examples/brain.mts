@@ -208,10 +208,11 @@ export const makeFlowState = (
     const { nextStep, nextLive, shouldComplete, shouldFail } = nextOutcome({ blueprint, tracks: draft.tracks }, stepId, trackId, failed)
     const track = draft.tracks[trackId]
     const trackFailed = Boolean(track?.failed) || failed
+    if (error !== undefined && draft.finalError === undefined) draft.finalError = error
     if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}) }
     if (nextLive === 0) tellPeer({ type: 'NODE_FINISHED', id: trackId, status: trackFailed ? 'failed' : 'completed', at: now })
-    if (shouldComplete) { draft.finalResult = result; return }
-    if (shouldFail) { draft.finalError = error ?? 'flow failed'; return }
+    if (shouldComplete) { draft.finalResult = result; draft.finalError = undefined; return }
+    if (shouldFail) { draft.finalError ??= 'flow failed'; return }
     if (nextStep) spawnChild(draft, nextStep, result, trackId, parentId, now, tellPeer)
   }
 
@@ -308,9 +309,10 @@ export const makeFlowState = (
       },
       failed: {
         run({ data, now, tell, report }) {
+          const error = data.finalError ?? 'flow failed'
           tell({ peer: 'runHistory' }, { type: 'STOP_ACTIVE', under: data.runNodeId, at: now })
-          tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'failed', ...(data.finalError ? { error: data.finalError } : {}), at: now })
-          report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, error: data.finalError ?? 'flow failed' })
+          tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'failed', error, at: now })
+          report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, error })
         },
       },
     },

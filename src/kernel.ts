@@ -531,7 +531,7 @@ export function system(host: {
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
       use: (release: () => void) => {
         if (alive()) mine.releases.push(release)
-        else if (mine.controller.signal.aborted) safely(`a release of ${ref}`, release)
+        else if (mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release)
       },
     }
     return key === undefined ? scope : Object.assign(scope, { key })
@@ -575,11 +575,16 @@ export function system(host: {
       // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
       const begin = (): void => { made = def.run!(workScopeOf(active, active.controller.signal, own.signal, workSignal)) }
       const before = sayings()
-      try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); inside.push({ kind: 'failure', of: active, error }); return active }
+      try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); if (!(error instanceof Left)) inside.push({ kind: 'failure', of: active, error }); return active }
       if (made instanceof Promise) {
         under(made,
           (value) => { own.abort(); if (!active.controller.signal.aborted) arrive({ kind: 'result', of: active, value }) },
-          (error) => { own.abort(); if (!(error instanceof Left)) arrive({ kind: 'failure', of: active, error }) },
+          (error) => {
+            own.abort()
+            if (error instanceof Left) return
+            if (active.controller.signal.aborted) { leftFailed(active, error); return }
+            arrive({ kind: 'failure', of: active, error })
+          },
         )
       } else {
         own.abort()
@@ -919,13 +924,17 @@ export function system(host: {
     return MADE
   }
 
+  const leftFailed = (active: Active, error: unknown): void => {
+    trace(`${active.top.ref}${active.path ? ` in ${active.path}` : ''} failed after it was left: ${said(error)}`)
+  }
   /**
    * A state's work failed. If the state is still the case it goes where its `failed` says, with the error. If it was
-   * left first there is nowhere to go: a `Left` is that leaving and nothing more, and anything else is reported.
+   * left first (for example, an enclosing state's failure moved away in the same step), there is nowhere to go and the
+   * failure is only reported.
    */
   const fail = (active: Active, error: unknown): boolean => {
+    if (active.controller.signal.aborted) { leftFailed(active, error); return MADE }
     const where = `${active.top.ref}${active.path ? ` in ${active.path}` : ''}`
-    if (active.controller.signal.aborted) { trace(`${where} failed after it was left: ${said(error)}`); return MADE }
     trace(`${where} failed: ${said(error)}`)
     const failed = active.def.failed
     if (!failed) { trace(`DEFECT: ${where} says nowhere to go when its work fails, and stays as it is`); return MADE }
@@ -980,8 +989,6 @@ export function system(host: {
   }
   const take = (item: Item): boolean => {
     if (item.kind === 'out') { leaving.push(Object.assign(item.leave, { said: item.said })); return MADE }
-    // An answer to an ask its state left unanswered: whoever asked was told it was abandoned, and nothing happens.
-    if (item.kind === 'answer' && abandoned.has(item.question)) return MADE
     // What is handled is logged as it is taken: an event or ask held for a state not running yet is taken later.
     const note = (): void => { if (logging) logging.handled.push(handledOf(item)) }
     if (item.kind !== 'event' && item.kind !== 'ask') note()
@@ -1055,9 +1062,8 @@ export function system(host: {
     }
     if (item.kind === 'answer') {
       answeringOf.get(item.question)?.questions.delete(item.question)
-      // An answer that came with a change: the change is made here, in the step the answer leaves in. If the state
-      // that answered was left meanwhile, its ask was ended as abandoned when it was, and nothing is changed.
-      const outcome = item.change && !item.change.of.controller.signal.aborted ? withChange(item.change.of, item.change.next, item.outcome) : item.outcome
+      // An answer that came with a change: the change is made here, in the step the answer leaves in.
+      const outcome = item.change ? withChange(item.change.of, item.change.next, item.outcome) : item.outcome
       answer(item.question, outcome)
       // An ask that is refused has changed nothing, whichever of its handler and its change refused.
       return outcome.ok
@@ -1113,8 +1119,8 @@ export function system(host: {
         found.of.questions.add(question)
         answeringOf.set(question, found.of)
         under(made,
-          (value) => { own.abort(); arrive(isAnswered(value) ? { kind: 'answer', question, outcome: { ok: true, value: value.answer }, change: { of: found.of, next: value.next } } : { kind: 'answer', question, outcome: { ok: true, value } }) },
-          (error) => { const outcome = failed(error); own.abort(); arrive({ kind: 'answer', question, outcome }) },
+          (value) => { own.abort(); if (!abandoned.has(question)) arrive(isAnswered(value) ? { kind: 'answer', question, outcome: { ok: true, value: value.answer }, change: { of: found.of, next: value.next } } : { kind: 'answer', question, outcome: { ok: true, value } }) },
+          (error) => { const outcome = failed(error); own.abort(); if (!abandoned.has(question)) arrive({ kind: 'answer', question, outcome }) },
         )
         // What it wrote before it waited is kept: it answers in a later step, and this one is made.
         return MADE
@@ -1189,7 +1195,7 @@ export function system(host: {
   let steps = 0
   let spent = false
   const step = (first: () => void, stopping = false): void => {
-    if (host.limit !== undefined && steps >= host.limit) {
+    if (!stopping && host.limit !== undefined && steps >= host.limit) {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
