@@ -83,10 +83,10 @@
     }
   },
   "devDependencies": {
-    "@apackdev/link": "https://github.com/spankyed/apack-link/releases/download/pkg-04c2b37933c53b77413480a19187e428c582b51d/apackdev-link-0.1.0.tgz",
-    "@apackdev/orderings": "https://github.com/spankyed/apack-orderings/releases/download/pkg-f4170ad27f86dd33dd1faa27e15016e4322e5b80/apackdev-orderings-0.1.0.tgz",
+    "@apackdev/link": "https://github.com/spankyed/apack-link/releases/download/pkg-f14e9dcf1ad7c8f7ecad940d27d15cbd8a68135c/apackdev-link-0.1.0.tgz",
+    "@apackdev/orderings": "https://github.com/spankyed/apack-orderings/releases/download/pkg-65dda86e8e69679dd420ed32d8c3b5df171cbe2c/apackdev-orderings-0.1.0.tgz",
     "@arethetypeswrong/cli": "^0.18.5",
-    "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-ears-0.1.0.tgz",
+    "@elmdb/ears": "https://github.com/spankyed/elmdb/releases/download/pkg-259a6e35db7eda5f5083500e1668529588551fbd/elmdb-ears-0.1.0.tgz",
     "@microsoft/api-extractor": "^7.60.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
@@ -96,7 +96,7 @@
     "@vue/reactivity": "^3.5.0",
     "@vue/runtime-core": "^3.5.0",
     "assert": "^2.1.0",
-    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz",
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-259a6e35db7eda5f5083500e1668529588551fbd/elmdb-0.1.0.tgz",
     "oxlint": "^1.94.0",
     "playwright": "^1.65.1",
     "publint": "^0.3.25",
