@@ -271,10 +271,10 @@ await run([], async (tally) => {
     const found = await explore(broken)
     ok(found.failure, `no ordering failed in ${found.orderings}`)
     const again = await replay(broken, found.failure.choices)
-    const first = await replay(broken, [])
+    const first = await explore(broken, { limit: 1 })
     ok(again.error !== undefined, 'the replay did not fail')
     deepStrictEqual(again.taken, found.failure.taken)
-    strictEqual(first.error, undefined, 'the first ordering fails too, so nothing had to be found')
+    strictEqual(first.failure, undefined, 'the first ordering fails too, so nothing had to be found')
     // The order it found: the second search's work done before the first's.
     deepStrictEqual(found.failure.taken.filter((each) => each.startsWith('finding')), ['finding b', 'finding a'])
   })
