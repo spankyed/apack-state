@@ -35,6 +35,8 @@ const isPlain = (value: unknown): value is object => {
 export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()
   let open = true
+  /** Whether any nested draft or whole wrapper has been handed out; skips walking fresh assignments when none has. */
+  let handed = false
   const closed = (): never => { throw new Error('A draft was used after the handler it was given to returned') }
 
   const latest = (node: Node): Record<string, unknown> => (node.copy ?? node.base) as Record<string, unknown>
@@ -60,12 +62,40 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     for (const [key, held] of node.inside) if (held.node.copy && made[key] === held.node.base) made[key] = settle(held.node)
     return made
   }
-  const plainOf = (value: unknown): unknown => {
+  const plainOf = (value: unknown, seen?: Map<object, object>): unknown => {
     if (typeof value !== 'object' || value === null) return value
-    const whole = (value as { [WHOLE]?: object })[WHOLE]
-    if (whole) return whole
-    const node = isPlain(value) ? (value as { [NODE]?: Node })[NODE] : undefined
-    return node ? settle(node) : value
+    const wrapped = (value as { [WHOLE]?: object })[WHOLE]
+    if (wrapped) return wrapped
+    if (!isPlain(value)) return value
+    const node = (value as { [NODE]?: Node })[NODE]
+    if (node) return settle(node)
+    if (!handed || Object.isFrozen(value)) return value
+    const prior = seen?.get(value)
+    if (prior) return prior
+    const track = seen ?? new Map<object, object>()
+    if (Array.isArray(value)) {
+      const copy: unknown[] = []
+      track.set(value, copy)
+      let changed = false
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i]
+        const plain = plainOf(item, track)
+        if (plain !== item) changed = true
+        copy.push(plain)
+      }
+      if (!changed) track.set(value, value)
+      return changed ? copy : value
+    }
+    const copy = Object.create(Object.getPrototypeOf(value) as object | null) as Record<string, unknown>
+    track.set(value, copy)
+    let changed = false
+    for (const [k, v] of Object.entries(value)) {
+      const plain = plainOf(v, track)
+      if (plain !== v) changed = true
+      copy[k] = plain
+    }
+    if (!changed) track.set(value, value)
+    return changed ? copy : value
   }
 
   /**
@@ -94,9 +124,10 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
         if (!open) closed()
         const value = Reflect.get(latest(node), key)
         if (typeof key === 'symbol' || typeof value !== 'object' || value === null) return value
-        if (!isPlain(value)) return whole(value, [...node.path, key])
+        if (!isPlain(value)) { handed = true; return whole(value, [...node.path, key]) }
         const held = node.inside.get(key)
         if (held && held.node.base === value) return held.proxy
+        handed = true
         const proxy = draftOf(value, node, [...node.path, key])
         node.inside.set(key, { node: (proxy as { [NODE]: Node })[NODE], proxy })
         return proxy
