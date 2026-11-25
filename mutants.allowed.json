@@ -598,5 +598,10 @@
     "key": "src/testing.ts | StringLiteral | const handle = (running.start as (ref: string, state: State<S, E, A, G>, entering: unknown) => Handle<Value<S>, E, A>)('under test', options.state, options.given) | \"\"",
     "original": "'under test'",
     "why": "The ref is internal to fromEvents: nothing outside reads it, so any name runs the state the same"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (!Object.hasOwn(top.data, field)) continue | false",
+    "original": "!Object.hasOwn(top.data, field)",
+    "why": "A field that is not there yet is entered by the move with the value given; skipping unchanged Object.is writes leaves undefined fields for moved() to touch and writing non-undefined fields touches and sets the same value go() enters"
   }
 ]

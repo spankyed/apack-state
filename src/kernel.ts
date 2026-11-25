@@ -63,7 +63,7 @@ class Question {
 class Queue<T> {
   private items: Array<T | undefined> = []
   private head = 0
-  get size(): number { return this.items.length - this.head }
+  get any(): boolean { return this.head < this.items.length }
   peek(): T { return this.items[this.head]! }
   push(item: T): void { this.items.push(item) }
   shift(): T {
@@ -1348,7 +1348,7 @@ export function system(host: {
       let count = 0
       let cutShort = false
       for (;;) {
-        for (; inside.size; count++) {
+        for (; inside.any; count++) {
           const item = inside.shift()
           if (count < RUNAWAY) { handle(item); continue }
           // What it had done is committed, so that the states can be read and the report says where they got to.
@@ -1366,7 +1366,7 @@ export function system(host: {
         matchStale()
         if (cutShort) { turnAway(inside.drain(), CUT_SHORT); turnAway(held.splice(0), CUT_SHORT); break }
         const ready = held.filter((item) => running.has(item.ref))
-        if (!ready.length && !inside.size) break
+        if (!ready.length && !inside.any) break
         for (const item of ready) { held.splice(held.indexOf(item), 1); inside.push(item) }
       }
       // What is still waiting was sent to nothing that runs.
@@ -1407,7 +1407,7 @@ export function system(host: {
   let settling = false
   const starting = new Set<string>()
   const pump = (): void => {
-    while (!stepping && !flushing && outside.size) {
+    while (!stepping && !flushing && outside.any) {
       const next = outside.peek()
       if (next.kind === 'run') { outside.shift(); step(next.fn, next.stopping) }
       else step(() => { outside.shift(); handle(next) })
@@ -1498,7 +1498,7 @@ export function system(host: {
         }
       }
     }) as System['attach'],
-    idle: () => pending === 0 && !due && !stepping && !flushing && outside.size === 0,
+    idle: () => pending === 0 && !due && !stepping && !flushing && !outside.any,
     stop: () => run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
   }
   return self
