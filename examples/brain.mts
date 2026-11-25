@@ -211,7 +211,7 @@ export const makeFlowState = (
     if (error !== undefined && draft.finalError === undefined) draft.finalError = error
     if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}) }
     if (nextLive === 0) tellPeer({ type: 'NODE_FINISHED', id: trackId, status: trackFailed ? 'failed' : 'completed', at: now })
-    if (shouldComplete) { draft.finalResult = result; return }
+    if (shouldComplete) { draft.finalResult = result; draft.finalError = undefined; return }
     if (shouldFail) { draft.finalError ??= 'flow failed'; return }
     if (nextStep) spawnChild(draft, nextStep, result, trackId, parentId, now, tellPeer)
   }
