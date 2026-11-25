@@ -8,9 +8,9 @@ StepShape
   findings: none
 
 FlowShape
-  states: active, completed
-    active           STEP_DONE          → completed
-    active           FLOW_DONE          → completed
+  states: active, completed, failed
+    active           STEP_DONE          → completed | failed
+    active           FLOW_DONE          → completed | failed
   changes data only: TRIGGER in active
   starts: step (one for each key) in active, subflow (one for each key) in active
   reaches: tell its 'subflow', tell { peer: 'runHistory' }

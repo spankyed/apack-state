@@ -108,6 +108,13 @@ await run([
     strictEqual(gen?.error, 'model failed')
     const failedTrack = [...history.nodes.values()].find((n) => n.kind === 'event' && n.label === 'flow.entry')
     strictEqual(failedTrack?.status, 'failed')
+    const subflow = [...history.nodes.values()].find((n) => n.label === 'Reply Subflow')
+    strictEqual(subflow?.status, 'failed')
+    strictEqual(subflow?.error, 'model failed')
+    const parentTrack = [...history.nodes.values()].find((n) => n.kind === 'event' && n.label === 'threads.user_msg')
+    strictEqual(parentTrack?.status, 'failed')
+    // Only the persistent root flow remains active; no subflow or track is stranded.
+    deepStrictEqual([...history.nodes.values()].filter((n) => n.status === 'active').map((n) => n.label), ['Root Flow'])
     strictEqual([...history.nodes.values()].some((n) => n.label === 'Summarize'), false)
     strictEqual(backend.idle(), true)
   }],

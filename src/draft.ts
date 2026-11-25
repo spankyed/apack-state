@@ -69,7 +69,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     if (!isPlain(value)) return value
     const node = (value as { [NODE]?: Node })[NODE]
     if (node) return settle(node)
-    if (!handed || Object.isFrozen(value)) return value
+    if (!handed) return value
     const prior = seen?.get(value)
     if (prior) return prior
     const track = seen ?? new Map<object, object>()

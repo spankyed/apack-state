@@ -116,9 +116,9 @@ type TrackState = { readonly live: number; readonly eventType: string; readonly 
 export type FlowEvent =
   | { readonly type: 'TRIGGER'; readonly eventType: string; readonly payload: unknown; readonly targetFlowId?: string }
   | { readonly type: 'STEP_DONE'; readonly from: string; readonly runNodeId: string; readonly stepId: string; readonly result?: unknown; readonly error?: string }
-  | { readonly type: 'FLOW_DONE'; readonly from: string; readonly runNodeId: string; readonly result?: unknown }
+  | { readonly type: 'FLOW_DONE'; readonly from: string; readonly runNodeId: string; readonly result?: unknown; readonly error?: string }
 
-type FlowReport = { readonly type: 'FLOW_DONE'; readonly runNodeId: string; readonly result?: unknown }
+type FlowReport = { readonly type: 'FLOW_DONE'; readonly runNodeId: string; readonly result?: unknown; readonly error?: string }
 
 interface FlowShape {
   data: {
@@ -131,6 +131,7 @@ interface FlowShape {
     tracks: Record<string, TrackState>
     nextSeq: number
     finalResult: unknown
+    finalError: string | undefined
   }
   reports: FlowReport
   states: {
@@ -141,6 +142,7 @@ interface FlowShape {
       }
     }
     completed: {}
+    failed: {}
   }
 }
 
@@ -177,15 +179,18 @@ export const makeFlowState = (
     stepId: string,
     trackId: string,
     failed: boolean,
-  ): { nextStep: StepDef | undefined; nextLive: number; shouldComplete: boolean } => {
+  ): { nextStep: StepDef | undefined; nextLive: number; shouldComplete: boolean; shouldFail: boolean } => {
     const step = data.blueprint.steps[stepId]
     const nextStep = !failed && step?.nextId ? data.blueprint.steps[step.nextId] : undefined
     const track = data.tracks[trackId]
     const nextLive = Math.max(0, (track?.live ?? 1) - 1) + (nextStep ? 1 : 0)
+    const trackFailed = Boolean(track?.failed) || failed
     const hasPersistent = data.blueprint.triggers.some((t) => t.persistent)
     const allDrained = Object.entries(data.tracks).every(([id, t]) => (id === trackId ? nextLive : t.live) === 0)
-    const shouldComplete = !failed && (Boolean(step?.final) || (!hasPersistent && allDrained))
-    return { nextStep, nextLive, shouldComplete }
+    const anyTrackFailed = Object.entries(data.tracks).some(([id, t]) => (id === trackId ? trackFailed : Boolean(t.failed)))
+    const shouldComplete = !failed && (Boolean(step?.final) || (!hasPersistent && allDrained && !anyTrackFailed))
+    const shouldFail = !shouldComplete && !hasPersistent && allDrained && anyTrackFailed
+    return { nextStep, nextLive, shouldComplete, shouldFail }
   }
 
   const settleChild = (
@@ -195,16 +200,18 @@ export const makeFlowState = (
     trackId: string,
     parentId: string,
     result: unknown,
-    failed: boolean,
+    error: string | undefined,
     now: number,
     tellPeer: (event: RunHistoryEvent) => void,
   ): void => {
-    const { nextStep, nextLive, shouldComplete } = nextOutcome({ blueprint, tracks: draft.tracks }, stepId, trackId, failed)
+    const failed = error !== undefined
+    const { nextStep, nextLive, shouldComplete, shouldFail } = nextOutcome({ blueprint, tracks: draft.tracks }, stepId, trackId, failed)
     const track = draft.tracks[trackId]
     const trackFailed = Boolean(track?.failed) || failed
     if (track) draft.tracks[trackId] = { ...track, live: nextLive, ...(trackFailed ? { failed: true } : {}) }
     if (nextLive === 0) tellPeer({ type: 'NODE_FINISHED', id: trackId, status: trackFailed ? 'failed' : 'completed', at: now })
     if (shouldComplete) { draft.finalResult = result; return }
+    if (shouldFail) { draft.finalError = error ?? 'flow failed'; return }
     if (nextStep) spawnChild(draft, nextStep, result, trackId, parentId, now, tellPeer)
   }
 
@@ -219,6 +226,7 @@ export const makeFlowState = (
       tracks: {},
       nextSeq: 0,
       finalResult: undefined,
+      finalError: undefined,
     },
     start: 'active',
     states: {
@@ -271,23 +279,23 @@ export const makeFlowState = (
             const active = data.activeSteps[from]
             if (!active) return undefined
             const tellPeer = (e: RunHistoryEvent): void => { tell({ peer: 'runHistory' }, e) }
-            const { shouldComplete } = nextOutcome(data, stepId, active.trackId, error !== undefined)
+            const { shouldComplete, shouldFail } = nextOutcome(data, stepId, active.trackId, error !== undefined)
             const edit = (d: FlowShape['data']): void => {
               delete d.activeSteps[from]
-              settleChild(d, data.blueprint, stepId, active.trackId, runNodeId, result, error !== undefined, now, tellPeer)
+              settleChild(d, data.blueprint, stepId, active.trackId, runNodeId, result, error, now, tellPeer)
             }
-            return shouldComplete ? { at: 'completed', data: edit } : { data: edit }
+            return shouldComplete ? { at: 'completed', data: edit } : shouldFail ? { at: 'failed', data: edit } : { data: edit }
           },
-          FLOW_DONE: ({ from, runNodeId, result }, { data, now, tell }) => {
+          FLOW_DONE: ({ from, runNodeId, result, error }, { data, now, tell }) => {
             const active = data.activeSubflows[from]
             if (!active) return undefined
             const tellPeer = (e: RunHistoryEvent): void => { tell({ peer: 'runHistory' }, e) }
-            const { shouldComplete } = nextOutcome(data, active.stepId, active.trackId, false)
+            const { shouldComplete, shouldFail } = nextOutcome(data, active.stepId, active.trackId, error !== undefined)
             const edit = (d: FlowShape['data']): void => {
               delete d.activeSubflows[from]
-              settleChild(d, data.blueprint, active.stepId, active.trackId, runNodeId, result, false, now, tellPeer)
+              settleChild(d, data.blueprint, active.stepId, active.trackId, runNodeId, result, error, now, tellPeer)
             }
-            return shouldComplete ? { at: 'completed', data: edit } : { data: edit }
+            return shouldComplete ? { at: 'completed', data: edit } : shouldFail ? { at: 'failed', data: edit } : { data: edit }
           },
         },
       },
@@ -296,6 +304,13 @@ export const makeFlowState = (
           tell({ peer: 'runHistory' }, { type: 'STOP_ACTIVE', under: data.runNodeId, at: now })
           tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'completed', result: data.finalResult, at: now })
           report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, result: data.finalResult })
+        },
+      },
+      failed: {
+        run({ data, now, tell, report }) {
+          tell({ peer: 'runHistory' }, { type: 'STOP_ACTIVE', under: data.runNodeId, at: now })
+          tell({ peer: 'runHistory' }, { type: 'NODE_FINISHED', id: data.runNodeId, status: 'failed', ...(data.finalError ? { error: data.finalError } : {}), at: now })
+          report({ type: 'FLOW_DONE', runNodeId: data.runNodeId, error: data.finalError ?? 'flow failed' })
         },
       },
     },
@@ -312,7 +327,7 @@ export type BrainEvent =
   | { readonly type: 'START_BRAIN'; readonly rootFlowId: string }
   | { readonly type: 'KILL_BRAIN' }
   | { readonly type: 'TRIGGER_BRAIN_EVENT'; readonly eventType: string; readonly payload: unknown; readonly targetFlowId?: string }
-  | { readonly type: 'FLOW_DONE'; readonly from: string; readonly runNodeId: string; readonly result?: unknown }
+  | { readonly type: 'FLOW_DONE'; readonly from: string; readonly runNodeId: string; readonly result?: unknown; readonly error?: string }
 
 interface BrainShape {
   data: { runSeq: number }
