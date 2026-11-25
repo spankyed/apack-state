@@ -131,7 +131,7 @@ interface Running {
 
 type Item =
   | { kind: 'event'; ref: string; event: AnyEvent; /** Sent by the state to itself. */ own?: true }
-  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; heard?: (update: unknown) => void; gone?: AbortSignal }
+  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; progress?: (update: unknown) => void; gone?: AbortSignal }
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
   | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown> }
@@ -471,9 +471,9 @@ export function system(host: {
 
   /** An ask is under way from when it is made until it ends, however it ends. */
   const asked = <T,>(made: Promise<T>): Promise<T> => { under(made, () => {}, () => {}); return made }
-  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, hears: ((updates: unknown[]) => void) | undefined): Promise<never> => asked(new Promise((resolve, reject) => {
+  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, onProgress: ((updates: unknown[]) => void) | undefined): Promise<never> => asked(new Promise((resolve, reject) => {
     const ref = refOf(to)
-    const heard = hears && gather(hears, signal)
+    const progress = onProgress && gather(onProgress, signal)
     // Whoever asked has gone: the ask ends where it is awaited, with `Cancelled`, so the code that asked unwinds.
     const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Cancelled(name)) }
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
@@ -483,7 +483,7 @@ export function system(host: {
     if (signal?.aborted) { left(); return }
     signal?.addEventListener('abort', left, { once: true })
     // In the same system the asker's own signal tells the answerer; across a link, the port does.
-    if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, heard, gone: signal }); return }
+    if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, progress, gone: signal }); return }
     const peer = up
     if (!peer) { question.end(refusal('disconnected', `Not connected, so ${ref} cannot be asked`)); return }
     // Only a state asks across a link, so it always has a signal.
@@ -498,7 +498,7 @@ export function system(host: {
       const gone = (): void => { leave() }
       try {
         leave = peer.ask(ref, name, args,
-          (update) => heard?.(update),
+          (update) => progress?.(update),
           (outcome) => { settled = true; abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
       } catch (error) {
         if (!settled) arrive({ kind: 'answer', question, outcome: refusal('failed', said(error)) })
@@ -1213,7 +1213,7 @@ export function system(host: {
         return NOT_MADE
       }
     }
-    const { name, args, question, heard, gone } = item
+    const { name, args, question, progress, gone } = item
     // Whoever asked already left (or finished its work) before this ask was taken: do not run the handler.
     if (gone?.aborted) return MADE
     note()
@@ -1237,7 +1237,7 @@ export function system(host: {
     try {
       const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, own.signal, workSignal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
-        progress: (update: unknown) => { if (!workSignal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
+        progress: (update: unknown) => { if (!workSignal.aborted) out(() => progress?.(update), { kind: 'progress', to: item.ref, name }) },
       }))
       if (made instanceof Promise) {
         found.of.questions.add(question)
@@ -1446,7 +1446,7 @@ export function system(host: {
       arrive({
         kind: 'ask', ref: to, name, args: args as object,
         question: new Question((outcome) => done(outcome as PortOutcome)),
-        heard: progress,
+        progress,
         gone: gone.signal,
       })
       return () => gone.abort(new Error('Whoever asked has gone'))
