@@ -152,3 +152,100 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
     }
   }
 }
+
+/** Options for `waitFor`: a timeout (in ms, using `clock.after` when given) and/or an `AbortSignal`. */
+export interface WaitForOptions {
+  /** Reject if the predicate has not matched within this many milliseconds. */
+  readonly timeout?: number
+  /** Clock whose `after` schedules `timeout` (defaults to `setTimeout`). */
+  readonly clock?: Pick<Clock, 'after'>
+  /** Reject early if aborted before the predicate matches. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * Waits until a running state's value matches `predicate`, resolving with that value. Checks the current value first;
+ * rejects if `predicate` throws, the state is not running (or stops before matching), `timeout` elapses, or `signal`
+ * aborts. Always unsubscribes and clears any timer or abort listener on settlement.
+ */
+export function waitFor<V, S extends V>(
+  sys: System,
+  handle: Handle<V, never, Asks, any>,
+  predicate: (value: V) => value is S,
+  options?: WaitForOptions,
+): Promise<S>
+export function waitFor<V>(
+  sys: System,
+  handle: Handle<V, never, Asks, any>,
+  predicate: (value: V) => boolean,
+  options?: WaitForOptions,
+): Promise<V>
+export function waitFor<V>(
+  sys: System,
+  handle: Handle<V, never, Asks, any>,
+  predicate: (value: V) => boolean,
+  options: WaitForOptions = {},
+): Promise<V> {
+  if (options.signal?.aborted) return Promise.reject(options.signal.reason)
+  const current = sys.read(handle) as V | undefined
+  if (current === undefined) return Promise.reject(new Error(`${handle.ref} is not running`))
+  try { if (predicate(current)) return Promise.resolve(current) } catch (error) { return Promise.reject(error) }
+  return new Promise<V>((resolve, reject) => {
+    let cancelTimer: (() => void) | undefined
+    const onAbort = (): void => { cleanup(); reject(options.signal!.reason) }
+    const cleanup = (): void => {
+      unsubscribe()
+      cancelTimer?.()
+      options.signal?.removeEventListener('abort', onAbort)
+    }
+    const unsubscribe = sys.subscribe((changed) => {
+      if (!changed.includes(handle.ref)) return
+      const next = sys.read(handle) as V | undefined
+      if (next === undefined) { cleanup(); reject(new Error(`${handle.ref} stopped before waitFor matched`)); return }
+      try { if (predicate(next)) { cleanup(); resolve(next) } } catch (error) { cleanup(); reject(error) }
+    })
+    options.signal?.addEventListener('abort', onAbort)
+    if (options.timeout !== undefined) {
+      const onTimeout = (): void => { cleanup(); reject(new Error(`waitFor(${handle.ref}) timed out after ${options.timeout}ms`)) }
+      if (options.clock) cancelTimer = options.clock.after(options.timeout, onTimeout)
+      else { const id = setTimeout(onTimeout, options.timeout); cancelTimer = () => { clearTimeout(id) } }
+    }
+  })
+}
+
+/** A `trace` listener that records every `DEFECT:` line and fails on any that were not explicitly allowed. */
+export interface DefectGuard {
+  /** Pass directly as `system({ trace: guard.trace })`. */
+  readonly trace: (line: string) => void
+  /** Every `DEFECT:` line recorded so far (in order). */
+  readonly defects: readonly string[]
+  /** Allows defects matching `pattern` (substring or regex) when `assertNone()` checks recorded defects. */
+  allow(pattern: string | RegExp): void
+  /** Throws if any unallowed `DEFECT:` line was traced. Call during test teardown. */
+  assertNone(): void
+}
+
+/**
+ * Watches a system's `trace` output for `DEFECT:` lines so tests cannot silently swallow handler throws or refused
+ * changes. Pass `guard.trace` to `system(...)` and call `guard.assertNone()` during teardown.
+ */
+export function defectGuard(forward?: (line: string) => void): DefectGuard {
+  const defects: string[] = []
+  const allowed = new Set<string | RegExp>()
+  const matches = (line: string): boolean => {
+    for (const pattern of allowed) if (typeof pattern === 'string' ? line.includes(pattern) : pattern.test(line)) return true
+    return false
+  }
+  return {
+    trace: (line) => {
+      if (line.startsWith('DEFECT:')) defects.push(line)
+      forward?.(line)
+    },
+    defects,
+    allow: (pattern) => { allowed.add(pattern) },
+    assertNone: () => {
+      const unexpected = defects.filter((line) => !matches(line))
+      if (unexpected.length) throw new Error(`Unexpected kernel defect(s):\n${unexpected.join('\n')}`)
+    },
+  }
+}

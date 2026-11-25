@@ -403,10 +403,11 @@ export type ProgressOf<A extends AskShape> = A extends {
 
 // Warning: (ae-forgotten-export) The symbol "Nothing" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "NoStartGiven" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "NoShadowedData" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "GivenIn" needs to be exported by the entry point index.d.ts
 //
 // @public
-export function reaching<N extends Net = Nothing>(): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, N>>(def: D & NoStartGiven<NoInfer<D>>) => State<S, E, A, GivenIn<D>>;
+export function reaching<N extends Net = Nothing>(): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, N>>(def: D & NoStartGiven<NoInfer<D>> & NoShadowedData<S>) => State<S, E, A, GivenIn<D>>;
 
 // Warning: (ae-forgotten-export) The symbol "Whole" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "Inside" needs to be exported by the entry point index.d.ts

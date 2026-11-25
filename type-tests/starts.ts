@@ -120,6 +120,55 @@ state<DeepOptStart, never>()({
   },
 })
 
+// A nested state cannot redeclare a data field name already owned by an enclosing state (direct or nested).
+type DirectShadow = {
+  data: { error: string | null }
+  states: { a: { data: { error: string } }; b: {} }
+}
+state<DirectShadow, never>()({
+  data: { error: null },
+  start: 'b',
+  states: {
+    // @ts-expect-error a child state cannot shadow a field name declared by its parent
+    a: { data: { error: '' } },
+    b: {},
+  },
+})
+
+type DeepShadow = {
+  data: { error: string | null }
+  states: { mid: { states: { idle: {}; leaf: { data: { error: string } } } } }
+}
+state<DeepShadow, never>()({
+  data: { error: null },
+  start: 'mid',
+  states: {
+    mid: {
+      start: 'idle',
+      states: {
+        idle: {},
+        // @ts-expect-error a deeply nested state cannot shadow a field name declared by an ancestor
+        leaf: { data: { error: '' } },
+      },
+    },
+  },
+})
+
+// Sibling states may share field names because they are never active at the same time.
+type SiblingFields = {
+  data: { id: string }
+  states: { idle: {}; a: { data: { note: string } }; b: { data: { note: number } } }
+}
+state<SiblingFields, never>()({
+  data: { id: 'x' },
+  start: 'idle',
+  states: {
+    idle: {},
+    a: { data: { note: 'hi' } },
+    b: { data: { note: 1 } },
+  },
+})
+
 // Reading a started child via `read(child(...))` can return `undefined` when it is not running.
 state<Board, BoardEvent, BoardAsks>()({
   data: { title: '', items: {}, lastBump: null },

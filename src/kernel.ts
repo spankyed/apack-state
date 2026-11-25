@@ -931,6 +931,19 @@ export function system(host: {
     for (const [field, initial] of Object.entries(def.data ?? {})) {
       if (initial === given && !Object.hasOwn(provided, field)) return `cannot start without ${field}`
     }
+    const shadowed = (node: LooseDef, above: ReadonlySet<string>, path: string): string | undefined => {
+      const own = Object.keys(node.data ?? {})
+      for (const field of own) if (above.has(field)) return `declares ${field} again at ${path}, shadowing an enclosing state`
+      if (!node.states) return undefined
+      const next = new Set([...above, ...own])
+      for (const [name, inner] of Object.entries(node.states)) {
+        const problem = shadowed(inner, next, path ? `${path}.${name}` : name)
+        if (problem) return problem
+      }
+      return undefined
+    }
+    const shadow = shadowed(def, new Set(), '')
+    if (shadow) return shadow
     for (let cur = def, path = ''; cur.start !== undefined; ) {
       const nextName = cur.start
       path = path ? `${path}.${nextName}` : nextName

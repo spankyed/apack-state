@@ -161,6 +161,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `void runEvents({ state: givenCounter, events: { INC: () => ({ type: 'INC' }) }, always:…` | TS2345: Argument of type '{ state: State&lt;{ data: { label: string; count: number; }; }, { type: "INC"; }, {}, "label">; events: { INC: () => { type: "INC"; }; }; always: () => void; step… | fromEvents requires given when the state declares given fields |
 | `a: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | a start substate is entered with no supplied data, so it cannot mark a field given |
 | `inner: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | even inside a non-start branch, its own start substate cannot mark a field given |
+| `a: { data: { error: '' } },` | TS2322: Type 'string' is not assignable to type 'never'. | a child state cannot shadow a field name declared by its parent |
+| `leaf: { data: { error: '' } },` | TS2322: Type 'string' is not assignable to type 'never'. | a deeply nested state cannot shadow a field name declared by an ancestor |
 | `const unsafe: string = read(child('card', 'a')).data.label` | TS2532: Object is possibly 'undefined'. | a started child might not be running, so read() may be undefined |
 
 ## What a component may read of a running state and send it, as render functions.
