@@ -1150,8 +1150,8 @@ export function system(host: {
     changed.clear(); fields.clear(); places.clear()
     committed = {}
     for (const leave of leaving.splice(0)) {
-      if (logging && leave.said) logging.left.push(sentOf(leave.said))
       safely('what leaves as it stops', leave)
+      if (logging && leave.said) logging.left.push(sentOf(leave.said))
     }
     for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
   }

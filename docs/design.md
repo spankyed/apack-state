@@ -194,6 +194,11 @@ follows: (follow) => ({
 
 A component reads and sends. It does not ask.
 
+`tell({ peer: name }, event)` calls `port.tell(name, event)`, passing the peer name as the target `to`. To reach several
+systems behind one `@apackdev/link` connection, attach that same port under each peer name (and detach each on `link.onEnd`);
+if a remote system uses a different name than the local peer, wrap `tell` at the wiring site
+(`{ tell: (_, event) => port.tell('remoteName', event) }`).
+
 A write is told when losing it does not matter, and asked when it does. There is no third way to make one.
 
 ## A step's log

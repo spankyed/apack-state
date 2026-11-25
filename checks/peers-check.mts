@@ -269,6 +269,103 @@ await run([
     deepStrictEqual(winHeard, ['run-1:run-1'])
     backendPeerLink.close()
   }],
+
+  ['one port attached under two peer names receives each name as to, and detaching one leaves the other attached', async () => {
+    const historySeen: HistoryEvent[] = []
+    const auditSeen: Array<{ type: 'NOTE'; text: string }> = []
+    const remote = system({ side: 'backend' })
+    remote.start('runHistory', historyReceiver(historySeen))
+    remote.start('audit', state<{}, { type: 'NOTE'; text: string }>()({
+      on: { NOTE: (event) => { auditSeen.push(event) } },
+    }))
+
+    const [localSide, remoteSide] = memoryPair()
+    const localLink = dial(localSide)
+    const remoteLink = listen(remoteSide)
+    const backend = system({ side: 'backend' })
+    const sharedPort = join(localLink, backend.port)
+    join(remoteLink, remote.port)
+
+    const detachHistory = backend.attach('runHistory', sharedPort)
+    const detachAudit = backend.attach('audit', sharedPort)
+    localLink.onEnd(() => { detachHistory(); detachAudit() })
+
+    const sender = state<{}, { type: 'BOTH'; id: string }>()({
+      on: {
+        BOTH: ({ id }, { tell }) => {
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id, detail: 'via shared port' })
+          tell({ peer: 'audit' }, { type: 'NOTE', text: `audited ${id}` })
+        },
+      },
+    })
+    const h = backend.start('sender', sender)
+    backend.send(h, { type: 'BOTH', id: 'one' })
+    await rest()
+    deepStrictEqual(historySeen, [{ type: 'STEP_RECORDED', id: 'one', detail: 'via shared port' }])
+    deepStrictEqual(auditSeen, [{ type: 'NOTE', text: 'audited one' }])
+
+    // Detaching one peer name leaves the other peer on the same port working.
+    detachHistory()
+    backend.send(h, { type: 'BOTH', id: 'two' })
+    await rest()
+    strictEqual(historySeen.length, 1)
+    deepStrictEqual(auditSeen, [{ type: 'NOTE', text: 'audited one' }, { type: 'NOTE', text: 'audited two' }])
+
+    localLink.close()
+  }],
+
+  ['a dropped peer tell on the lost stop path is logged with outcome dropped', async () => {
+    const logs: StepLog[] = []
+    let depth = 0
+    let failCommit = false
+    const backend = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        let result: ReturnType<typeof fn>
+        try { result = fn() } finally { depth-- }
+        if (depth === 0 && failCommit) throw new Error('disk full')
+        return result
+      },
+      log: (step) => logs.push(step),
+    })
+    let tellFromFirst!: (to: { peer: 'runHistory' }, event: HistoryEvent) => void
+    const first = state<{}, { type: 'TRIGGER' }>()({
+      on: { TRIGGER: (_, { tell }) => { tellFromFirst = tell } },
+    })
+    const second = state<{}>()({
+      run({ use }) {
+        use(() => { tellFromFirst({ peer: 'runHistory' }, { type: 'RUN_ENDED', id: 'on-stop' }) })
+      },
+    })
+    const h1 = backend.start('first', first)
+    backend.start('second', second)
+    failCommit = true
+    backend.send(h1, { type: 'TRIGGER' })
+    await rest()
+    const lostStep = logs.at(-1)!
+    strictEqual(lostStep.ended, 'lost')
+    deepStrictEqual(lostStep.left, [{ kind: 'peer', to: 'runHistory', name: 'RUN_ENDED', outcome: 'dropped' }])
+
+    // The same stop path without a step log also completes cleanly without throwing.
+    let unloggedDepth = 0
+    let unloggedFail = false
+    const unlogged = system({
+      side: 'backend',
+      transact: (fn) => {
+        unloggedDepth++
+        let result: ReturnType<typeof fn>
+        try { result = fn() } finally { unloggedDepth-- }
+        if (unloggedDepth === 0 && unloggedFail) throw new Error('disk full')
+        return result
+      },
+    })
+    const h2 = unlogged.start('first', first)
+    unlogged.start('second', second)
+    unloggedFail = true
+    unlogged.send(h2, { type: 'TRIGGER' })
+    await rest()
+  }],
 ], async (tally) => {
   await tally.every('under every ordering over @apackdev/link, a peer receives tells with no view hold while a window waits for its view', () => {
     let sawPeerBeforeWindow = false
