@@ -231,12 +231,100 @@ await run([
     const askNow = await sys.ask(h, 'NOW', {})
     ok(!askNow.ok && /no clock/i.test(askNow.failure.message), JSON.stringify(askNow))
 
-    // Calling scope.sleep in run throws and reaches failed.
+    // Calling scope.sleep in async run rejects and reaches failed.
     sys.send(h, { type: 'SLEEP' })
     await rest()
     ok(sleepError instanceof Error && /no clock/i.test(sleepError.message), String(sleepError))
     strictEqual(sys.read(h).at, 'idle')
     strictEqual(sys.idle(), true)
+
+    // Calling scope.sleep without a clock returns a rejected promise (not a sync throw) and reaches failed.
+    sleepError = undefined
+    let returnedPromise = false
+    const syncNoClock = state<{ states: { checking: {} } }>()({
+      start: 'checking',
+      states: {
+        checking: {
+          run({ sleep }) {
+            const p = sleep(10)
+            returnedPromise = p instanceof Promise
+            return p.then(() => undefined)
+          },
+          failed: (error) => { sleepError = error },
+        },
+      },
+    })
+    const syncHandle = sys.start('syncNoClock', syncNoClock)
+    strictEqual(returnedPromise, true, 'sleep without a clock must return a rejected promise instead of throwing synchronously')
+    await rest()
+    ok(sleepError instanceof Error && /no clock/i.test(sleepError.message), String(sleepError))
+    sys.stop()
+    void syncHandle
+  }],
+
+  ['sleep rejects non-finite delays in the kernel before calling clock.after, including on a schedule', async () => {
+    const manual = manualClock()
+    const badDelays = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
+    const errors: unknown[] = []
+    let syncReturnedPromise = false
+    const badSleep = state<{ states: { idle: {}; checking: {} } }, { type: 'TRY'; ms: number }>()({
+      start: 'idle',
+      on: { TRY: () => ({ at: 'checking' }) },
+      states: {
+        idle: {},
+        checking: {
+          run({ sleep }) {
+            const p = sleep(currentMs)
+            syncReturnedPromise = p instanceof Promise
+            return p.then(() => ({ at: 'idle' as const }))
+          },
+          failed: (error) => { errors.push(error); return { at: 'idle' } },
+        },
+      },
+    })
+    let currentMs = Number.NaN
+    const sys = system({ side: 'window', clock: manual.clock })
+    const h = sys.start('bad', badSleep)
+    for (const ms of badDelays) {
+      currentMs = ms
+      syncReturnedPromise = false
+      sys.send(h, { type: 'TRY', ms })
+      strictEqual(syncReturnedPromise, true, `sleep(${String(ms)}) must return a rejected promise`)
+      await rest()
+      strictEqual(sys.read(h).at, 'idle')
+      strictEqual(sys.idle(), true)
+    }
+    strictEqual(manual.afterCalls(), 0, 'non-finite ms must not reach clock.after')
+    strictEqual(errors.length, badDelays.length)
+    for (let i = 0; i < badDelays.length; i++) {
+      const error = errors[i]
+      ok(error instanceof RangeError, String(error))
+      ok(/finite/i.test(error.message) && error.message.includes(String(badDelays[i])), error.message)
+    }
+
+    // The same validation protects onSchedule(schedule).clock so NaN cannot corrupt timer ordering.
+    const found = await explore((schedule) => {
+      const seen: unknown[] = []
+      const onSched = state<{ states: { checking: {}; done: {} } }>()({
+        start: 'checking',
+        states: {
+          checking: {
+            async run({ sleep }) { await sleep(Number.NaN) },
+            failed: (error) => { seen.push(error); return { at: 'done' } },
+          },
+          done: {},
+        },
+      })
+      const scheduled = system({ side: 'window', ...onSchedule(schedule, 'scheduled') })
+      const handle = scheduled.start('s', onSched)
+      return () => {
+        strictEqual(scheduled.read(handle).at, 'done')
+        strictEqual(seen.length, 1)
+        ok(seen[0] instanceof RangeError && /finite/i.test(seen[0].message))
+        strictEqual(scheduled.idle(), true)
+      }
+    })
+    strictEqual(found.failure, undefined)
   }],
 
   ['sleep on an already-aborted scope rejects with Left without calling clock.after', async () => {
@@ -251,14 +339,14 @@ await run([
             try {
               await sleep(1_000)
             } catch (error) {
-              saw.push(error instanceof Left && error.message.includes('sleep') ? 'cancelled Left' : String(error))
+              saw.push(error instanceof Left && error.message === 'sleep was left before it finished' ? 'cancelled Left' : String(error))
               throw error
             } finally {
               try {
                 await sleep(500)
                 saw.push('finally sleep resolved')
               } catch (error) {
-                saw.push(error instanceof Left && error.message.includes('sleep') ? 'finally sleep Left' : String(error))
+                saw.push(error instanceof Left && error.message === 'sleep was left before it finished' ? 'finally sleep Left' : String(error))
               }
             }
           },

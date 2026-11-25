@@ -32,7 +32,7 @@ import type { Clock, Following, Lane, Port, PortOutcome } from './port.ts'
  * and of an ask's handler; nothing has to catch it.
  */
 export class Left extends Error {
-  constructor(what: string) { super(`${what} was left before this ask was answered`); this.name = 'Left' }
+  constructor(what: string) { super(`${what} was left before it finished`); this.name = 'Left' }
 }
 
 /**
@@ -462,7 +462,8 @@ export function system(host: {
   }
   const sleep = (ms: number, signal: AbortSignal): Promise<void> => {
     const clock = host.clock
-    if (!clock) throw new Error(`${called} was given no clock; pass clock to system()`)
+    if (!clock) return Promise.reject(new Error(`${called} was given no clock; pass clock to system()`))
+    if (!Number.isFinite(ms)) return Promise.reject(new RangeError(`${called}'s sleep delay must be finite: ${String(ms)}`))
     return asked(new Promise<void>((resolve, reject) => {
       if (signal.aborted) { reject(new Left('sleep')); return }
       let fired = false
