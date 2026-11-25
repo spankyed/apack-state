@@ -464,6 +464,118 @@ await run([
     strictEqual(sys2.idle(), true)
   }],
 
+  ['a synchronous abort during clock.after cancels the timer and rejects sleep with Left', async () => {
+    let cancelCalls = 0
+    const saw: string[] = []
+    let leaveNow!: () => void
+    const reentrantClock: Clock = {
+      now: () => 0,
+      after: () => {
+        leaveNow()
+        return () => { cancelCalls++ }
+      },
+    }
+    const reentrant = state<{ states: { idle: {}; waiting: {}; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
+      start: 'idle',
+      on: { GO: () => ({ at: 'waiting' }) },
+      states: {
+        idle: {},
+        waiting: {
+          on: { LEAVE: () => ({ at: 'done' }) },
+          async run({ sleep }) {
+            await Promise.resolve()
+            try { await sleep(1_000) } catch (error) {
+              saw.push(error instanceof Left ? 'Left' : String(error))
+              throw error
+            }
+          },
+          failed: () => { saw.push('failed') },
+        },
+        done: {},
+      },
+    })
+    const sys = system({ side: 'window', clock: reentrantClock })
+    const h = sys.start('r', reentrant)
+    leaveNow = () => { sys.send(h, { type: 'LEAVE' }) }
+    sys.send(h, { type: 'GO' })
+    await rest()
+    strictEqual(sys.read(h).at, 'done')
+    strictEqual(cancelCalls, 1)
+    deepStrictEqual(saw, ['Left'])
+    strictEqual(sys.idle(), true)
+  }],
+
+  ['stop shuts down cleanly even when clock.now fails, and failed clock reads do not consume step limit', async () => {
+    const manual = manualClock(5_000)
+    const logs: StepLog[] = []
+    let released = 0
+    const sleeper = state<{ states: { waiting: {} } }>()({
+      start: 'waiting',
+      states: {
+        waiting: {
+          async run({ sleep, use }) {
+            use(() => { released++ })
+            await sleep(30_000)
+          },
+          failed: () => {},
+        },
+      },
+    })
+    const catcher = state<{ states: { waiting: {} } }>()({
+      start: 'waiting',
+      states: {
+        waiting: {
+          async run({ sleep }) {
+            try { await sleep(30_000) } catch { return }
+          },
+          failed: () => {},
+        },
+      },
+    })
+    const sys = system({ side: 'window', clock: manual.clock, log: (step) => logs.push(step) })
+    const h = sys.start('s', sleeper)
+    sys.start('c', catcher)
+    strictEqual(manual.pending(), 2)
+    manual.setTime(Number.NaN)
+    sys.stop()
+    await rest()
+    strictEqual(sys.read(h), undefined)
+    strictEqual(manual.pending(), 0)
+    strictEqual(released, 1)
+    strictEqual(sys.idle(), true)
+    strictEqual(logs.at(-1)!.now, 5_000, 'stop falls back to lastNow when clock.now fails')
+
+    // Even if clock.now throws before any step has ever succeeded, stop still completes cleanly and omits now.
+    const brokenLogs: StepLog[] = []
+    const brokenClockSys = system({
+      side: 'window',
+      clock: { now: () => { throw new Error('clock dead') }, after: () => () => {} },
+      log: (step) => brokenLogs.push(step),
+    })
+    brokenClockSys.stop()
+    strictEqual(brokenLogs.length, 1)
+    strictEqual('now' in brokenLogs[0]!, false)
+
+    // A non-finite clock.now() throw does not consume host.limit.
+    const limManual = manualClock(1_000)
+    const limTimes: number[] = []
+    const limTraces: string[] = []
+    const probe = state<{}, { type: 'PING' }>()({
+      on: { PING: (_, { now }) => { limTimes.push(now) } },
+    })
+    const limited = system({ side: 'backend', clock: limManual.clock, limit: 3, trace: (line) => limTraces.push(line) })
+    const lh = limited.start('p', probe) // step 1
+    limManual.setTime(Number.NaN)
+    throws(() => limited.send(lh, { type: 'PING' }), /non-finite/) // does not consume a step
+    limManual.setTime(2_000)
+    limited.send(lh, { type: 'PING' }) // runs queued PING (step 2) and this PING (step 3)
+    deepStrictEqual(limTimes, [2_000, 2_000])
+    strictEqual(limTraces.filter((line) => line.startsWith('DEFECT')).length, 0)
+    limited.send(lh, { type: 'PING' }) // step 4 exceeds limit: 3
+    deepStrictEqual(limTimes, [2_000, 2_000])
+    strictEqual(limTraces.filter((line) => line.startsWith('DEFECT')).length, 1)
+  }],
+
   ['unawaited sleep is cancelled when run or an ask handler finishes by returning or throwing', async () => {
     const manual = manualClock()
     type UnawaitedAsks = {

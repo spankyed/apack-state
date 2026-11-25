@@ -136,7 +136,7 @@ const checks: Array<[string, () => void]> = [
     const { value } = produce(base, (draft) => { draft.a.n = 2; draft.b = draft.a })
     deepStrictEqual(value, { a: { n: 2 }, b: { n: 2 } })
   }],
-  ['placing a part of the draft inside a new object or array unwraps every nested draft, leaving plain, non-plain and frozen values untouched', () => {
+  ['placing a part of the draft inside a new object, array, or frozen container unwraps every nested draft, leaving plain and non-plain values untouched', () => {
     class Box { constructor(readonly id: string, readonly other?: Box) {} }
     const box = new Box('x')
     const base = freeze({
@@ -147,13 +147,14 @@ const checks: Array<[string, () => void]> = [
       plainObj: null as { k: number } | null,
       plainArr: null as number[] | null,
       frozenObj: null as { readonly v: number } | null,
+      frozenWithDraft: null as { readonly inner: { n: number }; readonly box: Box } | null,
+      frozenArrWithDraft: null as ReadonlyArray<{ n: number }> | null,
       freshBox: null as Box | null,
       nullProto: null as Record<string, { n: number }> | null,
     })
     const freshObj = { k: 1 }
     const freshArr = [1, 2]
-    let getterReads = 0
-    const frozenObj = Object.freeze({ get v() { getterReads++; return 42 } })
+    const frozenObj = Object.freeze({ v: 42 })
     let madeBox!: Box
     const { value } = produce(base, (draft) => {
       draft.a.n = 2
@@ -162,15 +163,19 @@ const checks: Array<[string, () => void]> = [
       draft.plainObj = freshObj
       draft.plainArr = freshArr
       draft.frozenObj = frozenObj
+      draft.frozenWithDraft = Object.freeze({ inner: draft.a, box: draft.box })
+      draft.frozenArrWithDraft = Object.freeze([draft.a])
       madeBox = new Box('fresh', draft.box)
       draft.freshBox = madeBox
       const dict = Object.create(null) as Record<string, { n: number }>
       dict.inner = draft.a
       draft.nullProto = dict
     })
-    // Freezing plain results must succeed (no closed draft proxies left inside).
+    // Freezing and reading plain results must succeed (no closed draft proxies left inside).
     freeze(value.wrapped)
     freeze(value.items)
+    freeze(value.frozenWithDraft)
+    freeze(value.frozenArrWithDraft)
     freeze(value.nullProto)
     deepStrictEqual(value.wrapped, { inner: { n: 2 }, box })
     strictEqual(value.wrapped!.box, box)
@@ -178,11 +183,15 @@ const checks: Array<[string, () => void]> = [
     strictEqual(value.plainObj, freshObj)
     strictEqual(value.plainArr, freshArr)
     strictEqual(value.frozenObj, frozenObj)
+    deepStrictEqual(value.frozenWithDraft, { inner: { n: 2 }, box })
+    strictEqual(value.frozenWithDraft!.box, box)
+    strictEqual(value.frozenWithDraft!.inner.n, 2)
+    deepStrictEqual(value.frozenArrWithDraft, [{ n: 2 }])
+    strictEqual(value.frozenArrWithDraft![0]!.n, 2)
     strictEqual(value.freshBox, madeBox)
     ok(value.freshBox instanceof Box)
     strictEqual(Object.getPrototypeOf(value.nullProto), null)
     deepStrictEqual({ ...value.nullProto }, { inner: { n: 2 } })
-    strictEqual(getterReads, 0)
 
     // Reading only a non-plain field still unwraps its whole proxy when placed inside a new object.
     const wholeOnly = produce(freeze({ box, wrapped: null as { box: Box } | null }), (draft) => {

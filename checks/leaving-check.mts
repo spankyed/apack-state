@@ -352,6 +352,7 @@ const checks: Array<[string, () => Promise<void>]> = [
   }],
   ['finishing run or an ask cancels unawaited asks without aborting public scope.signal', async () => {
     const publicAborted: string[] = []
+    const startedAsks: string[] = []
     const unwoundAsks: string[] = []
     const straySent: string[] = []
     const strayAsks: Array<() => Promise<unknown>> = []
@@ -375,6 +376,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
       asks: {
         SLOW: async ({ label }, { signal }) => {
+          startedAsks.push(label)
           signal.addEventListener('abort', () => { unwoundAsks.push(label) })
           await turns(30)
           return 'late'
@@ -470,6 +472,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     }
     await rest()
     deepStrictEqual(straySent, [])
+    deepStrictEqual(startedAsks, [
+      'ask:asyncReturn', 'ask:asyncThrow', 'run:asyncReturn', 'run:asyncThrow',
+    ])
     deepStrictEqual(unwoundAsks, [
       'ask:asyncReturn', 'ask:asyncThrow', 'run:asyncReturn', 'run:asyncThrow',
     ])
@@ -477,29 +482,33 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.stop()
     await rest()
   }],
-  ['a finished ask or run scope drops any stray progress, send, tell or broadcast called after it returned', async () => {
+  ['a finished ask or run scope drops any stray progress, send, tell, broadcast or use, while post-leave use releases immediately', async () => {
     const heard: string[] = []
     const events: string[] = []
     const broadcasts: string[] = []
+    const released: string[] = []
+    const traced: string[] = []
     let strayAsk!: () => void
     let strayRun!: () => void
+    let lateUse!: (fn: () => void) => void
     type StrayAsks = { PING: { args: {}; answer: string; progress: string } }
     type StrayNet = { systems: { svc: { events: { type: 'NOTE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
     const strayState = reaching<StrayNet>()
     const svc = strayState<{}, { type: 'NOTE' }, StrayAsks>()({
       on: { NOTE: () => { events.push('NOTE') } },
-      run({ send, tell, broadcast }) {
-        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+      run({ send, tell, broadcast, use }) {
+        lateUse = use
+        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); use(() => { released.push('stray-run') }) }
       },
       asks: {
-        PING: async (_, { progress, send, tell, broadcast }) => {
+        PING: async (_, { progress, send, tell, broadcast, use }) => {
           progress('live')
-          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }) }
+          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); use(() => { released.push('stray-ask') }) }
           return 'ok'
         },
       },
     })
-    const backend = system({ side: 'backend' })
+    const backend = system({ side: 'backend', trace: (line) => { traced.push(line) } })
     const win = system({ side: 'window' })
     win.start('panel', strayState<{}, { type: 'BCAST' }>()({ on: { BCAST: () => { broadcasts.push('BCAST') } } }))
     connect(win, backend)
@@ -512,6 +521,18 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(heard, ['live'])
     deepStrictEqual(events, [])
     deepStrictEqual(broadcasts, [])
+    deepStrictEqual([...released], [])
+
+    // Stopping exits the state without running stray use() callbacks registered after work returned.
+    backend.stop()
+    await rest()
+    deepStrictEqual([...released], [])
+
+    // Calling use() after the state has already left runs the release immediately via safely so resources do not leak.
+    lateUse(() => { released.push('after-leave') })
+    lateUse(() => { throw new Error('late boom') })
+    deepStrictEqual(released, ['after-leave'])
+    ok(traced.some((line) => /DEFECT: a release of svc threw: late boom/.test(line)), traced.join('\n'))
   }],
 ]
 

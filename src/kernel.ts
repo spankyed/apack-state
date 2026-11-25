@@ -501,7 +501,10 @@ export function system(host: {
         reject(error)
         return
       }
-      if (!fired) signal.addEventListener('abort', aborted)
+      if (!fired) {
+        if (signal.aborted) aborted()
+        else signal.addEventListener('abort', aborted)
+      }
     }))
   }
 
@@ -526,7 +529,10 @@ export function system(host: {
       },
       read: (target: { ref: string }) => valueOf(running.get(target.ref)!),
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
-      use: (release: () => void) => { mine.releases.push(release) },
+      use: (release: () => void) => {
+        if (alive()) mine.releases.push(release)
+        else if (mine.controller.signal.aborted) safely(`a release of ${ref}`, release)
+      },
     }
     return key === undefined ? scope : Object.assign(scope, { key })
   }
@@ -572,8 +578,8 @@ export function system(host: {
       try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); inside.push({ kind: 'failure', of: active, error }); return active }
       if (made instanceof Promise) {
         under(made,
-          (value) => { own.abort(); arrive({ kind: 'result', of: active, value }) },
-          (error) => { own.abort(); arrive({ kind: 'failure', of: active, error }) },
+          (value) => { own.abort(); if (!active.controller.signal.aborted) arrive({ kind: 'result', of: active, value }) },
+          (error) => { own.abort(); if (!(error instanceof Left)) arrive({ kind: 'failure', of: active, error }) },
         )
       } else {
         own.abort()
@@ -918,7 +924,6 @@ export function system(host: {
    * left first there is nowhere to go: a `Left` is that leaving and nothing more, and anything else is reported.
    */
   const fail = (active: Active, error: unknown): boolean => {
-    if (error instanceof Left) return MADE
     const where = `${active.top.ref}${active.path ? ` in ${active.path}` : ''}`
     if (active.controller.signal.aborted) { trace(`${where} failed after it was left: ${said(error)}`); return MADE }
     trace(`${where} failed: ${said(error)}`)
@@ -1061,8 +1066,8 @@ export function system(host: {
     // Sent to a state that is not running. It may be one this step is about to start, so it waits until what runs
     // has been matched to the data.
     if (!top && !settling) { held.push(item); return MADE }
-    note()
     if (item.kind === 'event') {
+      note()
       // What a state sends itself is looked for among what only it sends, and then among what anyone may. What
       // comes from outside is looked for among what anyone may send, and nowhere else.
       const found = top && ((item.own ? taker(top, 'internal', item.event.type) : undefined) ?? taker(top, 'on', item.event.type))
@@ -1079,6 +1084,9 @@ export function system(host: {
       }
     }
     const { name, args, question, heard, gone } = item
+    // Whoever asked already left (or finished its work) before this ask was taken: do not run the handler.
+    if (gone?.aborted) return MADE
+    note()
     askedOf.set(question, { ref: item.ref, name })
     const found = top && taker(top, 'asks', name)
     if (!found) { answer(question, refusal('unavailable', `${item.ref} does not take ${name}`)); return MADE }
@@ -1180,8 +1188,8 @@ export function system(host: {
   /** One step: something from outside, then everything it caused inside, then the commit. */
   let steps = 0
   let spent = false
-  const step = (first: () => void): void => {
-    if (host.limit !== undefined && ++steps > host.limit) {
+  const step = (first: () => void, stopping = false): void => {
+    if (host.limit !== undefined && steps >= host.limit) {
       if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed')
@@ -1219,7 +1227,11 @@ export function system(host: {
       handled = true
     }
     try {
-      stepNow = host.clock ? readNow() : undefined
+      if (host.clock) {
+        if (stopping) { try { stepNow = readNow() } catch { stepNow = lastNow } }
+        else stepNow = readNow()
+      }
+      steps++
       logging = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, left: [], ended: 'committed' } : undefined
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {
@@ -1299,7 +1311,7 @@ export function system(host: {
       return () => { if (up === peerOrName) up = undefined }
     }) as System['attach'],
     idle: () => pending === 0 && !due && !stepping && outside.length === 0,
-    stop: () => step(() => { for (const ref of [...running.keys()].reverse()) end(ref) }),
+    stop: () => step(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
   }
   return self
 }
