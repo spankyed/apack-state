@@ -675,11 +675,6 @@
     "why": "Only an ask's question is ever abandoned, and an answer is the only thing that comes back to one: an ask that arrives is a question nobody has answered, so the abandoned check finds nothing for anything but an answer"
   },
   {
-    "key": "src/kernel.ts | OptionalChaining | const gone = (): void => { leave?.() } | leave()",
-    "original": "leave?.()",
-    "why": "What lets the ask go is called when the link closes or whoever asked leaves, both after the port has been asked and has returned what to call; it is there whenever this runs"
-  },
-  {
     "key": "src/kernel.ts | BlockStatement | else try { within(() => { made = take(item); if (!made) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | {}",
     "why": "take throws nothing but UNDONE: a handler's throw is caught inside it, and a unit nested in the step's is kept only with it, so it does not fail alone",
     "original": "{ if (error !== UNDONE) throw error }"

@@ -425,14 +425,21 @@ export function system(host: {
     out(() => {
       // Whoever asked may have left before the step committed: then the ask is never sent.
       if (abort.aborted) return
-      // What lets the ask go is there before the port is asked: a port may answer before it returns, as a link that has
-      // closed does, and what it returns is not there yet then.
-      let leave: (() => void) | undefined
-      const gone = (): void => { leave?.() }
+      // What lets the ask go is only wired once the port returns without already settling: if `peer.ask` throws, the
+      // question still settles as `failed` instead of stranding `pending`, and the defect is logged by `safely`.
+      let settled = false
+      let leave: () => void
+      const gone = (): void => { leave() }
+      try {
+        leave = peer.ask(ref, name, args,
+          (update) => heard?.(update),
+          (outcome) => { settled = true; abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
+      } catch (error) {
+        if (!settled) arrive({ kind: 'answer', question, outcome: refusal('failed', said(error)) })
+        throw error
+      }
+      if (settled) return
       abort.addEventListener('abort', gone, { once: true })
-      leave = peer.ask(ref, name, args,
-        (update) => heard?.(update),
-        (outcome) => { abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
     }, { kind: 'ask', to: ref, name }, () => abandon(question))
   }))
 
