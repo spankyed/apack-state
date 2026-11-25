@@ -152,6 +152,9 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `card: start(card([]), { each: 'title', given: (id) => ({ id, label: '' }) }),` | TS2769: No overload matches this call. | a title is neither a list nor keyed, so it cannot say which cards there are |
 | `card: start(card([]), { each: 'items', given: (id) => ({ id }) }),` | TS2769: No overload matches this call. | a card has to be given its label as well as which it is |
 | `open: { starts: (_start) => ({ helper: helper([]) }) },` | TS2739: Type 'State&lt;{ data: { title: string; }; }, never, {}, "title">' is missing the following properties from type 'OneOf&lt;{ title: string; items: Record&lt;string, string>; lastBump: st… | the helper has to be given its title, so it cannot be named bare |
+| `sys.start('card', card([]))` | TS2554: Expected 3 arguments, but got 2. | a root state with given fields cannot be started without them |
+| `sys.start('card', card([]), { id: 'a' })` | TS2345: Argument of type '{ id: string; }' is not assignable to parameter of type 'Givable&lt;Pick&lt;{ id: string; label: string; bumps: number; }, "id" \| "label">>'. | a root state has to be given every field it marks given |
+| `sys.start('plain', plain, {})` | TS2554: Expected 2 arguments, but got 3. | a root state with no given fields takes no third argument |
 
 ## What a component may read of a running state and send it, as render functions.
 

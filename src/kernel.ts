@@ -20,7 +20,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ export interface StepLog {
 export interface Changes { readonly moved: boolean; /** Whether what it is making changed. */ readonly making: boolean }
 
 export interface System {
-  start<S extends Shape, E extends AnyEvent, A extends Asks>(ref: string, made: State<S, E, A>): Handle<Value<S>, E, A, AllStarts<S>>
+  start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
   /**
    * A state that this one starts, by the name it is declared under, and by key where there is one for each. This is
    * how something outside a handler reaches one: a component reading one card of many.
@@ -562,9 +562,7 @@ export function system(host: {
     const active: Active = { top, def, name, path, around, inside: undefined, controller: new AbortController(), releases: [], questions: new Set(), started: new Set(), following: new Map(), awaiting: new Map(), making: new Map() }
     if (around) around.inside = active; else top.root = active
     for (const [field, initial] of Object.entries(def.data ?? {})) {
-      if (field in entering) top.data = { ...top.data, [field]: entering[field] }
-      else if (initial === given) trace(`DEFECT: ${top.ref} entered ${path} without ${field}`)
-      else top.data = { ...top.data, [field]: initial }
+      top.data = { ...top.data, [field]: field in entering ? entering[field] : initial }
     }
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.run) {
@@ -685,6 +683,8 @@ export function system(host: {
         const start = (ref: string, def: unknown, from: string, given: () => Plain): void => {
           let entering: Plain
           try { entering = given() } catch (error) { trace(`DEFECT: ${top.ref} could not say what to give ${ref}: ${said(error)}`); return }
+          const problem = cannotBegin(def as LooseDef, entering)
+          if (problem) { trace(`DEFECT: ${ref} ${problem}`); return }
           at.started.add(ref)
           begin(ref, def as LooseDef, entering, { ref: top.ref, from })
         }
@@ -844,6 +844,15 @@ export function system(host: {
     }
     const stray = Object.keys(entering).find((field) => !after.has(field))
     return stray === undefined ? undefined : `will have no field ${stray} at ${at}`
+  }
+
+  /** Why a state cannot start with what it is given, checked before anything registers or runs. */
+  const cannotBegin = (def: LooseDef, entering: Plain | undefined): string | undefined => {
+    const provided = entering ?? {}
+    for (const [field, initial] of Object.entries(def.data ?? {})) {
+      if (initial === given && !(field in provided)) return `cannot start without ${field}`
+    }
+    return undefined
   }
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): { ref: string } => {
@@ -1286,10 +1295,14 @@ export function system(host: {
 
   const self: System = {
     port,
-    start: (ref, made) => {
+    start: (ref, made, ...entering) => {
+      const def = made.def as LooseDef
+      const initial = entering[0] as Plain | undefined
+      const problem = cannotBegin(def, initial)
+      if (problem) throw new Error(`${ref} ${problem}`)
       let handleOf: { ref: string }
-      if (stepping) handleOf = begin(ref, made.def as LooseDef)
-      else { step(() => { handleOf = begin(ref, made.def as LooseDef) }); pump() }
+      if (stepping) handleOf = begin(ref, def, initial)
+      else { step(() => { handleOf = begin(ref, def, initial) }); pump() }
       return handleOf!
     },
     child: ((of: { ref: string }, name: string, key?: string) => ({ ref: key === undefined ? `${of.ref}/${name}` : `${of.ref}/${name}/${key}` })) as unknown as System['child'],

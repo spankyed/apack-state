@@ -420,7 +420,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 type GivenIn<D> = D extends { data: infer X } ? { [K in keyof X]: X[K] extends Given ? K : never }[keyof X] & string : never
 
 /** What a started state has to be given: the fields of its own data that it marks `given`. */
-type RootGiven<X> = X extends State<infer S2, any, any, infer G> ? Givable<Pick<DataOf<S2>, G & keyof DataOf<S2>>> : never
+export type RootGiven<X> = X extends State<infer S2, any, any, infer G> ? Givable<Pick<DataOf<S2>, G & keyof DataOf<S2>>> : never
 type NeedsGiven<X> = X extends State<any, any, any, infer G> ? ([G] extends [never] ? false : true) : false
 
 /** One state for each key of a field, each given its data from its key and the starter's data. */

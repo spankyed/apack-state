@@ -3,9 +3,11 @@
 // compiled would fail the check as an unused directive.
 
 import type * as from from '../checks/starts-check.mts'
+import type { System } from '../src/index.ts'
 declare const state: typeof from.state
 declare const card: typeof from.card
 declare const helper: typeof from.helper
+declare const sys: System
 type Board = from.Board
 type BoardAsks = from.BoardAsks
 type BoardEvent = from.BoardEvent
@@ -58,3 +60,14 @@ state<Board, BoardEvent, BoardAsks>()({
     closed: {},
   },
 })
+
+// Starting a root state with and without `given` fields.
+const plain = state<{ data: { count: number } }, never>()({ data: { count: 0 } })
+sys.start('plain', plain)
+sys.start('card', card([]), { id: 'a', label: 'Alpha' })
+// @ts-expect-error a root state with given fields cannot be started without them
+sys.start('card', card([]))
+// @ts-expect-error a root state has to be given every field it marks given
+sys.start('card', card([]), { id: 'a' })
+// @ts-expect-error a root state with no given fields takes no third argument
+sys.start('plain', plain, {})

@@ -2,7 +2,7 @@
 // stops one by hand. So starting is part of a change, in its step, and what runs cannot disagree with the data.
 //
 //   npx vitest run starts
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { explore, type Schedule } from '@apackdev/orderings'
 import { run, system } from './checks.mts'
 import { answered, given, reaching, type Each } from '../src/index.ts'
@@ -233,11 +233,68 @@ const shelfChecks: Array<[string, () => Promise<void>]> = [
     sys.send(alone, { type: 'PING' })
     strictEqual(sys.read(alone).data.pings, 1)
   }],
-  ['a state started without what it has to be given is reported, naming what is missing', async () => {
+  ['a root state started without what it has to be given throws before registering, running, or committing', async () => {
+    const log: string[] = []
+    let transactions = 0
+    const sys = system({ side: 'backend', transact: (fn) => { transactions++; return fn() } })
+    throws(() => sys.start('loose', card(log) as never), /loose cannot start without id/)
+    throws(() => sys.start('partial', card(log), { id: 'p' } as never), /partial cannot start without label/)
+    deepStrictEqual(log, [])
+    deepStrictEqual(sys.snapshot(), {})
+    strictEqual(transactions, 0)
+  }],
+  ['a child state started without what it has to be given is refused and reported without registering or running', async () => {
+    const log: string[] = []
+    const defects: string[] = []
+    type BadParent = {
+      data: { items: Record<string, string> }
+      starts: { card: Each<ReturnType<typeof card>> }
+    }
+    const badParent = state<BadParent, never>()({
+      data: { items: { a: 'Alpha' } },
+      starts: (start) => ({ card: start(card(log), { each: 'items', given: (id) => ({ id }) as never }) }),
+    })
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const parent = sys.start('bad', badParent)
+    deepStrictEqual(defects, ['DEFECT: bad/card/a cannot start without label'])
+    deepStrictEqual(log, [])
+    strictEqual(sys.snapshot()['bad/card/a'], undefined)
+    deepStrictEqual(sys.read(parent).data, { items: { a: 'Alpha' } })
+    sys.stop()
+  }],
+  ['a root state can be started with what it has to be given, and reads and runs with it from the first step', async () => {
+    const log: string[] = []
     const defects: string[] = []
     const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
-    sys.start('loose', card([]) as never)
-    ok(defects.some((line) => line.includes('loose') && line.includes('without id')), defects.join(' / '))
+    const solo = sys.start('solo', card(log), { id: 'solo', label: 'First' })
+    deepStrictEqual(sys.read(solo).data, { id: 'solo', label: 'First', bumps: 0 })
+    deepStrictEqual(log, ['started solo'])
+    sys.send(solo, { type: 'BUMP' })
+    deepStrictEqual(sys.read(solo).data, { id: 'solo', label: 'First', bumps: 1 })
+    const answer = await sys.ask(solo, 'LABEL', {})
+    deepStrictEqual(answer, { ok: true, value: 'First' })
+    sys.stop()
+    deepStrictEqual(log, ['started solo', 'stopped solo'])
+    deepStrictEqual(defects, [])
+  }],
+  ['a root state started with given data freezes what it was given and feeds its own children from it', async () => {
+    const log: string[] = []
+    type Configured = {
+      data: { title: string; tags: string[] }
+      starts: { helper: ReturnType<typeof helper> }
+    }
+    const configured = state<Configured, never>()({
+      data: { title: given, tags: given },
+      starts: (start) => ({ helper: start(helper(log), { given: (data) => ({ title: data.title }) }) }),
+    })
+    const sys = system({ side: 'backend' })
+    const tags = ['one']
+    const root = sys.start('configured', configured, { title: 'Root', tags })
+    deepStrictEqual(sys.read(root).data, { title: 'Root', tags: ['one'] })
+    deepStrictEqual(log, ['started helper for Root'])
+    ok(Object.isFrozen(sys.read(root).data.tags))
+    sys.stop()
+    deepStrictEqual(log, ['started helper for Root', 'stopped helper'])
   }],
 ]
 
