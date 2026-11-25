@@ -330,6 +330,17 @@ const checks: Array<[string, () => void]> = [
     throws(() => produce(base, (draft) => { draft.a.n = 2; throw new Error('no') }), /no/)
     strictEqual(base.a.n, 1)
   }],
+  ['topLevel mode reports each touched top-level field once without building deep paths', () => {
+    const base = freeze({ titles: { a: 'A' } as Record<string, string>, messages: { a: ['x'] }, count: 1 })
+    const { value, touched } = produce(base, (draft) => {
+      draft.titles.b = 'B'
+      draft.titles.c = 'C'
+      draft.messages.a!.push('y', 'z')
+      draft.count = 2
+    }, { fixed: true, topLevel: true })
+    deepStrictEqual(value, { titles: { a: 'A', b: 'B', c: 'C' }, messages: { a: ['x', 'y', 'z'] }, count: 2 })
+    deepStrictEqual(paths(touched), ['count', 'messages', 'titles'])
+  }],
 ]
 
 await run(checks)

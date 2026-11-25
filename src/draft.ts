@@ -32,7 +32,7 @@ const isPlain = (value: unknown): value is object => {
  * a key can be neither added nor removed. The write that tries is the one that throws, so the error is on its line.
  * @internal
  */
-export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean } = {}): { value: T; touched: Path[] } {
+export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()
   let open = true
   /** Whether any nested draft or whole wrapper has been handed out; skips walking fresh assignments when none has. */
@@ -53,6 +53,11 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   }
 
   const note = (node: Node, key: string): void => {
+    if (options.topLevel) {
+      const top = node.path[0] ?? key
+      if (!touched.has(top)) touched.set(top, [top])
+      return
+    }
     const path = [...node.path, key]
     touched.set(JSON.stringify(path), path)
   }

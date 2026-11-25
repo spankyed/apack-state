@@ -647,6 +647,50 @@ const moves: Array<[string, () => void]> = [
     const okHandle = flaky.start('retry', flat)
     strictEqual(flaky.read(okHandle).data.n, 0)
   }],
+  ['plain-object replacement traces LARGE once per running instance and resets when restarted', () => {
+    const largeLines: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('LARGE')) largeLines.push(line) } })
+    const big = Array.from({ length: 10_001 }, (_, i) => i)
+    const holder = state<{ data: { items: number[] } }, { type: 'SET'; items: number[] }>()({
+      data: { items: [] },
+      on: { SET: ({ items }) => ({ data: { items } }) },
+    })
+    const h1 = sys.start('holder', holder)
+    sys.send(h1, { type: 'SET', items: big })
+    sys.send(h1, { type: 'SET', items: [...big, 10_001] })
+    strictEqual(largeLines.length, 1)
+    ok(largeLines[0]!.includes('holder holds 10001 items in items'))
+    sys.stop()
+    // Starting a fresh instance traces LARGE again (reported state is scoped to the Running instance, not leaked).
+    const h2 = sys.start('holder', holder)
+    sys.send(h2, { type: 'SET', items: big })
+    strictEqual(largeLines.length, 2)
+  }],
+  ['rolling back inside-queue items while earlier items remain preserves FIFO order and resets cleanly when emptied', () => {
+    const seen: string[] = []
+    const sys = system({ side: 'backend' })
+    const actor = state<{}, { type: 'START' } | { type: 'FAIL_AND_QUEUE' } | { type: 'NOTE'; tag: string }>()({
+      on: {
+        START: (_, { send }) => {
+          send({ type: 'FAIL_AND_QUEUE' })
+          send({ type: 'NOTE', tag: 'after-fail' })
+        },
+        FAIL_AND_QUEUE: (_, { send }) => {
+          send({ type: 'NOTE', tag: 'rolled-back' })
+          throw new Error('undo me')
+        },
+        NOTE: ({ tag }) => { seen.push(tag) },
+      },
+    })
+    const h = sys.start('a', actor)
+    sys.send(h, { type: 'START' })
+    deepStrictEqual(seen, ['after-fail'])
+    // Also verify when the rolled-back handler was the last item in `inside` (`head === items.length` after `cut`).
+    seen.length = 0
+    sys.send(h, { type: 'FAIL_AND_QUEUE' })
+    sys.send(h, { type: 'NOTE', tag: 'next-step' })
+    deepStrictEqual(seen, ['next-step'])
+  }],
 ]
 
 await runChecks([...checks, ...moves])

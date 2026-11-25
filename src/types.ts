@@ -343,7 +343,7 @@ export function answered<V, X>(answer: V, next: X): Answered<V, X> { return { [A
  */
 type NextAfterAwait<R, H extends string> =
   | { at?: never; data: (draft: DataAt<R, H>) => void }
-  | { [T in Paths<R>]: {} extends Gained<R, H, T> ? { at: T; data?: (draft: DataAt<R, H>) => void } : { at: T; data: Gained<R, H, T> } }[Paths<R>]
+  | { [T in Paths<R>]: {} extends Gained<R, H, T> ? { at: T; data?: (draft: DataAt<R, H>) => void } : { at: T; data: Givable<Gained<R, H, T>> } }[Paths<R>]
 
 /**
  * Asks: may be async. What a handler returns is the answer. To change something as well it returns
@@ -422,7 +422,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 type GivenIn<D> = D extends { data: infer X } ? { [K in keyof X]: X[K] extends Given ? K : never }[keyof X] & string : never
 
 /** What a started state has to be given: the fields of its own data that it marks `given`. */
-export type RootGiven<X> = X extends State<infer S2, any, any, infer G> ? Givable<Pick<DataOf<S2>, G & keyof DataOf<S2>>> : never
+export type RootGiven<X> = X extends State<infer S2, any, any, infer G> ? Givable<Required<Pick<DataOf<S2>, G & keyof DataOf<S2>>>> : never
 type NeedsGiven<X> = X extends State<any, any, any, infer G> ? ([G] extends [never] ? false : true) : false
 
 /** One state for each key of a field, each given its data from its key and the starter's data. */
@@ -473,10 +473,10 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(feature: F, view: V, options: {
   /** The fields a single one reads. It is followed again when one of them changes. */
-  from?: readonly K[]
+  from?: [Many] extends [string] ? never : readonly K[]
   /** A field with one to follow for each of its keys, in place of `from`. */
   each?: Many
-  args: (given: Given_<R, H, K, Many>) => N['views'][F][V]['args']
+  args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']>
   heard: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
@@ -486,13 +486,13 @@ export interface MadeOne<R, H extends string, E extends AnyEvent, N extends Net>
 export interface MadeEach<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args: Function; readonly ended: Function; readonly heard?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
 /** Makes an ask to make one at a time. What it is asked for is worked out from the data when it is made. */
 export type MakeOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-  args: (data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args']
+  args: (data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
   ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
   heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
 }) => MadeOne<R, H, E, N>
 /** Makes an ask to make for each of many keys. What each is asked for is worked out from its key when it is made. */
 export type MakeEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-  args: (key: string, data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args']
+  args: (key: string, data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
   ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
   heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
 }) => MadeEach<R, H, E, N>
@@ -522,10 +522,10 @@ export type Asking<R, H extends string, E extends AnyEvent, N extends Net> = <
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(of: S, ask: Q, options: {
   /** The fields a single one reads. It is asked again when one of them changes. */
-  from?: readonly K[]
+  from?: [Many] extends [string] ? never : readonly K[]
   /** A field with one ask for each of its keys, in place of `from`. */
   each?: Many
-  args: (given: Given_<R, H, K, Many>) => AskOf<N, S, Q>['args'] | ([Many] extends [string] ? never : null | undefined | false)
+  args: (given: Given_<R, H, K, Many>) => Read<AskOf<N, S, Q>['args']> | ([Many] extends [string] ? never : null | undefined | false)
   ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
   heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Awaiting<R, H, E, N>

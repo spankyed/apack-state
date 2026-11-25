@@ -23,21 +23,21 @@
 import { computed, getCurrentScope, inject, onScopeDispose, shallowRef, toValue, watch, type App, type ComputedRef, type InjectionKey, type MaybeRefOrGetter } from '@vue/runtime-core'
 import { mirrors, type Shared } from './mirror.ts'
 import type { System } from './kernel.ts'
-import type { AllStarts, AnyEvent, AnyState, Asks, Each, HandleOf, Started, State, Value } from './types.ts'
+import type { AllStarts, AnyEvent, AnyState, Asks, Each, HandleOf, Read, Started, State, Value } from './types.ts'
 
 const SYSTEM: InjectionKey<System> = Symbol('the system this app reads')
 
 /** Reaching a state that this one starts: by the name it is declared under, and by key where there is one for each. */
-type Child<C> = <K extends keyof C & string>(name: K, ...key: C[K] extends Each<any> ? [key: string] : []) => HandleOf<C[K]>
+export type Child<C> = <K extends keyof C & string>(name: K, ...key: C[K] extends Each<any> ? [key: string] : []) => HandleOf<C[K]>
 
 /** A running state, as a component has it. */
 export interface Bound<V, E extends AnyEvent, C> {
   /** What it is: where it is and the data there. Whatever reads a place in it runs again when that place changes. */
   readonly state: ComputedRef<V>
-  send(event: E): void
+  send(event: Read<E>): void
   readonly child: Child<C>
 }
-type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Value<S>, E, AllStarts<S>> : never
+export type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Value<S>, E, AllStarts<S>> : never
 
 /**
  * `Top` is what the window runs at its outermost, by the name each is started under. In the app a pack's generated

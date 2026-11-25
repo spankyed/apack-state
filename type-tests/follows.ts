@@ -31,6 +31,18 @@ state<Shop, ShopEvent>()({
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
     price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
+    // @ts-expect-error a view is followed from fields or for each key, not both at once
+    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), heard: () => {} }),
   }),
   states: { browsing: {}, away: {} },
+})
+
+// `args` accepts read-only values straight from `data`.
+import { reaching } from '../src/index.ts'
+type ListNet = { systems: {}; surfaces: {}; views: { items: { list: { args: { ids: string[] }; result: number } } } }
+reaching<ListNet>()<{ data: { ids: string[] } }, never>()({
+  data: { ids: [] },
+  follows: (follow) => ({
+    list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), heard: () => {} }),
+  }),
 })

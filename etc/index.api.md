@@ -58,9 +58,9 @@ export type AskFailure<A = {}> = {
 //
 // @public
 export type Asking<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(of: S, ask: Q, options: {
-    from?: readonly K[];
+    from?: [Many] extends [string] ? never : readonly K[];
     each?: Many;
-    args: (given: Given_<R, H, K, Many>) => AskOf<N, S, Q>['args'] | ([Many] extends [string] ? never : null | undefined | false);
+    args: (given: Given_<R, H, K, Many>) => Read<AskOf<N, S, Q>['args']> | ([Many] extends [string] ? never : null | undefined | false);
     ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
     heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Awaiting<R, H, E, N>;
@@ -198,9 +198,9 @@ export interface Failure {
 
 // @public
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: {
-    from?: readonly K[];
+    from?: [Many] extends [string] ? never : readonly K[];
     each?: Many;
-    args: (given: Given_<R, H, K, Many>) => N['views'][F][V]['args'];
+    args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']>;
     heard: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Followed<R, H, E, N>;
 
@@ -323,7 +323,7 @@ export interface MadeOne<R, H extends string, E extends AnyEvent, N extends Net>
 
 // @public
 export type MakeEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-    args: (key: string, data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args'];
+    args: (key: string, data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>;
     ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & {
         readonly key: string;
     }) => Next<R, H> | void;
@@ -334,7 +334,7 @@ export type MakeEach<R, H extends string, E extends AnyEvent, N extends Net> = <
 
 // @public
 export type MakeOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-    args: (data: Read<DataAt<R, H>>) => AskOf<N, S, Q>['args'];
+    args: (data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>;
     ended: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void;
     heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void;
 }) => MadeOne<R, H, E, N>;

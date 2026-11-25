@@ -4,6 +4,8 @@
 
 import type * as from from '../checks/starts-check.mts'
 import { given, type System } from '../src/index.ts'
+import type { fromEvents } from '../src/testing.ts'
+declare const runEvents: typeof fromEvents
 declare const state: typeof from.state
 declare const card: typeof from.card
 declare const helper: typeof from.helper
@@ -71,6 +73,21 @@ sys.start('card', card([]))
 sys.start('card', card([]), { id: 'a' })
 // @ts-expect-error a root state with no given fields takes no third argument
 sys.start('plain', plain, {})
+
+// A root state that marks an optional field `given` requires that field to be provided at start.
+const optGiven = state<{ data: { note?: string } }, never>()({ data: { note: given } })
+sys.start('optGiven', optGiven, { note: 'hi' })
+// @ts-expect-error an optional field marked given cannot be omitted when starting the root state
+sys.start('optGiven', optGiven, {})
+
+// `fromEvents` requires `given` for a root state with `given` fields and refuses it when none exist.
+const givenCounter = state<{ data: { label: string; count: number } }, { type: 'INC' }>()({
+  data: { label: given, count: 0 },
+  on: { INC: (_, { data }) => ({ data: { count: data.count + 1 } }) },
+})
+void runEvents({ state: givenCounter, given: { label: 'a' }, events: { INC: () => ({ type: 'INC' }) }, always: () => {}, steps: 1, runs: 1, seed: 1 })
+// @ts-expect-error fromEvents requires given when the state declares given fields
+void runEvents({ state: givenCounter, events: { INC: () => ({ type: 'INC' }) }, always: () => {}, steps: 1, runs: 1, seed: 1 })
 
 // A `start` substate cannot mark an optional field `given` (direct or nested).
 type OptStart = { states: { a: { data: { note?: string } }; b: { data: { id: string } } } }

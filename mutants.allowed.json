@@ -155,11 +155,6 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const item of waiting.splice(0)) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why))) | \"\"",
-    "original": "'answering an ask that will not be taken'",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
     "key": "src/kernel.ts | StringLiteral | for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
@@ -535,11 +530,6 @@
     "why": "Two mutants on this line share this key. 'window' as the side is killed: the state is run in a window, and a surface it tells there is told. 'the window' names that system's frames in a list of what was run, and fromEvents reports a failure by its seed and the events it sent, not by what was run, so the name is never seen"
   },
   {
-    "key": "src/testing.ts | StringLiteral | const handle = running.start('under test', options.state) | \"\"",
-    "original": "'under test'",
-    "why": "The ref the state under test is started by: nothing a run reports names it, and a state's handlers are not told their own ref, so any ref runs it the same"
-  },
-  {
     "key": "src/testing.ts | StringLiteral | schedule.does('the user', ...events.map((event) => [event.type, () => { | \"\"",
     "original": "'the user'",
     "why": "The lane the events are sent from is named in a list of what was run, which fromEvents does not report: a failure says its seed and the events it sent"
@@ -578,5 +568,35 @@
     "key": "src/kernel.ts | ConditionalExpression | if (host.limit !== undefined && steps >= host.limit) throw new Error(`${called} cannot start ${ref}: ${LIMIT_REACHED}`) | true",
     "original": "host.limit !== undefined",
     "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (this.head === this.items.length) { this.items.length = 0; this.head = 0 } | false",
+    "original": "this.head === this.items.length",
+    "why": "Resetting the backing array when a queue drains only reclaims memory; queue contents and ordering are identical without it"
+  },
+  {
+    "key": "src/kernel.ts | BlockStatement | if (this.head === this.items.length) { this.items.length = 0; this.head = 0 } | {}",
+    "original": "{ this.items.length = 0; this.head = 0 }",
+    "why": "Resetting the backing array when a queue drains only reclaims memory; queue contents and ordering are identical without it"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (entries.length) { | true",
+    "original": "entries.length",
+    "why": "Skipping the shallow copy when a state declares no data fields only avoids an allocation; copying produces an identical data object"
+  },
+  {
+    "key": "src/kernel.ts | BooleanLiteral | try { made = produce(before, data, { fixed: true, topLevel: true }) } catch (error) { | false",
+    "original": "true",
+    "why": "topLevel only skips deep path construction and JSON.stringify; the kernel only reads path[0], so touched fields are identical either way"
+  },
+  {
+    "key": "src/kernel.ts | StringLiteral | for (const item of items) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why))) | \"\"",
+    "original": "'answering an ask that will not be taken'",
+    "why": "The label passed to safely is traced only if Question.end throws; Question.end only resolves a promise and never throws"
+  },
+  {
+    "key": "src/testing.ts | StringLiteral | const handle = (running.start as (ref: string, state: State<S, E, A, G>, entering: unknown) => Handle<Value<S>, E, A>)('under test', options.state, options.given) | \"\"",
+    "original": "'under test'",
+    "why": "The ref is internal to fromEvents: nothing outside reads it, so any name runs the state the same"
   }
 ]

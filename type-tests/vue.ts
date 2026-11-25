@@ -3,10 +3,14 @@
 // compiled would fail the check as an unused directive.
 
 import { defineComponent } from '@vue/runtime-core'
-import { vueBinding } from '../src/vue.ts'
+import { vueBinding, type BoundTo, type Child } from '../src/vue.ts'
+import { reaching } from '../src/index.ts'
 import type * as from from '../checks/vue-check.mts'
 
-const { useState } = vueBinding<{ board: typeof from.board }>()
+export const exportedBinding = vueBinding<{ board: typeof from.board }>()
+const { useState } = exportedBinding
+type _CheckExports = BoundTo<typeof from.board> | Child<{}>
+void (null as unknown as _CheckExports)
 
 // What must not compile.
 defineComponent(() => {
@@ -23,5 +27,14 @@ defineComponent(() => {
   void one.state.value?.data.bumps
   // @ts-expect-error a component sends; it does not ask
   void it.ask
+  return () => null
+})
+
+// `Bound.send` accepts read-only values read straight from `state.value.data`.
+const listState = reaching()<{ data: { items: string[] } }, { type: 'SET'; items: string[] }>()({ data: { items: [] } })
+const listBinding = vueBinding<{ list: typeof listState }>()
+defineComponent(() => {
+  const { state, send } = listBinding.useState('list')
+  send({ type: 'SET', items: state.value.data.items })
   return () => null
 })
