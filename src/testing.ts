@@ -233,7 +233,7 @@ export function defectGuard(forward?: (line: string) => void): DefectGuard {
   const defects: string[] = []
   const allowed = new Set<string | RegExp>()
   const matches = (line: string): boolean => {
-    for (const pattern of allowed) if (typeof pattern === 'string' ? line.includes(pattern) : pattern.test(line)) return true
+    for (const pattern of allowed) if (typeof pattern === 'string' ? line.includes(pattern) : line.search(pattern) >= 0) return true
     return false
   }
   return {

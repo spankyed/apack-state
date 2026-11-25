@@ -1292,7 +1292,7 @@ export function system(host: {
         safely('what leaves as it stops', leave)
         if (told && leave.said) told.left.push(sentOf(leave.said))
       }
-      for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {}))
+      for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, {}, {}))
       turnAway(outside.drain(), STOPPED)
     }
   }
@@ -1327,7 +1327,7 @@ export function system(host: {
         fields: which[ref] ?? [], moved: where[ref]?.moved ?? false, making: where[ref]?.making ?? false,
         at: (committed.get(ref) as { at?: string } | undefined)?.at ?? '',
       }]))
-      leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) })
+      leaving.push(() => { for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, which, where)) })
     }
     const now = leaving.splice(0)
     return () => {

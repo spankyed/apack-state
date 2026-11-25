@@ -481,6 +481,39 @@ await run([
     sys.stop()
     await rejects(stopWait, /c stopped before waitFor matched/)
     await rejects(waitFor(sys, h, () => true), /c is not running/)
+
+    // Concurrent waitFor callers on the same step both settle even though the first unsubscribes mid-flush,
+    // both on normal commits and when a failed transaction stops the system (`lost()`).
+    const sys2 = system({ side: 'window' })
+    const h2 = sys2.start('c', counter)
+    const p1 = waitFor(sys2, h2, (v) => v.data.count === 1)
+    const p2 = waitFor(sys2, h2, (v) => v.data.count === 1)
+    sys2.send(h2, { type: 'ADD', by: 1 })
+    const [r1, r2] = await Promise.all([p1, p2])
+    strictEqual(r1.data.count, 1)
+    strictEqual(r2.data.count, 1)
+    sys2.stop()
+
+    let failCommit = false
+    let depth = 0
+    const flaky = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try {
+          const out = fn()
+          if (depth === 1 && failCommit) throw new Error('disk full')
+          return out
+        } finally { depth-- }
+      },
+    })
+    const fh = flaky.start('c', counter)
+    const lp1 = waitFor(flaky, fh, (v) => v.data.count === 99)
+    const lp2 = waitFor(flaky, fh, (v) => v.data.count === 99)
+    failCommit = true
+    flaky.send(fh, { type: 'ADD', by: 1 })
+    await rejects(lp1, /c stopped before waitFor matched/)
+    await rejects(lp2, /c stopped before waitFor matched/)
   }],
   ['defectGuard captures DEFECT lines, forwards all trace output, and fails on unallowed defects', () => {
     // Works with no forward listener as well.
@@ -509,14 +542,20 @@ await run([
     ok(forwarded.some((line) => !line.startsWith('DEFECT:')))
 
     sys.send(h, { type: 'BOOM' })
+    sys.send(h, { type: 'BOOM' })
     sys.send(h, { type: 'BAD_MOVE' })
-    strictEqual(guard.defects.length, 2)
-    throws(() => guard.assertNone(), /Unexpected kernel defect\(s\):\n.*boom!.*\n.*has no state nope/)
+    strictEqual(guard.defects.length, 3)
+    throws(() => guard.assertNone(), /Unexpected kernel defect\(s\):\n.*boom!.*\n.*boom!.*\n.*has no state nope/)
 
-    guard.allow('boom!')
+    // A global `/g` regex matching at index 0 matches every occurrence without stateful `lastIndex` drift.
+    guard.allow(/^DEFECT:.*boom!/g)
     throws(() => guard.assertNone(), /has no state nope/)
 
-    guard.allow(/has no state nope/)
+    // String patterns match literally (even with regex metacharacters like `+`).
+    guard.trace('DEFECT: bad a+b')
+    guard.allow('has no state nope')
+    throws(() => guard.assertNone(), /bad a\+b/)
+    guard.allow('a+b')
     guard.assertNone()
     sys.stop()
   }],
