@@ -6,7 +6,7 @@
 // quadratic. The first half measures that on the draft alone. The second streams results through a real ask, from a
 // backend to a window, the way the search does.
 import { produce } from '../src/draft.ts'
-import { reaching, system } from '../src/index.ts'
+import { forNet, system } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { reading, under } from './record.mts'
 
@@ -42,7 +42,7 @@ await time('100000 pieces of text, 1 per change', () => {
 
 type FinderAsks = { FIND: { args: { count: number }; progress: Row; answer: { found: number } } }
 type App = { systems: { finder: { events: never; asks: FinderAsks } }; surfaces: {}; views: {} }
-const state = reaching<App>()
+const state = forNet<App>()
 
 const finder = state<{}, never, FinderAsks>()({
   asks: {
@@ -62,7 +62,7 @@ type PanelEvent = { type: 'FIND'; count: number } | { type: 'FOUND'; results: Ro
 
 const panel = state<Panel, PanelEvent>()({
   data: { results: [], changes: 0 },
-  start: 'idle',
+  initial: 'idle',
   on: { FIND: ({ count }) => ({ at: 'finding', data: { count, results: [], changes: 0 } }) },
   states: {
     idle: {},

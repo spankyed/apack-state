@@ -2,11 +2,11 @@
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 import type * as from from '../checks/peers-check.mts'
 declare const state: typeof from.state
 
-const noPeers = reaching<{ systems: {}; surfaces: {}; views: {} }>()
+const noPeers = forNet<{ systems: {}; surfaces: {}; views: {} }>()
 
 state<{}, { type: 'GO' }>()({
   on: {

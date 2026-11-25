@@ -4,10 +4,10 @@
 //
 // Commit rebuilds values only for the states that changed in the step, reusing each state's already-frozen data, so
 // updating one dynamic child out of hundreds or thousands scales with the changed state rather than total children.
-import { given, reaching, system, type Each } from '../src/index.ts'
+import { given, forNet, system, type Each } from '../src/index.ts'
 import { reading, under } from './record.mts'
 
-const state = reaching()
+const state = forNet()
 const card = state<{ data: { id: string; bumps: number } }, { type: 'BUMP' }>()({
   data: { id: given, bumps: 0 },
   on: { BUMP: (_, { data }) => ({ data: { bumps: data.bumps + 1 } }) },

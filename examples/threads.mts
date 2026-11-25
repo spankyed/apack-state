@@ -17,7 +17,7 @@
 // and `inference` for `services.inference`.
 
 import { deepStrictEqual } from 'node:assert'
-import { answered, given, reaching, system, type Each } from '../src/index.ts'
+import { answered, given, forNet, system, type Each } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -77,7 +77,7 @@ type App = {
   views: {}
 }
 
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Backend 1: library. Answers one ask.
@@ -127,7 +127,7 @@ export function thread(inference: Inference) {
   return state<Thread, never, ThreadAsks>()({
     // Which thread it is is given by whoever starts it.
     data: { threadId: given, messages: [] },
-    start: 'idle',
+    initial: 'idle',
 
     states: {
       idle: {
@@ -253,7 +253,7 @@ const withUnseen = (unseen: readonly string[], threadId: string): readonly strin
 function threadsSurface(log: (line: string) => void) {
   return state<ThreadsSurface, ThreadsSurfaceEvent>()({
     data: { titles: {}, unseen: [], problem: null },
-    start: 'list',
+    initial: 'list',
 
     // Taken in every state, unless a state further in takes the same event first.
     on: {
@@ -292,13 +292,13 @@ function threadsSurface(log: (line: string) => void) {
       // ── thread: a state with states inside it ─────────────────────────────────────────────────────────────────────
       thread: {
         data: { threadId: given, lastReply: given, streamed: given },
-        start: 'idle',
+        initial: 'idle',
 
         starts: () => ({ draft }),
 
-        run({ data, use }) {
+        run({ data, onExit }) {
           log(`composer mounted for ${data.threadId}`)
-          use(() => log(`composer unmounted for ${data.threadId}`))
+          onExit(() => log(`composer unmounted for ${data.threadId}`))
         },
 
         on: {

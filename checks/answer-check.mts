@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { explore, type Schedule } from '@apackdev/orderings'
 import { rest, run, system } from './checks.mts'
-import { answered, given, reaching } from '../src/index.ts'
+import { answered, given, forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 export type CounterAsks = {
@@ -22,7 +22,7 @@ export type CounterAsks = {
 }
 export type CounterEvent = { type: 'REOPEN' }
 export type Counter = { data: { count: number }; states: { open: {}; closed: { data: { reason: string } } } }
-export const state = reaching()
+export const state = forNet()
 
 /** Things kept under an id, which can be removed while something is being put there. */
 type BoxAsks = {
@@ -79,7 +79,7 @@ const turns = (count: number): Promise<void> => new Promise((resolve) => { let l
 
 const counter = (work: (label: string) => Promise<unknown>) => state<Counter, CounterEvent, CounterAsks>()({
   data: { count: 0 },
-  start: 'open',
+  initial: 'open',
   on: { REOPEN: () => ({ at: 'open' }) },
   asks: { READ: (_, { data }) => data.count },
   states: {

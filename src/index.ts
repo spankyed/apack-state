@@ -6,8 +6,8 @@
 // What a state is: its shape, its definition, and what it is handed and may return.
 export {
   answered,
+  forNet,
   given,
-  reaching,
   within,
   type AllStarts,
   type AnyEvent,
@@ -50,7 +50,7 @@ export {
 } from './types.ts'
 
 // What runs it: a system, its steps, and what it is given.
-export { Left, system, type Changes, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
+export { Cancelled, system, type Changes, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
 export type { Clock, Failure, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // What a frame is in a window.

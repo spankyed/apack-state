@@ -246,7 +246,7 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   tell<K extends keyof N['surfaces'] & string>(to: { readonly surface: K }, event: Read<N['surfaces'][K]['events']>): void
   /**
    * Tells a named non-window peer attached to this system an event. Nobody waits. Delivered after the step commits,
-   * with no view hold; dropped (recorded in `StepLog.left` with `outcome: 'dropped'`) if no peer is attached under
+   * with no view hold; dropped (recorded in `StepLog.sent` with `outcome: 'dropped'`) if no peer is attached under
    * that name.
    */
   tell<K extends PeersOf<N>>(to: { readonly peer: K }, event: Read<PeerEventOf<N, K>>): void
@@ -291,14 +291,14 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    */
   child<K extends keyof StartsAt<R, H> & string>(name: K, ...key: StartsAt<R, H>[K] extends Each<any> ? [key: string] : []): HandleOf<StartsAt<R, H>[K]>
   /**
-   * Released, last first, when this state stops being the case. If called from in-flight work after the state has
-   * already been left, `release` runs immediately; stray calls after `run` or an ask has already finished are ignored.
+   * Released, last first, when this state exits. If called from in-flight work after the state has already exited,
+   * `release` runs immediately; stray calls after `run` or an ask has already finished are ignored.
    */
-  use(release: () => void): void
+  onExit(release: () => void): void
   /**
    * Waits `ms` milliseconds on the clock's monotonic timer. Rejects with `RangeError` if `ms` is non-finite (or
-   * `Error` if no clock was given), and cancels with `Left` when this state stops being the case, when whoever asked
-   * has gone, or when the work that started it finishes.
+   * `Error` if no clock was given), and cancels with `Cancelled` when this state exits, when whoever asked has gone,
+   * or when the work that started it finishes.
    */
   sleep(ms: number): Promise<void>
 }
@@ -356,7 +356,7 @@ type Answering<R, H extends string, E extends AnyEvent, A extends Asks, N extend
 
 /**
  * Where a state goes when its work fails: what `run` threw, and what happens next. It is an event's handler in every
- * other way: synchronous, and without `ask`. It is never given a `Left`, which is the state having been left and not
+ * other way: synchronous, and without `ask`. It is never given a `Cancelled`, which is the state having exited and not
  * its work failing, so it is where to handle a failure without a `catch` that could take one.
  */
 type Failed<R, H extends string, E extends AnyEvent, N extends Net> = (error: unknown, scope: EventScope<R, H, E, N>) => Next<R, H> | void
@@ -409,9 +409,9 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
    * does. A write is not like that: it is made once, by saying so, and nothing in the data stands for it.
    */
   makes: (asking: { one: MakeOne<R, H, E, N>; each: MakeEach<R, H, E, N> }) => { [K in keyof MakesOf<S>]: MakesOf<S>[K] extends 'each' ? MadeEach<R, H, E, N> : MadeOne<R, H, E, N> }
-}) & ([Names<S>] extends [never] ? { start?: never; states?: never } : {
-  /** The state inside it that it is at when whoever enters it does not say. */
-  start: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
+}) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
+  /** The state inside it that it enters first when whoever enters it does not say. */
+  initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
   /** Every state inside it. */
   states: { [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N> }
 })
@@ -531,22 +531,22 @@ export type Asking<R, H extends string, E extends AnyEvent, N extends Net> = <
 }) => Awaiting<R, H, E, N>
 
 /**
- * Refuses `given` in any state entered automatically via `start` (at any depth): a `start` substate is entered with
- * no supplied fields, so a `given` field there would never be provided.
+ * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
+ * with no supplied fields, so a `given` field there would never be provided.
  */
-type NoStartGiven<D> =
-  D extends { start: infer K extends string; states: infer T extends Record<string, unknown> }
+type NoInitialGiven<D> =
+  D extends { initial: infer K extends string; states: infer T extends Record<string, unknown> }
     ? {
         states: {
           [P in keyof T]: P extends K
             ? (T[P] extends { data: infer X }
                 ? { data: { [F in keyof X]: [X[F]] extends [Given] ? never : unknown } }
-                : unknown) & NoStartGiven<T[P]>
-            : NoStartGiven<T[P]>
+                : unknown) & NoInitialGiven<T[P]>
+            : NoInitialGiven<T[P]>
         }
       }
     : D extends { states: infer T extends Record<string, unknown> }
-      ? { states: { [P in keyof T]: NoStartGiven<T[P]> } }
+      ? { states: { [P in keyof T]: NoInitialGiven<T[P]> } }
       : unknown
 
 /**
@@ -569,8 +569,8 @@ type NoShadowedData<S, Above extends string = never> =
       }
     : unknown
 
-/** `state`, for code that can reach `N` by name. In the app this is what a pack's generated facade would export. */
-export function reaching<N extends Net = Nothing>() {
+/** `state`, bound to the network `N` it can reach by name. In the app this is what a pack's generated facade exports. */
+export function forNet<N extends Net = Nothing>() {
   return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
-    <D extends Def<S, S, '', E, A, N>>(def: D & NoStartGiven<NoInfer<D>> & NoShadowedData<S>): State<S, E, A, GivenIn<D>> => ({ def })
+    <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>): State<S, E, A, GivenIn<D>> => ({ def })
 }

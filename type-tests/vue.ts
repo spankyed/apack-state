@@ -4,7 +4,7 @@
 
 import { defineComponent } from '@vue/runtime-core'
 import { vueBinding, type BoundTo, type Child } from '../src/vue.ts'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 import type * as from from '../checks/vue-check.mts'
 
 export const exportedBinding = vueBinding<{ board: typeof from.board }>()
@@ -19,7 +19,7 @@ defineComponent(() => {
   useState('deck')
   // @ts-expect-error the board takes no such event
   it.send({ type: 'SHUFFLE' })
-  // @ts-expect-error a card is one of many, so reaching one takes its key
+  // @ts-expect-error a card is one of many, so forNet one takes its key
   it.child('card')
   const one = useState(() => it.child('card', 'a'))
   // @ts-expect-error a card may not be running, so what it holds cannot be read without saying what if it is not
@@ -31,7 +31,7 @@ defineComponent(() => {
 })
 
 // `Bound.send` accepts read-only values read straight from `state.value.data`.
-const listState = reaching()<{ data: { items: string[] } }, { type: 'SET'; items: string[] }>()({ data: { items: [] } })
+const listState = forNet()<{ data: { items: string[] } }, { type: 'SET'; items: string[] }>()({ data: { items: [] } })
 const listBinding = vueBinding<{ list: typeof listState }>()
 defineComponent(() => {
   const { state, send } = listBinding.useState('list')

@@ -6,7 +6,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching, type Each, type Failure, type Port, type StepLog, type ViewHost } from '../src/index.ts'
+import { answered, forNet, type Each, type Failure, type Port, type StepLog, type ViewHost } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 import { memory, type Rows } from './store.mts'
 
@@ -18,7 +18,7 @@ type App = {
   surfaces: { panel: { events: PanelEvents } }
   views: { threads: { count: { args: {}; result: number } } }
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 /** The backend: a thread is a row, and making one is told to every window as well as answered. */
 const threads = (store: Rows) => state<{}, never, ThreadAsks>()({
@@ -229,7 +229,7 @@ await run([
     const window = system({ side: 'window', name: WINDOW })
     window.attach(spy)
     const sameStep = state<{ states: { active: { makes: { create: 'one' } }; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
-      start: 'active',
+      initial: 'active',
       states: {
         active: {
           makes: (make) => ({ create: make.one('threads', 'CREATE', { args: () => ({ id: 'a' }), ended: () => undefined }) }),
@@ -320,7 +320,7 @@ await run([
     const window = system({ side: 'window', name: WINDOW, trace: (line) => { traced.push(line) } })
     window.attach(spy)
     const child = state<{ states: { watching: {}; gone: {} } }, { type: 'CLOSE' }>()({
-      start: 'watching',
+      initial: 'watching',
       states: {
         watching: {
           follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: () => undefined }) }),
@@ -475,7 +475,7 @@ await run([
     strictEqual(flushFollows, 2)
     deepStrictEqual(flushLogs.map((s) => s.number), [1, 2, 3])
     strictEqual(flushLogs[1]!.handled[0]?.name, 'BUMP')
-    deepStrictEqual(flushLogs[2]!.left.map((s) => s.kind), ['follow', 'follow'])
+    deepStrictEqual(flushLogs[2]!.sent.map((s) => s.kind), ['follow', 'follow'])
     w.stop()
   }],
 ], async (tally) => {

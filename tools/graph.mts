@@ -85,7 +85,7 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
       } else if (property.name === 'failed') {
         const signature = type.getCallSignatures()[0]
         if (signature) read(unwrap(signature.getReturnType()), path, '(its work fails)')
-      } else if (property.name === 'start') {
+      } else if (property.name === 'initial') {
         for (const at of literalsOf(type)) starts.set(path, at)
       } else if (property.name === 'states') {
         for (const inner of type.getProperties()) { const innerType = real(typeOf(inner))[0]; if (innerType) walk(innerType, join(path, inner.name)) }

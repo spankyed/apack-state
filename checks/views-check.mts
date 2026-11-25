@@ -7,7 +7,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching, type ViewHost } from '../src/index.ts'
+import { answered, forNet, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
 import { nextTurn } from '../src/turn.ts'
@@ -20,7 +20,7 @@ type App = {
   surfaces: { panel: { events: PanelEvents } }
   views: { threads: { count: { args: {}; result: number } } }
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 /** The backend: a thread is a row, and making one is told to every window as well as answered. */
 const threads = (store: Rows) => state<{}, never, ThreadAsks>()({

@@ -5,12 +5,12 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, reaching, type Each } from '../src/index.ts'
+import { given, forNet, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: { threads: { detail: { args: { id: string }; result: string } } } }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
@@ -41,7 +41,7 @@ export type Panel = {
 
 const panel = (released: string[]) => state<Panel, PanelEvent>()({
   data: { count: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: ({ how }) => ({ at: 'working', data: { how, problem: null } }),
     SET_UP: () => ({ at: 'ready' }),
@@ -56,10 +56,10 @@ const panel = (released: string[]) => state<Panel, PanelEvent>()({
     idle: {},
     working: {
       data: { how: given },
-      run({ data, ask, use }) {
-        use(() => { released.push('first') })
-        use(() => { throw new Error('the release broke') })
-        use(() => { released.push('last') })
+      run({ data, ask, onExit }) {
+        onExit(() => { released.push('first') })
+        onExit(() => { throw new Error('the release broke') })
+        onExit(() => { released.push('last') })
         if (data.how === 'at once') throw new Error('broke at once')
         return (async () => {
           if (data.how === 'while asking') await ask('slow', 'WAIT', { turns: 30 })
@@ -262,7 +262,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(Object.keys(logs.at(-1)!.changed), ['fine'])
   }],
   ['cutting a runaway step short settles every queued and held ask and leaves the system idle', async () => {
-    const localState = reaching<{
+    const localState = forNet<{
       systems: {
         spinner: { events: { type: 'SPIN' }; asks: { PING: { args: {}; answer: string } } }
         spinAsk: { events: { type: 'STEP' }; asks: { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } } }

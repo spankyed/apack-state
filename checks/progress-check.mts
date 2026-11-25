@@ -4,7 +4,7 @@
 //   npx vitest run progress
 import { deepStrictEqual, strictEqual } from 'node:assert'
 import { connect, run, system } from './checks.mts'
-import { given, reaching, type State } from '../src/index.ts'
+import { given, forNet, type State } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type Step = { progress: string } | { note: string }
@@ -26,7 +26,7 @@ type App = {
   surfaces: { panel: { events: PanelEvent } }
   views: {}
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 /** Answers at once, having sent every step. */
 const stream = state<{}, never, StreamAsks>()({
@@ -52,7 +52,7 @@ const slowStream = state<{}, never, StreamAsks>()({
 
 /** A panel that streams while it is `streaming`, and writes down everything it hears, in the order it hears it. */
 const panel = (heard: string[]) => state<{ states: { idle: {}; streaming: { data: { steps: Step[]; burst: number } } } }, PanelEvent>()({
-  start: 'idle',
+  initial: 'idle',
   on: {
     GO:    ({ steps, burst }) => ({ at: 'streaming', data: { steps, burst: burst ?? 0 } }),
     CLICK: ({ what })   => { heard.push(`click:${what}`) },
@@ -75,7 +75,7 @@ const panel = (heard: string[]) => state<{ states: { idle: {}; streaming: { data
 
 /** A second state in the same window, asking something quick of the same backend. */
 const quick = (heard: string[]) => state<{ states: { idle: {}; asking: { data: { word: string } } } }, QuickEvent>()({
-  start: 'idle',
+  initial: 'idle',
   on: { ASK_QUICK: ({ word }) => ({ at: 'asking', data: { word } }) },
   states: {
     idle: {},

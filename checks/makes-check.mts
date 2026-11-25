@@ -9,7 +9,7 @@ import { connect, rest, run, system } from './checks.mts'
 import { mirror } from '../src/mirror.ts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
@@ -21,7 +21,7 @@ type WorkerAsks = {
   SAVE: { args: { text: string }; answer: string }
 }
 type App = { systems: { worker: { events: never; asks: WorkerAsks } }; surfaces: {}; views: {} }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 /** What the worker was asked and what it was told to give up, in order. */
 const worker = (did: string[]) => {
@@ -66,7 +66,7 @@ export type Jobs = {
 
 const jobs = state<Jobs, JobsEvent>()({
   data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
-  start: 'on',
+  initial: 'on',
 
   on: {
     TYPE: ({ text }) => ({ data: { text } }),

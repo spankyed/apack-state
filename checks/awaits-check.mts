@@ -6,14 +6,14 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { sample, type Schedule } from '@apackdev/orderings'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 type LibraryAsks = { LOOKUP: { args: { query: string }; progress: string; answer: string } }
 type App = { systems: { library: { events: never; asks: LibraryAsks } }; surfaces: {}; views: {} }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 /** What the library was asked and what it was told to give up, in order. */
 const library = (did: string[]) => state<{}, never, LibraryAsks>()({
@@ -44,7 +44,7 @@ export type Reader = {
 
 const reader = state<Reader, ReaderEvent>()({
   data: { title: 'Reader', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null, pending: '', got: null },
-  start: 'on',
+  initial: 'on',
 
   on: {
     SET_QUERY: ({ query }) => ({ data: { query, found: null } }),

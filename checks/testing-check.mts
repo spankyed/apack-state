@@ -2,14 +2,14 @@
 // system on a schedule, and scenarios made from the events a state declares.
 import { deepStrictEqual, ok, rejects, strictEqual, throws } from 'node:assert'
 import { run } from './checks.mts'
-import { given, reaching } from '../src/index.ts'
+import { given, forNet } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
 import { defectGuard, everyOrder, explore, fromEvents, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
 import { system } from '../src/kernel.ts'
 
-const state = reaching()
+const state = forNet()
 type CounterEvent = { type: 'ADD'; by: number } | { type: 'RESET' }
 const counter = state<{ data: { count: number; resets: number } }, CounterEvent>()({
   data: { count: 0, resets: 0 },
@@ -156,7 +156,7 @@ await run([
   ['an event a state inside declares needs a way to make it too', async () => {
     type DoorEvent = { type: 'OPEN' } | { type: 'KNOCK' }
     const door = state<{ states: { shut: {}; open: {} } }, DoorEvent>()({
-      start: 'shut',
+      initial: 'shut',
       states: { shut: { on: { OPEN: () => ({ at: 'open' }) } }, open: { on: { KNOCK: () => {} } } },
     })
     await rejects(fromEvents({ state: door, events: { OPEN: () => ({ type: 'OPEN' }) } as never, always: () => {}, steps: 1, runs: 1, seed: 1 }), /No way to make KNOCK/)
@@ -283,7 +283,7 @@ await run([
   }],
   ['the state is run in a window: a surface it tells there is told', async () => {
     type Windowed = { systems: {}; surfaces: { panel: { events: { type: 'PINGED' } } }; views: {} }
-    const windowed = reaching<Windowed>()
+    const windowed = forNet<Windowed>()
     const heard: string[] = []
     const panel = windowed<{}, { type: 'PINGED' }>()({ on: { PINGED: () => { heard.push('pinged') } } })
     const pinger = windowed<{}, { type: 'PING' }>()({ on: { PING: (_, { tell }) => { tell({ surface: 'panel' }, { type: 'PINGED' }) } } })
@@ -360,7 +360,7 @@ await run([
     const flow = state<{
       states: { idle: {}; done: { data: { result: string } } }
     }, { type: 'FINISH'; result: string }>()({
-      start: 'idle',
+      initial: 'idle',
       states: {
         idle: { on: { FINISH: ({ result }) => ({ at: 'done', data: { result } }) } },
         done: { data: { result: given } },

@@ -33,9 +33,9 @@ try {
   run(['install', '--omit=peer', '--no-audit', '--no-fund', '--no-package-lock', tarball], bare)
   const bareLoad = [
     "const index = await import('@apackdev/state')",
-    "for (const name of ['system', 'reaching', 'given', 'answered', 'within', 'Left', 'windowFrame']) if (!(name in index)) throw new Error(`@apackdev/state has no ${name}`)",
+    "for (const name of ['system', 'forNet', 'given', 'answered', 'within', 'Cancelled', 'windowFrame']) if (!(name in index)) throw new Error(`@apackdev/state has no ${name}`)",
     "const sys = index.system({ side: 'window' })",
-    "const counter = index.reaching()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
+    "const counter = index.forNet()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
     "const handle = sys.start('counter', counter)",
     "sys.send(handle, { type: 'ADD' })",
     "while (!sys.idle()) await new Promise((resolve) => setImmediate(resolve))",
@@ -51,13 +51,13 @@ try {
   run(['install', '--no-audit', '--no-fund', '--no-package-lock', tarball], full)
   const fullLoad = [
     "const index = await import('@apackdev/state')",
-    "for (const name of ['system', 'reaching', 'given', 'answered', 'within', 'Left', 'windowFrame']) if (!(name in index)) throw new Error(`@apackdev/state has no ${name}`)",
+    "for (const name of ['system', 'forNet', 'given', 'answered', 'within', 'Cancelled', 'windowFrame']) if (!(name in index)) throw new Error(`@apackdev/state has no ${name}`)",
     "const vue = await import('@apackdev/state/vue')",
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
-    "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents', 'waitFor', 'defectGuard']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
     "const sys = index.system({ side: 'window' })",
-    "const counter = index.reaching()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
+    "const counter = index.forNet()()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
     "const handle = sys.start('counter', counter)",
     "sys.send(handle, { type: 'ADD' })",
     "while (!sys.idle()) await new Promise((resolve) => setImmediate(resolve))",
@@ -72,10 +72,10 @@ try {
     include: ['check.ts'],
   }))
   const consumerTypes = [
-    "import { answered, given, reaching, system } from '@apackdev/state'",
+    "import { answered, forNet, given, system } from '@apackdev/state'",
     "import { vueBinding } from '@apackdev/state/vue'",
     "import { everyOrder, onSchedule } from '@apackdev/state/testing'",
-    "const state = reaching()",
+    "const state = forNet()",
     "const counter = state<{ data: { id: string; count: number } }, { type: 'ADD' }, { GET: { args: {}; answer: number } }>()({",
     "  data: { id: given, count: 0 },",
     "  on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) },",

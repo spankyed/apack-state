@@ -6,7 +6,7 @@ import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { computed, effect } from '@vue/reactivity'
 import { mirror, mirrors } from '../src/mirror.ts'
 import { run, system } from './checks.mts'
-import { given, reaching, within, type Each, type Value } from '../src/index.ts'
+import { given, forNet, within, type Each, type Value } from '../src/index.ts'
 import { windowFrame } from '../src/window-frame.ts'
 
 /** Not plain data: handed over as it is, and never frozen. */
@@ -30,10 +30,10 @@ type Event =
   | { type: 'DROP'; item: Item }
   | { type: 'RESULT' }
 
-const state = reaching()
+const state = forNet()
 const threads = state<Shape, Event>()({
   data: { titles: {}, messages: {}, count: 0, known: [], result: { ok: true }, repository: new Repository('/a') },
-  start: 'list',
+  initial: 'list',
   on: {
     ADD:    ({ id, title }) => ({ data: (d) => { d.titles[id] = title; d.messages[id] = [] } }),
     RENAME: ({ id, title }) => ({ data: (d) => { d.titles[id] = title } }),
@@ -299,7 +299,7 @@ const checks: Array<[string, () => void]> = [
       states: { a: {}; b: { data: { opt?: string | undefined } } }
     }, { type: 'TO_B' }>()({
       data: { label: given, fixed: 'same' },
-      start: 'a',
+      initial: 'a',
       on: { TO_B: () => ({ at: 'b', data: { opt: undefined } }) },
       states: { a: {}, b: { data: { opt: undefined as never } } },
     })
@@ -308,7 +308,7 @@ const checks: Array<[string, () => void]> = [
       states: { open: { data: { label?: string }; starts: { kid: typeof child } }; closed: {} }
     }, { type: 'REOPEN'; label: string } | { type: 'REOPEN_AND_CLOSE'; label: string } | { type: 'MOVE_KID' } | { type: 'CLOSE' }>()({
       data: { gen: 0 },
-      start: 'open',
+      initial: 'open',
       states: {
         open: {
           data: { label: 'first' },
@@ -353,14 +353,14 @@ const checks: Array<[string, () => void]> = [
     held.stop()
 
     // Also verify a restarted child that declares `makes` updates `making` in both mirror and StepLog.
-    const svc = reaching<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
+    const svc = forNet<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
     const maker = svc<{ data: { label: string }; makes: { save: 'one' } }, { type: 'GO' }>()({
       data: { label: given },
       makes: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), ended: () => undefined }) }),
       on: { GO: (_, { make }) => { make('save') } },
     })
     const makerHost = svc<{ states: { open: { data: { label?: string }; starts: { kid: typeof maker } } } }, { type: 'GO' } | { type: 'REOPEN'; label: string }>()({
-      start: 'open',
+      initial: 'open',
       states: {
         open: {
           data: { label: 'one' },
@@ -414,7 +414,7 @@ const checks: Array<[string, () => void]> = [
   }],
   ['a mirror deletes a removed substate field named after an Object.prototype key instead of copying the prototype method', () => {
     const protoState = state<{ states: { plain: {}; withProto: { data: { toString: string } } } }, { type: 'ENTER' } | { type: 'LEAVE' }>()({
-      start: 'plain',
+      initial: 'plain',
       states: {
         plain: { on: { ENTER: () => ({ at: 'withProto', data: { toString: 'custom' } }) } },
         withProto: { data: { toString: given }, on: { LEAVE: () => ({ at: 'plain' }) } },

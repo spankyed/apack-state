@@ -1,7 +1,7 @@
 // What it costs TypeScript to check many states: a measurement. It prints, and refuses nothing.
 //
 // Writes a project of N states into `.temp/compile/<N>/`, each as a pack's would be: its own data, events, asks it
-// answers, a view it follows, a read it awaits, a write it makes, and states inside it, all reaching one app's
+// answers, a view it follows, a read it awaits, a write it makes, and states inside it, all forNet one app's
 // systems and views. Then checks it with this repository's TypeScript, once warm, and reads what TypeScript says it
 // took (`--extendedDiagnostics`): the time to check, the types it made, and the memory it used, beside the wall time.
 //
@@ -42,7 +42,7 @@ type Asks${at} = {
 
 export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
   data: { title: 'list ${at}', items: {}, selected: null, revision: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   follows: (follow) => ({
     rows: follow('store', 'rows', { from: ['revision'], args: () => ({ list: ${at} }), heard: (update) => (update.ok ? { data: { title: \`\${update.value.length} rows\` } } : { data: { problem: update.error } }) }),
   }),
@@ -70,7 +70,7 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
     idle: {},
     editing: {
       data: { draft: given },
-      start: 'typing',
+      initial: 'typing',
       states: {
         typing: { on: { TYPE: ({ text }, { data }) => ({ data: { draft: data.draft + text } }), SAVE: (_, { make }) => { make('save'); return { at: 'editing.saving', data: { since: 0 } } } } },
         saving: { data: { since: given } },
@@ -79,7 +79,7 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
   },
 })
 `
-const appFile = `import { reaching } from '../../../../src/index.ts'
+const appFile = `import { forNet } from '../../../../src/index.ts'
 
 type App = {
   systems: {
@@ -95,7 +95,7 @@ type App = {
   surfaces: {}
   views: { store: { rows: { args: { list: number }; result: string[] } } }
 }
-export const state = reaching<App>()
+export const state = forNet<App>()
 `
 
 /** TypeScript's own account of a check, from `--extendedDiagnostics`. */

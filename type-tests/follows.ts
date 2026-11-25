@@ -10,7 +10,7 @@ type ShopEvent = from.ShopEvent
 // What must not compile.
 state<Shop, ShopEvent>()({
   data: { currency: '', total: null, watching: [], prices: {}, note: '', problem: null },
-  start: 'browsing',
+  initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error there is no such view
     stock: follow('shop', 'stock', { from: [], args: () => ({}), heard: () => {} }),
@@ -27,7 +27,7 @@ state<Shop, ShopEvent>()({
 })
 state<Shop, ShopEvent>()({
   data: { currency: '', total: null, watching: [], prices: {}, note: '', problem: null },
-  start: 'browsing',
+  initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
     price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
@@ -38,9 +38,9 @@ state<Shop, ShopEvent>()({
 })
 
 // `args` accepts read-only values straight from `data`.
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 type ListNet = { systems: {}; surfaces: {}; views: { items: { list: { args: { ids: string[] }; result: number } } } }
-reaching<ListNet>()<{ data: { ids: string[] } }, never>()({
+forNet<ListNet>()<{ data: { ids: string[] } }, never>()({
   data: { ids: [] },
   follows: (follow) => ({
     list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), heard: () => {} }),

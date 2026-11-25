@@ -10,7 +10,7 @@ type JobsEvent = from.JobsEvent
 // What must not compile.
 state<Jobs, JobsEvent>()({
   data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
-  start: 'on',
+  initial: 'on',
   on: {
     // @ts-expect-error a save is made by a state inside, so only a handler there can say to make one
     SAVE: (_, { make }) => { make('save') },
@@ -35,7 +35,7 @@ state<Jobs, JobsEvent>()({
 })
 state<Jobs, JobsEvent>()({
   data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
-  start: 'on',
+  initial: 'on',
   states: {
     on: {
       makes: ({ one }) => ({
@@ -49,4 +49,4 @@ state<Jobs, JobsEvent>()({
   },
 })
 // @ts-expect-error a state whose shape says it makes these has to say how
-state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null }, start: 'on', states: { on: {}, off: {} } })
+state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null }, initial: 'on', states: { on: {}, off: {} } })

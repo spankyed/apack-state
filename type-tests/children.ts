@@ -6,11 +6,11 @@ import { system } from '../src/index.ts'
 import type * as from from '../checks/binding-check.mts'
 declare const board: typeof from.board
 
-// What must not compile: reaching a started state from outside is checked against what its starter declares.
+// What must not compile: forNet a started state from outside is checked against what its starter declares.
 {
   const sys = system({ side: 'window' })
   const handle = sys.start('typed', board)
-  // @ts-expect-error a card is one of many, so reaching one takes its key
+  // @ts-expect-error a card is one of many, so forNet one takes its key
   void sys.child(handle, 'card')
   // @ts-expect-error the board starts no such state
   void sys.child(handle, 'deck', 'a')

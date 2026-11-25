@@ -5,10 +5,10 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { explore, type Schedule } from '@apackdev/orderings'
 import { run, system } from './checks.mts'
-import { answered, given, reaching, type Each } from '../src/index.ts'
+import { answered, given, forNet, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
-export const state = reaching()
+export const state = forNet()
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 // ── a card: one for each item on the board ──────────────────────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ type Card = {
 export const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
   // Which card it is and what it says are given by whoever starts it. How often it was bumped is its own.
   data: { id: given, label: given, bumps: 0 },
-  run({ data, use }) { const { id } = data; log.push(`started ${id}`); use(() => { log.push(`stopped ${id}`) }) },
+  run({ data, onExit }) { const { id } = data; log.push(`started ${id}`); onExit(() => { log.push(`stopped ${id}`) }) },
   on: {
     BUMP: (_, { data, report }) => { report({ type: 'CARD_BUMPED', bumps: data.bumps + 1 }); return { data: { bumps: data.bumps + 1 } } },
   },
@@ -36,7 +36,7 @@ export const card = (log: string[]) => state<Card, CardEvent, CardAsks>()({
 /** Started by the board only while it is open, and given the board's title as it is then. */
 export const helper = (log: string[]) => state<{ data: { title: string } }, never>()({
   data: { title: given },
-  run({ data, use }) { log.push(`started helper for ${data.title}`); use(() => { log.push('stopped helper') }) },
+  run({ data, onExit }) { log.push(`started helper for ${data.title}`); onExit(() => { log.push('stopped helper') }) },
 })
 
 // ── the board ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export type Board = {
 
 const board = (log: string[], work: (label: string) => Promise<unknown> = () => turns(4)) => state<Board, BoardEvent, BoardAsks>()({
   data: { title: 'Board', items: {}, lastBump: null },
-  start: 'open',
+  initial: 'open',
 
   starts: (start) => ({
     // A card for each item, told which it is and what it says.
@@ -156,7 +156,7 @@ const helperOf = (child: unknown): never => (child as (name: string) => never)('
 const shelf = (log: string[]) => state<Shelf, ShelfEvent>()({
   // It holds two items from the start.
   data: { items: { a: 'Alpha', b: 'Beta' }, read: null, pinged: 0 },
-  start: 'open',
+  initial: 'open',
   // Tells a card in the very step the shelf starts in, before the card has started.
   run: ({ tell, child }) => { tell(cardOf(child, 'a'), { type: 'BUMP' }) },
   on: {
@@ -438,13 +438,13 @@ const checks: Array<[string, () => Promise<void>]> = [
     throws(() => sys.start('c1', card([]), null as never), /non-object/)
     throws(() => sys.start('c2', card([]), 42 as never), /non-object/)
     throws(() => sys.start('c3', card([]), [] as never), /non-object/)
-    const startWithGiven = { def: { start: 'a', states: { a: { data: { note: given } } } } }
+    const startWithGiven = { def: { initial: 'a', states: { a: { data: { note: given } } } } }
     throws(() => sys.start('bad1', startWithGiven as never), /cannot start at a without note/)
-    const deepStartWithGiven = { def: { start: 'outer', states: { outer: { start: 'inner', states: { inner: { data: { note: given } } } } } } }
+    const deepStartWithGiven = { def: { initial: 'outer', states: { outer: { initial: 'inner', states: { inner: { data: { note: given } } } } } } }
     throws(() => sys.start('badDeep', deepStartWithGiven as never), /cannot start at outer\.inner without note/)
-    const missingStart = { def: { start: 'missing', states: {} } }
+    const missingStart = { def: { initial: 'missing', states: {} } }
     throws(() => sys.start('bad2', missingStart as never), /has no state missing to start at/)
-    const missingStatesMap = { def: { start: 'missing' } }
+    const missingStatesMap = { def: { initial: 'missing' } }
     throws(() => sys.start('bad3', missingStatesMap as never), /has no state missing to start at/)
     strictEqual('bad1' in sys.snapshot(), false)
     strictEqual('bad2' in sys.snapshot(), false)
@@ -508,8 +508,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       let askOutcome: unknown
       const sleeper = state<{ data: { id: string } }, never, { WAIT: { args: {}; answer: string } }>()({
         data: { id: given },
-        run: async ({ use, sleep, data }) => {
-          use(() => { released.push(`released ${data.id}`) })
+        run: async ({ onExit, sleep, data }) => {
+          onExit(() => { released.push(`released ${data.id}`) })
           await sleep(10)
         },
         failed: () => undefined,

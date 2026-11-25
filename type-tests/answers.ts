@@ -12,7 +12,7 @@ type CounterEvent = from.CounterEvent
 // What must not compile.
 state<Counter, CounterEvent, CounterAsks>()({
   data: { count: 0 },
-  start: 'open',
+  initial: 'open',
   states: {
     open: {
       asks: {
@@ -29,11 +29,11 @@ state<Counter, CounterEvent, CounterAsks>()({
 })
 
 // After an await, a move's gained data accepts read-only values straight from `data`.
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 type ListAsks = { FINISH: { args: {}; answer: 'done' } }
-reaching()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
+forNet()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
   data: { items: [] },
-  start: 'open',
+  initial: 'open',
   states: {
     open: {
       asks: {

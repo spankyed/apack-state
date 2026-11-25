@@ -26,13 +26,13 @@ import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * What an ask or a `sleep` is ended with when its owner has gone: the state was left, whoever asked has gone, the
+ * What an ask or a `sleep` is ended with when its owner has gone: the state exited, whoever asked has gone, the
  * work that started it finished, or the system stopped. It is raised where it is awaited, as cancellation is
  * everywhere else, so that `finally` runs and what was held is released. The kernel discards it at the top of `run`
  * and of an ask's handler; nothing has to catch it.
  */
-export class Left extends Error {
-  constructor(what: string) { super(`${what} was left before it finished`); this.name = 'Left' }
+export class Cancelled extends Error {
+  constructor(what: string) { super(`${what} was cancelled before it finished`); this.name = 'Cancelled' }
 }
 
 /**
@@ -87,7 +87,7 @@ class Queue<T> {
 const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({ ok: false, failure: { ...data, kind, message } })
 
 type Plain = Record<string, unknown>
-type LooseDef = { data?: Plain; start?: string; on?: Record<string, Function>; internal?: Record<string, Function>; asks?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
+type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; asks?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; heard: Function }>
   awaits?: (asking: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; ended: Function; heard?: Function }>
   makes?: (asking: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; of: string; ask: string; args: Function; ended: Function; heard?: Function }>
@@ -185,7 +185,7 @@ export interface StepLog {
   /** Each running state that changed: the fields of its data that did, whether it moved and where it is, and whether what it is making changed. */
   readonly changed: Readonly<Record<string, { readonly fields: readonly string[]; readonly moved: boolean; readonly at: string; readonly making: boolean }>>
   /** What left at the commit, in order. */
-  readonly left: readonly Sent[]
+  readonly sent: readonly Sent[]
 }
 
 
@@ -298,7 +298,7 @@ export function system(host: {
   const answeringOf = new WeakMap<Question, Active>()
   const abandoned = new WeakSet<Question>()
   /** The step being logged: what it has handled, and, once it ends, what changed and what left. */
-  let logging: { now?: number; handled: Handled[]; changed: StepLog['changed']; left: Sent[]; ended: StepLog['ended'] } | undefined
+  let logging: { now?: number; handled: Handled[]; changed: StepLog['changed']; sent: Sent[]; ended: StepLog['ended'] } | undefined
   let logged = 0
   /** Thrown inside a unit to have what it wrote undone, and caught around it. */
   const UNDONE = Symbol('undone')
@@ -468,8 +468,8 @@ export function system(host: {
   const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, hears: ((updates: unknown[]) => void) | undefined): Promise<never> => asked(new Promise((resolve, reject) => {
     const ref = refOf(to)
     const heard = hears && gather(hears, signal)
-    // Whoever asked has gone: the ask ends where it is awaited, with `Left`, so the code that asked unwinds.
-    const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Left(name)) }
+    // Whoever asked has gone: the ask ends where it is awaited, with `Cancelled`, so the code that asked unwinds.
+    const left = (): void => { trace(`an ask of ${ref} for ${name} was left unanswered by whoever made it`); reject(new Cancelled(name)) }
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
     const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
     // Which ask it is, for what is logged of how it ends: here or across the link, it may end without being taken.
@@ -517,10 +517,10 @@ export function system(host: {
     if (!clock) return Promise.reject(new Error(`${called} was given no clock; pass clock to system()`))
     if (!Number.isFinite(ms)) return Promise.reject(new RangeError(`${called}'s sleep delay must be finite: ${String(ms)}`))
     return asked(new Promise<void>((resolve, reject) => {
-      if (signal.aborted) { reject(new Left('sleep')); return }
+      if (signal.aborted) { reject(new Cancelled('sleep')); return }
       let fired = false
       let cancel!: () => void
-      const aborted = (): void => { safely('cancelling a sleep', cancel); reject(new Left('sleep')) }
+      const aborted = (): void => { safely('cancelling a sleep', cancel); reject(new Cancelled('sleep')) }
       try {
         cancel = clock.after(ms, () => {
           fired = true
@@ -559,7 +559,7 @@ export function system(host: {
       },
       read: (target: { ref: string }) => { const found = running.get(target.ref); return found ? valueOf(found) : undefined },
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
-      use: (release: () => void) => {
+      onExit: (release: () => void) => {
         if (alive()) mine.releases.push(release)
         else if (mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release)
       },
@@ -633,7 +633,7 @@ export function system(host: {
       try { if (host.transact) host.transact(runNow); else runNow() } catch (error) {
         unsay(before)
         abortAfterUnsay(own)
-        if (error !== UNDONE && !(error instanceof Left)) inside.push({ kind: 'failure', of: active, error })
+        if (error !== UNDONE && !(error instanceof Cancelled)) inside.push({ kind: 'failure', of: active, error })
         return active
       }
       if (made instanceof Promise) {
@@ -641,7 +641,7 @@ export function system(host: {
           (value) => { own.abort(); if (!active.controller.signal.aborted) arrive({ kind: 'result', of: active, value }) },
           (error) => {
             own.abort()
-            if (error instanceof Left) return
+            if (error instanceof Cancelled) return
             if (active.controller.signal.aborted) { leftFailed(active, error); return }
             arrive({ kind: 'failure', of: active, error })
           },
@@ -685,7 +685,7 @@ export function system(host: {
   const descend = (under: Active, names: readonly string[], entering: Plain): void => {
     let active = under
     for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering)
-    while (active.def.start !== undefined) active = enter(active.top, active.def.states?.[active.def.start] ?? {}, active.def.start, active, entering)
+    while (active.def.initial !== undefined) active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering)
   }
 
   /**
@@ -914,9 +914,9 @@ export function system(host: {
       else { const problem = enters(inner, path); if (problem) return problem }
       def = inner
     }
-    for (let path = at; def.start !== undefined; ) {
-      path = `${path}.${def.start}`
-      def = def.states?.[def.start] ?? {}
+    for (let path = at; def.initial !== undefined; ) {
+      path = `${path}.${def.initial}`
+      def = def.states?.[def.initial] ?? {}
       const problem = enters(def, path)
       if (problem) return problem
     }
@@ -944,8 +944,8 @@ export function system(host: {
     }
     const shadow = shadowed(def, new Set(), '')
     if (shadow) return shadow
-    for (let cur = def, path = ''; cur.start !== undefined; ) {
-      const nextName = cur.start
+    for (let cur = def, path = ''; cur.initial !== undefined; ) {
+      const nextName = cur.initial
       path = path ? `${path}.${nextName}` : nextName
       const inner = cur.states?.[nextName]
       if (!inner) return `has no state ${path} to start at`
@@ -1220,7 +1220,7 @@ export function system(host: {
     const failed = (error: unknown): AnyOutcome => {
       if (error instanceof Refusal) return refusal(error.kind, error.message, error.data)
       // The handler was itself asking, and whoever asked it went: it stopped answering, it did not fail.
-      if (error instanceof Left) return refusal('abandoned', error.message)
+      if (error instanceof Cancelled) return refusal('abandoned', error.message)
       // Whoever asked is told it failed. Where it failed is said here, since the asker may be in another process.
       const message = said(error)
       // Work that was passed `signal` throws when it aborts. That is the handler stopping as it was asked to.
@@ -1278,7 +1278,7 @@ export function system(host: {
       safely('what leaves at the commit', leave.lost)
       if (told && leave.said) {
         const entry = sentOf(leave.said)
-        told.left.push(entry.kind === 'answer' ? { ...entry, outcome: 'failed' } : entry)
+        told.sent.push(entry.kind === 'answer' ? { ...entry, outcome: 'failed' } : entry)
       }
     }
     turnAway(inside.drain(), STOPPED); turnAway(outside.drain(), STOPPED); turnAway(held.splice(0), STOPPED)
@@ -1290,7 +1290,7 @@ export function system(host: {
     return () => {
       for (const leave of stopLeaving) {
         safely('what leaves as it stops', leave)
-        if (told && leave.said) told.left.push(sentOf(leave.said))
+        if (told && leave.said) told.sent.push(sentOf(leave.said))
       }
       for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, {}, {}))
       turnAway(outside.drain(), STOPPED)
@@ -1333,7 +1333,7 @@ export function system(host: {
     return () => {
       for (const leave of now) {
         safely('what leaves at the commit', leave)
-        if (told && leave.said) told.left.push(sentOf(leave.said))
+        if (told && leave.said) told.sent.push(sentOf(leave.said))
       }
     }
   }
@@ -1392,7 +1392,7 @@ export function system(host: {
         else stepNow = readNow()
       }
       steps++
-      told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, left: [], ended: 'committed' } : undefined
+      told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, sent: [], ended: 'committed' } : undefined
       logging = told
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {

@@ -6,13 +6,13 @@
 //
 //   npx tsx measure/rows-cost.mts
 import { cpus } from 'node:os'
-import { reaching, system, type ViewHost } from '../src/index.ts'
+import { forNet, system, type ViewHost } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import type { Rows } from '../checks/store.mts'
 import { reading, under } from './record.mts'
 
-const state = reaching()
+const state = forNet()
 type Events = { type: 'TOUCH' } | { type: 'NOTE'; id: string } | { type: 'MANY'; from: number; count: number }
 const counter = (store: Rows) => state<{ data: { count: number } }, Events>()({
   data: { count: 0 },
@@ -74,7 +74,7 @@ line('the kernel, ten steps of one write', timed(500, (store) => { const step = 
 // depends on how long ago the view was last told: asks are made straight after one another, and a frame or more apart.
 type WindowAsks = { ADD: { args: { id: string }; answer: boolean } }
 type Net = { systems: { rows: { events: never; asks: { CREATE: { args: { id: string }; answer: string } } } }; surfaces: {}; views: { rows: { count: { args: {}; result: number } } } }
-const linked = reaching<Net>()
+const linked = forNet<Net>()
 /** How a backend holds what it sends a window: not at all, as it did (until no watch at all is behind), or as it does. */
 type Hold = 'none' | 'every watch settled' | 'each view caught up'
 const asking = async (hold: Hold, asks: number, writes: boolean, apartMs: number): Promise<number> => {

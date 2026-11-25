@@ -17,10 +17,10 @@ type BoardEvent = from.BoardEvent
 // What must not compile.
 state<Board, BoardEvent, BoardAsks>()({
   data: { title: '', items: {}, lastBump: null },
-  start: 'open',
+  initial: 'open',
   starts: (start) => ({ card: start(card([]), { each: 'items', given: (id) => ({ id, label: '' }) }) }),
   on: {
-    // @ts-expect-error a card is one of many, so reaching one takes its key
+    // @ts-expect-error a card is one of many, so forNet one takes its key
     BUMP: (_, { tell, child }) => { tell(child('card'), { type: 'BUMP' }) },
     // @ts-expect-error there is no such state to reach
     ADD: (_, { child }) => { void child('deck') },
@@ -39,10 +39,10 @@ state<Board, BoardEvent, BoardAsks>()({
   },
 })
 // @ts-expect-error a state whose shape says it starts cards has to say which
-state<Board, BoardEvent, BoardAsks>()({ data: { title: '', items: {}, lastBump: null }, start: 'open', states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} } })
+state<Board, BoardEvent, BoardAsks>()({ data: { title: '', items: {}, lastBump: null }, initial: 'open', states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} } })
 state<Board, BoardEvent, BoardAsks>()({
   data: { title: '', items: {}, lastBump: null },
-  start: 'open',
+  initial: 'open',
   starts: (start) => ({
     // @ts-expect-error a title is neither a list nor keyed, so it cannot say which cards there are
     card: start(card([]), { each: 'title', given: (id) => ({ id, label: '' }) }),
@@ -51,7 +51,7 @@ state<Board, BoardEvent, BoardAsks>()({
 })
 state<Board, BoardEvent, BoardAsks>()({
   data: { title: '', items: {}, lastBump: null },
-  start: 'open',
+  initial: 'open',
   starts: (start) => ({
     // @ts-expect-error a card has to be given its label as well as which it is
     card: start(card([]), { each: 'items', given: (id) => ({ id }) }),
@@ -93,7 +93,7 @@ void runEvents({ state: givenCounter, events: { INC: () => ({ type: 'INC' }) }, 
 // A `start` substate cannot mark an optional field `given` (direct or nested).
 type OptStart = { states: { a: { data: { note?: string } }; b: { data: { id: string } } } }
 state<OptStart, never>()({
-  start: 'a',
+  initial: 'a',
   states: {
     // @ts-expect-error a start substate is entered with no supplied data, so it cannot mark a field given
     a: { data: { note: given } },
@@ -107,11 +107,11 @@ type DeepOptStart = {
   }
 }
 state<DeepOptStart, never>()({
-  start: 'idle',
+  initial: 'idle',
   states: {
     idle: {},
     outer: {
-      start: 'inner',
+      initial: 'inner',
       states: {
         // @ts-expect-error even inside a non-start branch, its own start substate cannot mark a field given
         inner: { data: { note: given } },
@@ -127,7 +127,7 @@ type DirectShadow = {
 }
 state<DirectShadow, never>()({
   data: { error: null },
-  start: 'b',
+  initial: 'b',
   states: {
     // @ts-expect-error a child state cannot shadow a field name declared by its parent
     a: { data: { error: '' } },
@@ -141,10 +141,10 @@ type DeepShadow = {
 }
 state<DeepShadow, never>()({
   data: { error: null },
-  start: 'mid',
+  initial: 'mid',
   states: {
     mid: {
-      start: 'idle',
+      initial: 'idle',
       states: {
         idle: {},
         // @ts-expect-error a deeply nested state cannot shadow a field name declared by an ancestor
@@ -161,7 +161,7 @@ type SiblingFields = {
 }
 state<SiblingFields, never>()({
   data: { id: 'x' },
-  start: 'idle',
+  initial: 'idle',
   states: {
     idle: {},
     a: { data: { note: 'hi' } },
@@ -172,7 +172,7 @@ state<SiblingFields, never>()({
 // Reading a started child via `read(child(...))` can return `undefined` when it is not running.
 state<Board, BoardEvent, BoardAsks>()({
   data: { title: '', items: {}, lastBump: null },
-  start: 'open',
+  initial: 'open',
   starts: (start) => ({ card: start(card([]), { each: 'items', given: (id) => ({ id, label: '' }) }) }),
   on: {
     BUMP: (_, { read, child }) => {

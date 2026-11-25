@@ -4,7 +4,7 @@
 //
 //   npx tsx examples/brain.mts
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
-import { given, reaching, system, type Clock, type Each, type PeerPort, type State } from '../src/index.ts'
+import { given, forNet, system, type Clock, type Each, type PeerPort, type State } from '../src/index.ts'
 import { everyOrder, onSchedule } from '../src/testing.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -52,7 +52,7 @@ export type BrainNet = {
   peers: { runHistory: { events: RunHistoryEvent } }
 }
 
-const state = reaching<BrainNet>()
+const state = forNet<BrainNet>()
 
 export type StepExecutor = (step: StepDef, payload: unknown, signal: AbortSignal) => Promise<unknown> | unknown
 
@@ -78,7 +78,7 @@ interface StepShape {
 
 export const makeStepState = (execute: StepExecutor) => state<StepShape, never>()({
   data: { runNodeId: given, step: given, payload: given },
-  start: 'executing',
+  initial: 'executing',
   states: {
     executing: {
       async run({ data, signal, sleep }) {
@@ -229,7 +229,7 @@ export const makeFlowState = (
       finalResult: undefined,
       finalError: undefined,
     },
-    start: 'active',
+    initial: 'active',
     states: {
       active: {
         starts: (start) => ({
@@ -346,7 +346,7 @@ export const makeBrainState = (blueprints: Readonly<Record<string, FlowBlueprint
   const flowState = makeFlowState(blueprints, execute)
   return state<BrainShape, BrainEvent>()({
     data: { runSeq: 0 },
-    start: 'stopped',
+    initial: 'stopped',
     states: {
       stopped: {
         on: {

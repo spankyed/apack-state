@@ -1,10 +1,10 @@
 // What happens to an ask when whoever made it goes: the state that asked is left while the answer is still coming.
-// The ask ends where it is awaited, with `Left`, so the code that asked unwinds the way cancelled code does everywhere.
+// The ask ends where it is awaited, with `Cancelled`, so the code that asked unwinds the way cancelled code does everywhere.
 //
 //   npx vitest run leaving
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { given, Left, reaching } from '../src/index.ts'
+import { given, Cancelled, forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = {
@@ -18,7 +18,7 @@ type SlowAsks = {
   TALK_THEN_WAIT: { args: {}; answer: string; progress: string }
 }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: {} }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
@@ -53,7 +53,7 @@ export type PanelEvent = { type: 'START'; how: How } | { type: 'LEAVE' }
 export type Panel = { states: { idle: {}; working: { data: { how: How } } } }
 
 const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEvent>()({
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: ({ how }) => ({ at: 'working', data: { how } }),
     LEAVE: () => ({ at: 'idle' }),
@@ -80,7 +80,7 @@ const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEven
           saw.push('ran on after the ask')
         } catch (error) {
           thrown.push(error)
-          saw.push(error instanceof Left ? 'unwound with Left' : `unwound with ${String(error)}`)
+          saw.push(error instanceof Cancelled ? 'unwound with Cancelled' : `unwound with ${String(error)}`)
           throw error
         } finally {
           lock.held = false
@@ -88,7 +88,7 @@ const panel = (saw: string[], lock: { held: boolean }) => state<Panel, PanelEven
         }
         return { at: 'idle' }
       },
-      // Given what `run` threw when it is not a `Left`. These checks only ever leave, so it is never called.
+      // Given what `run` threw when it is not a `Cancelled`. These checks only ever leave, so it is never called.
       failed: (error) => { saw.push(`failed was given ${String(error)}`); return { at: 'idle' } },
     },
   },
@@ -119,11 +119,11 @@ type Lingering = {
 type LingerEvent = { type: 'STOP_WORKING' } | { type: 'SELF' } | { type: 'SAVE' }
 type LingerAsks = { TALK_LATER: { args: {}; answer: string; progress: string } }
 type Lingered = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: { listener: { events: { type: 'NOTE' } } }; views: {} }
-const lingers = reaching<Lingered>()
+const lingers = forNet<Lingered>()
 /** Its work, and its answer to TALK_LATER, wait for the gate, and then say everything there is to say. */
 const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, LingerAsks>()({
   data: { heard: [] },
-  start: 'working',
+  initial: 'working',
   makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), ended: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
   on: {
     STOP_WORKING: () => ({ at: 'idle' }),
@@ -203,7 +203,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(it.lock.held, true)
     it.send({ type: 'LEAVE' })
     await turns(4)
-    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    deepStrictEqual(it.saw, ['unwound with Cancelled', 'finally ran'])
     strictEqual(it.lock.held, false)
     strictEqual(it.at(), 'idle')
     it.stop()
@@ -224,7 +224,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     await turns(6)
     it.send({ type: 'LEAVE' })
     await turns(4)
-    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    deepStrictEqual(it.saw, ['unwound with Cancelled', 'finally ran'])
     it.stop()
   }],
   ['the backend is told, and a handler that was itself asking unwinds as well', async () => {
@@ -273,12 +273,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.saw, ['ran on after the ask', 'finally ran'])
     it.stop()
   }],
-  ['an ask made after its state was left ends with Left at once, and is never sent', async () => {
+  ['an ask made after its state was left ends with Cancelled at once, and is never sent', async () => {
     const it = wired()
     it.send({ type: 'START', how: 'late' })
     it.send({ type: 'LEAVE' })
     await rest()
-    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    deepStrictEqual(it.saw, ['unwound with Cancelled', 'finally ran'])
     strictEqual(backendSaw.includes('WAIT began'), false)
     it.stop()
   }],
@@ -287,7 +287,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.send({ type: 'START', how: 'await' })
     it.send({ type: 'LEAVE' })
     await rest()
-    deepStrictEqual(it.saw, ['unwound with Left', 'finally ran'])
+    deepStrictEqual(it.saw, ['unwound with Cancelled', 'finally ran'])
     deepStrictEqual(backendSaw, ['WAIT began', 'WAIT told its asker had gone'])
     it.stop()
   }],
@@ -311,7 +311,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.traced.filter((line) => line.startsWith('DEFECT')), [])
     it.stop()
   }],
-  ['what an ask that was left ends with is a Left, which names the ask', async () => {
+  ['what an ask that was left ends with is a Cancelled, which names the ask', async () => {
     const it = wired()
     thrown.length = 0
     it.send({ type: 'START', how: 'await' })
@@ -319,8 +319,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     it.send({ type: 'LEAVE' })
     await rest()
     const [left] = thrown as Error[]
-    ok(left instanceof Left)
-    strictEqual(left.name, 'Left')
+    ok(left instanceof Cancelled)
+    strictEqual(left.name, 'Cancelled')
     ok(left.message.includes('WAIT'), left.message)
     it.stop()
   }],
@@ -365,11 +365,11 @@ const checks: Array<[string, () => Promise<void>]> = [
       SYNC_THROW: { args: {}; answer: string }
     }
     type ScNet = { systems: { svc: { events: { type: 'STRAY' }; asks: ScAsks } }; surfaces: {}; views: {} }
-    const scState = reaching<ScNet>()
+    const scState = forNet<ScNet>()
     type ScShape = { states: { idle: {}; asyncReturn: {}; asyncThrow: {}; syncReturn: {}; syncThrow: {} } }
     type ScEvent = { type: 'GO'; at: 'asyncReturn' | 'asyncThrow' | 'syncReturn' | 'syncThrow' } | { type: 'STRAY' }
     const svc = scState<ScShape, ScEvent, ScAsks>()({
-      start: 'idle',
+      initial: 'idle',
       on: {
         GO: ({ at }) => ({ at }),
         STRAY: () => { straySent.push('STRAY') },
@@ -468,7 +468,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     for (const call of strayAsks) {
       let err: unknown
       try { await call() } catch (e) { err = e }
-      ok(err instanceof Left, String(err))
+      ok(err instanceof Cancelled, String(err))
     }
     await rest()
     deepStrictEqual(straySent, [])
@@ -495,33 +495,33 @@ const checks: Array<[string, () => Promise<void>]> = [
     let syncLeftFailed = 0
     type StrayAsks = { PING: { args: {}; answer: string; progress: string } }
     type StrayNet = { systems: { svc: { events: { type: 'NOTE' } | { type: 'SAVE_USE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
-    const strayState = reaching<StrayNet>()
+    const strayState = forNet<StrayNet>()
     const svc = strayState<{}, { type: 'NOTE' } | { type: 'SAVE_USE' }, StrayAsks>()({
       on: {
         NOTE: () => { events.push('NOTE') },
-        SAVE_USE: (_, { use }) => { onUse = use },
+        SAVE_USE: (_, { onExit }) => { onUse = onExit },
       },
-      run({ send, tell, broadcast, use }) {
-        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); use(() => { released.push('stray-run') }) }
+      run({ send, tell, broadcast, onExit }) {
+        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-run') }) }
       },
       asks: {
-        PING: async (_, { progress, send, tell, broadcast, use }) => {
+        PING: async (_, { progress, send, tell, broadcast, onExit }) => {
           progress('live')
-          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); use(() => { released.push('stray-ask') }) }
+          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-ask') }) }
           return 'ok'
         },
       },
     })
     const inFlight = strayState<{}>()({
-      async run({ use }) {
+      async run({ onExit }) {
         await new Promise<void>((resolve) => { finishInFlight = resolve })
-        use(() => { released.push('after-leave') })
-        use(() => { throw new Error('late boom') })
+        onExit(() => { released.push('after-leave') })
+        onExit(() => { throw new Error('late boom') })
       },
       failed: () => {},
     })
     const syncLeft = strayState<{}>()({
-      run() { throw new Left('sync-left') },
+      run() { throw new Cancelled('sync-left') },
       failed: () => { syncLeftFailed++ },
     })
     const backend = system({ side: 'backend', trace: (line) => { traced.push(line) } })
@@ -533,7 +533,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     backend.start('syncLeft', syncLeft)
     deepStrictEqual(await backend.ask(h, 'PING', {}, (updates) => heard.push(...updates)), { ok: true, value: 'ok' })
     await rest()
-    // Synchronous throw of Left in run() is discarded and never passed to failed().
+    // Synchronous throw of Cancelled in run() is discarded and never passed to failed().
     strictEqual(syncLeftFailed, 0)
     strayAsk()
     strayRun()
@@ -548,12 +548,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     backend.stop()
     deepStrictEqual([...released], [])
 
-    // Stray use() from already-finished work remains ignored even after the state has left.
+    // Stray onExit() from already-finished work remains ignored even after the state has left.
     strayAsk()
     strayRun()
     deepStrictEqual([...released], [])
 
-    // In-flight async work (and event-scope use without own) calling use() after its state left runs immediately.
+    // In-flight async work (and event-scope use without own) calling onExit() after its state left runs immediately.
     finishInFlight()
     await rest()
     onUse(() => { released.push('on-after-leave') })
@@ -563,8 +563,8 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a child state whose synchronous run throws does not run failed if its parent already moved away in the same step', async () => {
     const traces: string[] = []
     let childFailed = 0
-    const parentAndChild = reaching()<{ states: { a: {}; b: {} } }>()({
-      start: 'a',
+    const parentAndChild = forNet()<{ states: { a: {}; b: {} } }>()({
+      initial: 'a',
       run() { throw new Error('root boom') },
       failed: () => ({ at: 'b' }),
       states: {

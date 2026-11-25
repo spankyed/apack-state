@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { dial, join, listen, memoryPair } from '@apackdev/link'
 import { connect, rest, run, system } from './checks.mts'
-import { reaching, type Lane, type PeerPort, type StepLog, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { forNet, type Lane, type PeerPort, type StepLog, type ViewHost, type ViewUpdate } from '../src/index.ts'
 import { explore, onSchedule } from '../src/testing.ts'
 
 type HistoryEvent = { type: 'STEP_RECORDED'; id: string; detail: string } | { type: 'RUN_ENDED'; id: string }
@@ -15,11 +15,11 @@ type AppNet = {
   views: { runs: { list: { args: {}; result: readonly string[] } } }
   peers: { runHistory: { events: HistoryEvent }; audit: { events: { type: 'NOTE'; text: string } } }
 }
-export const state = reaching<AppNet>()
+export const state = forNet<AppNet>()
 
 const runner = state<{ data: { ids: string[] }; states: { idle: {}; asyncStep: {} } }, { type: 'RECORD'; id: string; detail: string } | { type: 'FAIL'; id: string } | { type: 'ASYNC_RECORD'; id: string }>()({
   data: { ids: [] },
-  start: 'idle',
+  initial: 'idle',
   on: {
     RECORD: ({ id, detail }, { data, tell, broadcast }) => {
       tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id, detail })
@@ -69,8 +69,8 @@ await run([
       { to: 'runHistory', event: { type: 'STEP_RECORDED', id: 'r1', detail: 'first' } },
       { to: 'runHistory', event: { type: 'STEP_RECORDED', id: 'r2', detail: 'second' } },
     ])
-    deepStrictEqual(logs[1]!.left.filter((s) => s.kind === 'peer'), [{ kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED' }])
-    ok(!('outcome' in logs[1]!.left.find((s) => s.kind === 'peer')!))
+    deepStrictEqual(logs[1]!.sent.filter((s) => s.kind === 'peer'), [{ kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED' }])
+    ok(!('outcome' in logs[1]!.sent.find((s) => s.kind === 'peer')!))
 
     // Named peers also work on a window system.
     const winReceived: Array<{ to: string; event: unknown }> = []
@@ -95,7 +95,7 @@ await run([
     backend.send(h, { type: 'FAIL', id: 'f1' })
     await rest()
     deepStrictEqual(traces.filter((line) => line.includes('no peer named')), [])
-    deepStrictEqual(logs.at(-1)!.left, [])
+    deepStrictEqual(logs.at(-1)!.sent, [])
 
     // With a peer attached, a handler that throws still sends nothing.
     backend.attach('runHistory', { tell: (_to, event) => { received.push(event) } })
@@ -126,7 +126,7 @@ await run([
     deepStrictEqual(lostReceived, [])
   }],
 
-  ['telling a missing or detached peer traces and records outcome dropped in StepLog.left', async () => {
+  ['telling a missing or detached peer traces and records outcome dropped in StepLog.sent', async () => {
     const traces: string[] = []
     const logs: StepLog[] = []
     const backend = system({ side: 'backend', trace: (line) => traces.push(line), log: (step) => logs.push(step) })
@@ -135,7 +135,7 @@ await run([
     backend.send(h, { type: 'RECORD', id: 'r1', detail: 'unattached' })
     await rest()
     ok(traces.some((line) => /no peer named runHistory/.test(line)), traces.join('\n'))
-    deepStrictEqual(logs.at(-1)!.left.filter((s) => s.kind === 'peer'), [
+    deepStrictEqual(logs.at(-1)!.sent.filter((s) => s.kind === 'peer'), [
       { kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED', outcome: 'dropped' },
     ])
   }],
@@ -154,7 +154,7 @@ await run([
     ok(traces.some((line) => /DEFECT: what leaves at the commit threw:.*sink exploded/.test(line)), traces.join('\n'))
     deepStrictEqual(backend.read(h).data.ids, ['r1'])
     ok(notified.includes('runner'))
-    deepStrictEqual(logs.at(-1)!.left.filter((s) => s.kind === 'peer'), [
+    deepStrictEqual(logs.at(-1)!.sent.filter((s) => s.kind === 'peer'), [
       { kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED', outcome: 'failed' },
     ])
   }],
@@ -288,7 +288,7 @@ await run([
     await rest()
     strictEqual(backend.read(h).at, 'idle')
     deepStrictEqual(seen, [{ type: 'RUN_ENDED', id: 'async-1' }])
-    ok(logs.some((step) => step.left.some((s) => s.kind === 'peer' && s.to === 'runHistory' && s.name === 'RUN_ENDED')))
+    ok(logs.some((step) => step.sent.some((s) => s.kind === 'peer' && s.to === 'runHistory' && s.name === 'RUN_ENDED')))
   }],
 
   ['a peer over @apackdev/link receives tells immediately while a window broadcast is held for a view', async () => {
@@ -432,8 +432,8 @@ await run([
       on: { TRIGGER: (_, { tell }) => { tellFromFirst = tell } },
     })
     const second = state<{}>()({
-      run({ use }) {
-        use(() => { tellFromFirst({ peer: 'runHistory' }, { type: 'RUN_ENDED', id: 'on-stop' }) })
+      run({ onExit }) {
+        onExit(() => { tellFromFirst({ peer: 'runHistory' }, { type: 'RUN_ENDED', id: 'on-stop' }) })
       },
     })
     const h1 = backend.start('first', first)
@@ -443,7 +443,7 @@ await run([
     await rest()
     const lostStep = logs.at(-1)!
     strictEqual(lostStep.ended, 'lost')
-    deepStrictEqual(lostStep.left, [{ kind: 'peer', to: 'runHistory', name: 'RUN_ENDED', outcome: 'dropped' }])
+    deepStrictEqual(lostStep.sent, [{ kind: 'peer', to: 'runHistory', name: 'RUN_ENDED', outcome: 'dropped' }])
 
     // The same stop path without a step log also completes cleanly without throwing.
     let unloggedDepth = 0

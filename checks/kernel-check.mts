@@ -5,7 +5,7 @@
 import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run as runChecks, system } from './checks.mts'
-import { given, reaching } from '../src/index.ts'
+import { given, forNet } from '../src/index.ts'
 import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
 
 class Repository { constructor(public directory: string) {} }
@@ -48,10 +48,10 @@ type Event =
 /** A helper that writes to what it is given, and says so in its type. */
 const bump = (item: { n: number }): void => { item.n++ }
 
-const state = reaching()
+const state = forNet()
 const made = state<Shape, Event>()({
   data: { titles: {}, messages: {}, count: 0, repository: new Repository('/a'), kept: null, list: [] },
-  start: 'list',
+  initial: 'list',
   on: {
     ADD:     ({ id, title }) => ({ data: (d) => { d.titles[id] = title; d.messages[id] = []; d.count++ } }),
     RENAME:  ({ id, title }) => ({ data: (d) => { d.titles[id] = title } }),
@@ -360,7 +360,7 @@ type NestEvent =
   | { type: 'COUNT_THE_SAME' }
 const nest = (log: string[]) => state<Nest, NestEvent>()({
   data: { count: 0 },
-  start: 'list',
+  initial: 'list',
   on: {
     OPEN: ({ id }) => ({ at: 'thread', data: { threadId: id } }),
     // A field of the state the target starts at, given with the move.
@@ -378,7 +378,7 @@ const nest = (log: string[]) => state<Nest, NestEvent>()({
     list: {},
     thread: {
       data: { threadId: given },
-      run({ data, use }) { log.push(`entered thread ${data.threadId}`); use(() => { log.push('left thread') }) },
+      run({ data, onExit }) { log.push(`entered thread ${data.threadId}`); onExit(() => { log.push('left thread') }) },
       on: {
         SEND: () => ({ at: 'thread.sending', data: { sent: 'hello' } }),
         SEND_DONE: () => ({ at: 'thread.sending.done', data: { sent: 'hello' } }),
@@ -388,13 +388,13 @@ const nest = (log: string[]) => state<Nest, NestEvent>()({
         REOPEN: () => ({ at: 'thread' }) as never,
         GO_NOWHERE: () => ({ at: 'thread.nope.deeper' }) as never,
       },
-      start: 'idle',
+      initial: 'idle',
       states: {
-        idle: { data: { draft: '' }, run({ use }) { log.push('entered idle'); use(() => { log.push('left idle') }) } },
+        idle: { data: { draft: '' }, run({ onExit }) { log.push('entered idle'); onExit(() => { log.push('left idle') }) } },
         sending: {
           data: { sent: given, reply: undefined as never },
-          run({ use }) { log.push('entered sending'); use(() => { log.push('left sending') }) },
-          start: 'waiting',
+          run({ onExit }) { log.push('entered sending'); onExit(() => { log.push('left sending') }) },
+          initial: 'waiting',
           states: { waiting: {}, done: {} },
         },
       },
@@ -547,11 +547,11 @@ const moves: Array<[string, () => void]> = [
     const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
     const badStartMove = {
       def: {
-        start: 'a',
+        initial: 'a',
         on: { GO: () => ({ at: 'b' }) },
         states: {
           a: {},
-          b: { start: 'inner', states: { inner: { data: { req: given } } } },
+          b: { initial: 'inner', states: { inner: { data: { req: given } } } },
         },
       },
     }
@@ -704,13 +704,13 @@ const moves: Array<[string, () => void]> = [
         }
       }
     }, { type: 'ENTER' }>()({
-      start: 'idle',
+      initial: 'idle',
       states: {
         idle: {
           on: { ENTER: () => ({ at: 'outer.inner', data: { secret: 'shh' } }) },
         },
         outer: {
-          start: 'a',
+          initial: 'a',
           run({ data }) { outerSawKeys.push(Object.keys(data)) },
           states: {
             a: {},
@@ -728,7 +728,7 @@ const moves: Array<[string, () => void]> = [
   }],
   ['data changed in a handler is frozen before a subsequent handler in the same step reads it', () => {
     const frozenChecks: Array<{ top: boolean; nested: boolean }> = []
-    const netState = reaching<{ systems: { self: { events: { type: 'SECOND' }; asks: {} } }; views: {}; surfaces: {} }>()
+    const netState = forNet<{ systems: { self: { events: { type: 'SECOND' }; asks: {} } }; views: {}; surfaces: {} }>()
     const chained = netState<{ data: { items: number[] } }, { type: 'FIRST' } | { type: 'SECOND' }>()({
       data: { items: [] },
       on: {
@@ -751,7 +751,7 @@ const moves: Array<[string, () => void]> = [
     const directShadow = {
       def: {
         data: { error: null },
-        start: 'clean',
+        initial: 'clean',
         states: {
           clean: {},
           a: { data: { error: '' } },
@@ -764,10 +764,10 @@ const moves: Array<[string, () => void]> = [
     const deepShadow = {
       def: {
         data: { error: null },
-        start: 'mid',
+        initial: 'mid',
         states: {
           mid: {
-            start: 'leaf',
+            initial: 'leaf',
             states: {
               leaf: { data: { error: '' } },
             },
@@ -784,7 +784,7 @@ const moves: Array<[string, () => void]> = [
       states: { idle: {}; a: { data: { note: string } }; b: { data: { note: number } } }
     }, { type: 'TO_A' } | { type: 'TO_B' }>()({
       data: { id: 'ok' },
-      start: 'idle',
+      initial: 'idle',
       states: {
         idle: { on: { TO_A: () => ({ at: 'a', data: { note: 'hi' } }) } },
         a: { data: { note: '' }, on: { TO_B: () => ({ at: 'b', data: { note: 7 } }) } },

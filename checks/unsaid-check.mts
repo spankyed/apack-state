@@ -5,7 +5,7 @@
 //   npx vitest run unsaid
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { answered, given, reaching, type StepLog } from '../src/index.ts'
+import { answered, given, forNet, type StepLog } from '../src/index.ts'
 import { memory } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -30,7 +30,7 @@ type App = {
   surfaces: { panel: { events: PanelEvent } }
   views: { notes: { list: { args: {}; result: string } } }
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 /** Keeps what it was told and what it was asked, in the order they came. */
 const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
@@ -49,7 +49,7 @@ const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEv
 /** Says something every way a backend state can, and then ends as it is told to. `ended` is told how the ask it made ended. */
 const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: number; problem: string | null }; states: { idle: {}; working: { data: { how: 'at once' | 'in failed' } } } }, DeskEvent, DeskAsks>()({
   data: { count: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   on: {
     COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
     SAY: ({ how }, { tell, send, broadcast }) => {
@@ -214,7 +214,7 @@ await run([
     await rest()
     const step = it.steps.find((each) => each.handled[0]?.name === 'DO')!
     deepStrictEqual(step.handled, [{ kind: 'ask', ref: 'desk', name: 'DO' }])
-    deepStrictEqual(step.left, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
+    deepStrictEqual(step.sent, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
   }],
   ['work that fails at once has said nothing, and goes where the state says', async () => {
     const it = wired()
@@ -424,7 +424,7 @@ await run([
       const earH = sys.start('ear', ear())
       const actor = state<{ data: { n: number }; states: { idle: {}; bad: {} } }, { type: 'GO' }>()({
         data: { n: 0 },
-        start: 'idle',
+        initial: 'idle',
         on: { GO: () => ({ at: 'bad' }) },
         states: {
           idle: {},
@@ -457,16 +457,16 @@ await run([
         other: {}
       }
     }, { type: 'GO' }>()({
-      start: 'idle',
+      initial: 'idle',
       on: { GO: () => ({ at: 'outer' }) },
       states: {
         idle: {},
         outer: {
           run() { order.push('outer'); return { at: 'other' } },
-          start: 'inner',
+          initial: 'inner',
           states: {
             inner: {
-              run({ use }) { order.push('inner'); use(() => { order.push('left-inner') }) },
+              run({ onExit }) { order.push('inner'); onExit(() => { order.push('left-inner') }) },
             },
           },
         },
@@ -486,7 +486,7 @@ await run([
       const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
       const actor = state<{ data: { n: number }; states: { idle: {}; step: {}; done: { data: { tag?: string | undefined } } } }, { type: 'GO' }>()({
         data: { n: 0 },
-        start: 'idle',
+        initial: 'idle',
         on: { GO: () => ({ at: 'step' }) },
         states: {
           idle: {},
@@ -530,7 +530,7 @@ await run([
       },
     })
     const worker = state<{ states: { busy: {}; done: {} } }, { type: 'LEAVE' }, { SLOW: { args: {}; answer: string } }>()({
-      start: 'busy',
+      initial: 'busy',
       states: {
         busy: {
           on: { LEAVE: () => ({ at: 'done' }) },
@@ -549,6 +549,6 @@ await run([
     if (!outcome.ok) strictEqual(outcome.failure.kind, 'abandoned')
     const lostLog = logs.at(-1)!
     strictEqual(lostLog.ended, 'lost')
-    deepStrictEqual(lostLog.left.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
+    deepStrictEqual(lostLog.sent.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
   }],
 ])

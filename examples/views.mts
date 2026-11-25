@@ -8,7 +8,7 @@
 // changed result.
 
 import { deepStrictEqual } from 'node:assert'
-import { given, reaching, system, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { given, forNet, system, type ViewHost, type ViewUpdate } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 interface ThreadSummary { id: string; title: string }
@@ -26,7 +26,7 @@ type App = {
     }
   }
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 type ThreadsSurface = {
   data: { threads: ThreadSummary[]; tabs: Record<string, TabInfo>; openTabs: string[]; problem: string | null }
@@ -44,7 +44,7 @@ type ThreadsSurfaceEvent =
 
 const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
   data: { threads: [], tabs: {}, openTabs: [], problem: null },
-  start: 'list',
+  initial: 'list',
 
   follows: (follow) => ({
     // Followed for as long as the surface runs.

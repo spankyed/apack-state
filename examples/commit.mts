@@ -19,7 +19,7 @@
 // `git` at the bottom stands in for the code system's git engine, with the asks' own names.
 
 import { deepStrictEqual } from 'node:assert'
-import { answered, reaching, system } from '../src/index.ts'
+import { answered, forNet, system } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -53,7 +53,7 @@ export type App = {
   surfaces: { commit: { events: CommitEvent } }
   views: {}
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // The surface

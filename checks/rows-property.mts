@@ -10,7 +10,7 @@
 import { deepStrictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching } from '../src/index.ts'
+import { answered, forNet } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
 import { nextTurn } from '../src/turn.ts'
@@ -101,7 +101,7 @@ const follow = (trace: readonly Handled[]): Model => {
 
 type Events = { type: 'DO'; does: Does }
 type Asks = { RUN: { args: { does: Does }; answer: number; refuses: 'no' }; WAIT: { args: { does: Does }; answer: number; refuses: 'no' } }
-const state = reaching()
+const state = forNet()
 /** What was handled, as it was: an event, an ask, an ask that waits as it begins, or the change that came with an answer. */
 type Handled = { readonly what: 'told' | 'asked' | 'began waiting'; readonly does: Does } | { readonly what: 'changed'; readonly does: Does; readonly waited: boolean }
 interface Watched {

@@ -4,7 +4,7 @@
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { reaching, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { forNet, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 type App = {
   systems: {}
@@ -16,7 +16,7 @@ type App = {
     }
   }
 }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 export type ShopEvent =
   | { type: 'SET_CURRENCY'; currency: string }
@@ -31,7 +31,7 @@ export type Shop = {
 
 const shop = state<Shop, ShopEvent>()({
   data: { currency: 'EUR', total: null, watching: [], prices: {}, note: '', problem: null },
-  start: 'browsing',
+  initial: 'browsing',
 
   follows: (follow) => ({
     // Asked for the currency the data holds. A change of currency follows it again; a change of anything else does not.
@@ -376,7 +376,7 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
     })
     const watcher = state<{ data: { currency: string; total: number }; states: { on: {}; off: {} } }, { type: 'CHANGE'; currency: string } | { type: 'OFF' }>()({
       data: { currency: 'EUR', total: 0 },
-      start: 'on',
+      initial: 'on',
       states: {
         on: {
           follows: (follow) => ({
@@ -419,13 +419,13 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
       surfaces: {}
       views: { shop: { total: { args: { currency: string }; result: number } } }
     }
-    const s = reaching<StaleNet>()
+    const s = forNet<StaleNet>()
     const actor = s<{
       data: { currency: string }
       states: { active: {}; gone: {} }
     }, { type: 'LEAVE' } | { type: 'CHANGE'; currency: string } | { type: 'TRIGGER' }>()({
       data: { currency: 'EUR' },
-      start: 'active',
+      initial: 'active',
       states: {
         active: {
           follows: (follow) => ({

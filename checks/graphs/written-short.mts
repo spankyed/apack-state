@@ -1,12 +1,12 @@
 // Who a state tells, named by a call with nothing passed, and an await whose fields it is from written short.
-import { reaching } from '../../src/index.ts'
+import { forNet } from '../../src/index.ts'
 
 type Net = {
   systems: { library: { events: { type: 'SHELVED' }; asks: { LOOKUP: { args: { query: string }; answer: string } } } }
   surfaces: {}
   views: {}
 }
-const state = reaching<Net>()
+const state = forNet<Net>()
 const where = (): 'library' => 'library'
 const from = ['query'] as const
 export const reader = state<{ data: { query: string; found: string } }, { type: 'SHELVE' }>()({

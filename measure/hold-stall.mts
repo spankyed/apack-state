@@ -12,7 +12,7 @@
 //
 //   npx tsx measure/hold-stall.mts
 import { cpus, loadavg } from 'node:os'
-import { reaching, system, type ViewHost } from '../src/index.ts'
+import { forNet, system, type ViewHost } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import { reading } from './record.mts'
@@ -24,7 +24,7 @@ const GIVE_UP_MS = 10_000
 
 type Net = { systems: { rows: { events: never; asks: { CREATE: { args: { id: string }; answer: string } } } }; surfaces: {}; views: { rows: { count: { args: { view: string }; result: number } } } }
 type PanelAsks = { ADD: { args: { id: string }; answer: boolean } }
-const linked = reaching<Net>()
+const linked = forNet<Net>()
 
 type Hold = 'every watch settled' | 'each view caught up'
 const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => {
