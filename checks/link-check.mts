@@ -6,7 +6,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { answered, reaching, type Each, type Failure, type Port, type ViewHost } from '../src/index.ts'
+import { answered, reaching, type Each, type Failure, type Port, type StepLog, type ViewHost } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 import { memory, type Rows } from './store.mts'
 
@@ -285,6 +285,27 @@ await run([
     ok(broken.idle())
     strictEqual(traced.filter((line) => line.startsWith('DEFECT') && line.includes('ask broke')).length, 1)
     broken.stop()
+    await rest()
+
+    // A custom `peer.ask` that settles synchronously and then throws keeps its first answer without enqueueing a second.
+    const doubleTraced: string[] = []
+    const doubleSteps: StepLog[] = []
+    const doubleBroken = system({ side: 'window', name: WINDOW, trace: (line) => { doubleTraced.push(line) }, log: (step) => { doubleSteps.push(step) } })
+    doubleBroken.attach({
+      tell: () => {},
+      ask: (_to, _name, _args, _heard, ended) => {
+        ended({ ok: true, value: { id: 'sync' } })
+        throw new Error('ask broke after answering')
+      },
+      follow: () => ({ stop: () => {} }),
+    })
+    const doubleAsker = doubleBroken.start('asker', asker)
+    deepStrictEqual(await soon(doubleBroken.ask(doubleAsker, 'MAKE', { id: 'w' })), { ok: true, value: 'made' })
+    await rest()
+    ok(doubleBroken.idle())
+    strictEqual(doubleTraced.filter((line) => line.startsWith('DEFECT') && line.includes('ask broke after answering')).length, 1)
+    strictEqual(doubleSteps.flatMap((step) => step.handled).filter((item) => item.kind === 'answer' && item.ref === 'threads' && item.name === 'CREATE').length, 1)
+    doubleBroken.stop()
     await rest()
   }],
   ['a remote follow stopped before commit is never sent, and stopping after a throwing follow causes no defect', async () => {

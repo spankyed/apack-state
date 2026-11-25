@@ -435,7 +435,7 @@ export function system(host: {
           (update) => heard?.(update),
           (outcome) => { settled = true; abort.removeEventListener('abort', gone); arrive({ kind: 'answer', question, outcome: outcome as AnyOutcome }) })
       } catch (error) {
-        arrive({ kind: 'answer', question, outcome: refusal('failed', said(error)) })
+        if (!settled) arrive({ kind: 'answer', question, outcome: refusal('failed', said(error)) })
         throw error
       }
       if (settled) return
