@@ -27,3 +27,19 @@ state<Counter, CounterEvent, CounterAsks>()({
     closed: { data: { reason: given } },
   },
 })
+
+// After an await, a move's gained data accepts read-only values straight from `data`.
+import { reaching } from '../src/index.ts'
+type ListAsks = { FINISH: { args: {}; answer: 'done' } }
+reaching()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
+  data: { items: [] },
+  start: 'open',
+  states: {
+    open: {
+      asks: {
+        FINISH: async (_, { data }) => answered('done' as const, { at: 'done', data: { snapshot: data.items } }),
+      },
+    },
+    done: { data: { snapshot: given } },
+  },
+})

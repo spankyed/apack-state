@@ -24,10 +24,11 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `nobody: asking('printer', 'LOOKUP', { args: () => ({ query: '' }), ended: () => {} }),` | TS2345: Argument of type '"printer"' is not assignable to parameter of type '"library"'. | there is no such system to ask |
 | `nothing: asking('library', 'SLEEP', { args: () => ({}), ended: () => {} }),` | TS2345: Argument of type '"SLEEP"' is not assignable to parameter of type '"LOOKUP"'. | the library answers no such ask |
-| `wrong: asking('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), ended: ()…` | TS2741: Property 'query' is missing in type '{ id: string; }' but required in type '{ query: string; }'. | a lookup is asked for a query, not an id |
+| `wrong: asking('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), ended: ()…` | TS2741: Property 'query' is missing in type '{ id: string; }' but required in type '{ readonly query: string; }'. | a lookup is asked for a query, not an id |
 | `titled: asking('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), end…` | TS2322: Type '"title"' is not assignable to type 'KeysField&lt;{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record&lt;strin… | a title is neither a list nor keyed, so it cannot say which to look up |
 | `unnamed: asking('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: …` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
 | `misplaced: asking('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
+| `both: asking('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ …` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is awaited from fields or for each key, not both at once |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -76,11 +77,12 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | What was written | What TypeScript says | Why |
 |---|---|---|
 | `stock: follow('shop', 'stock', { from: [], args: () => ({}), heard: () => {} }),` | TS2345: Argument of type '"stock"' is not assignable to parameter of type '"total" \| "price"'. | there is no such view |
-| `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2741: Property 'currency' is missing in type '{ id: string; }' but required in type '{ currency: string; }'. | the total is asked for a currency, not an id |
+| `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2741: Property 'currency' is missing in type '{ id: string; }' but required in type '{ readonly currency: string; }'. | the total is asked for a currency, not an id |
 | `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), heard: () =>…` | TS2322: Type '"currency"' is not assignable to type 'KeysField&lt;{ currency: string; total: number \| null; watching: string[]; prices: Record&lt;string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
 | `noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: n…` | TS2339: Property 'note' does not exist on type '{ readonly currency: string; }'. | it reads the note, which it did not name: a field it does not name is not there to read |
 | `missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), he…` | TS2322: Type '"locale"' is not assignable to type '"problem" \| "total" \| "currency" \| "watching" \| "prices" \| "note"'. | the shop has no such field to read from |
 | `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (upda…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
+| `both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ …` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | a view is followed from fields or for each key, not both at once |
 
 ## Who may send a state what: the events it sends itself, and the surfaces it tells.
 
@@ -153,8 +155,10 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `card: start(card([]), { each: 'items', given: (id) => ({ id }) }),` | TS2769: No overload matches this call. | a card has to be given its label as well as which it is |
 | `open: { starts: (_start) => ({ helper: helper([]) }) },` | TS2739: Type 'State&lt;{ data: { title: string; }; }, never, {}, "title">' is missing the following properties from type 'OneOf&lt;{ title: string; items: Record&lt;string, string>; lastBump: st… | the helper has to be given its title, so it cannot be named bare |
 | `sys.start('card', card([]))` | TS2554: Expected 3 arguments, but got 2. | a root state with given fields cannot be started without them |
-| `sys.start('card', card([]), { id: 'a' })` | TS2345: Argument of type '{ id: string; }' is not assignable to parameter of type 'Givable&lt;Pick&lt;{ id: string; label: string; bumps: number; }, "id" \| "label">>'. | a root state has to be given every field it marks given |
+| `sys.start('card', card([]), { id: 'a' })` | TS2345: Argument of type '{ id: string; }' is not assignable to parameter of type 'Givable&lt;{ id: string; label: string; }>'. | a root state has to be given every field it marks given |
 | `sys.start('plain', plain, {})` | TS2554: Expected 2 arguments, but got 3. | a root state with no given fields takes no third argument |
+| `sys.start('optGiven', optGiven, {})` | TS2345: Argument of type '{}' is not assignable to parameter of type 'Givable&lt;{ note: string \| undefined; }>'. | an optional field marked given cannot be omitted when starting the root state |
+| `void runEvents({ state: givenCounter, events: { INC: () => ({ type: 'INC' }) }, always:…` | TS2345: Argument of type '{ state: State&lt;{ data: { label: string; count: number; }; }, { type: "INC"; }, {}, "label">; events: { INC: () => { type: "INC"; }; }; always: () => void; step… | fromEvents requires given when the state declares given fields |
 | `a: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | a start substate is entered with no supplied data, so it cannot mark a field given |
 | `inner: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | even inside a non-start branch, its own start substate cannot mark a field given |
 | `const unsafe: string = read(child('card', 'a')).data.label` | TS2532: Object is possibly 'undefined'. | a started child might not be running, so read() may be undefined |

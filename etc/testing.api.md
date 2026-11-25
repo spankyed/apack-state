@@ -41,23 +41,22 @@ export { Explored }
 // Warning: (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point testing.d.ts
 //
 // @public (undocumented)
-export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks> {
-    // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-    readonly always: (value: Value<S>, sent: readonly E[]) => void;
-    readonly around?: (system: System, schedule: Schedule) => void;
-    // (undocumented)
+export type FromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never> = {
+    readonly state: State<S, E, A, G>;
     readonly events: Makers<E>;
-    // (undocumented)
-    readonly runs: number;
-    // (undocumented)
-    readonly seed: number;
-    // Warning: (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-    readonly state: State<S, E, A>;
+    readonly around?: (system: System, schedule: Schedule) => void;
+    readonly always: (value: Value<S>, sent: readonly E[]) => void;
     readonly steps: number;
-}
+    readonly runs: number;
+    readonly seed: number;
+} & ([G] extends [never] ? {
+    readonly given?: never;
+} : {
+    readonly given: RootGiven<State<S, E, A, G>>;
+});
 
 // @public
-export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks>(options: FromEvents<S, E, A>): Promise<void>;
+export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(options: FromEvents<S, E, A, G>): Promise<void>;
 
 // @public
 export type Makers<E extends AnyEvent> = {
@@ -90,6 +89,9 @@ export { Schedule }
 // Warnings were encountered during analysis:
 //
 // .temp/api-types/testing.d.ts:25:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:44:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:49:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:57:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

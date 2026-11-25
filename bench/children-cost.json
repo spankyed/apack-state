@@ -1,0 +1,33 @@
+{
+  "measurement": "children-cost.mts",
+  "conditions": {
+    "date": "2026-11-25T19:37:12.442Z",
+    "commit": "b6b6d1caf2f6c5aed05ee3cf66de3cbcc3bbf4b2",
+    "changed": false,
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memory": "32 GB",
+    "os": "darwin 25.3.0",
+    "node": "v24.16.0",
+    "load": 28.36,
+    "elmdb": "https://github.com/spankyed/elmdb/releases/download/pkg-efdfa2283d834988a07e50a305928d52b734c4fa/elmdb-0.1.0.tgz",
+    "typescript": "5.9.3"
+  },
+  "readings": [
+    {
+      "name": "updating one child among many: 10 children, 1 updated",
+      "value": 11.1,
+      "unit": "µs/step"
+    },
+    {
+      "name": "updating one child among many: 300 children, 1 updated",
+      "value": 10.1,
+      "unit": "µs/step"
+    },
+    {
+      "name": "updating one child among many: 1000 children, 1 updated",
+      "value": 8.7,
+      "unit": "µs/step"
+    }
+  ]
+}

@@ -12,14 +12,27 @@ import { MaybeRefOrGetter } from '@vue/runtime-core';
 //
 // @public
 export interface Bound<V, E extends AnyEvent, C> {
-    // Warning: (ae-forgotten-export) The symbol "Child" needs to be exported by the entry point vue.d.ts
-    //
     // (undocumented)
     readonly child: Child<C>;
+    // Warning: (ae-forgotten-export) The symbol "Read" needs to be exported by the entry point vue.d.ts
+    //
     // (undocumented)
-    send(event: E): void;
+    send(event: Read<E>): void;
     readonly state: ComputedRef<V>;
 }
+
+// Warning: (ae-forgotten-export) The symbol "State" needs to be exported by the entry point vue.d.ts
+// Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point vue.d.ts
+// Warning: (ae-forgotten-export) The symbol "AllStarts" needs to be exported by the entry point vue.d.ts
+//
+// @public (undocumented)
+export type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Value<S>, E, AllStarts<S>> : never;
+
+// Warning: (ae-forgotten-export) The symbol "Each" needs to be exported by the entry point vue.d.ts
+// Warning: (ae-forgotten-export) The symbol "HandleOf" needs to be exported by the entry point vue.d.ts
+//
+// @public
+export type Child<C> = <K extends keyof C & string>(name: K, ...key: C[K] extends Each<any> ? [key: string] : []) => HandleOf<C[K]>;
 
 // Warning: (ae-forgotten-export) The symbol "AnyState" needs to be exported by the entry point vue.d.ts
 //
@@ -37,7 +50,6 @@ export function vueBinding<Top extends Record<string, AnyState>>(): {
 // Warnings were encountered during analysis:
 //
 // .temp/api-types/vue.d.ts:20:5 - (ae-forgotten-export) The symbol "System" needs to be exported by the entry point vue.d.ts
-// .temp/api-types/vue.d.ts:22:9 - (ae-forgotten-export) The symbol "BoundTo" needs to be exported by the entry point vue.d.ts
 // .temp/api-types/vue.d.ts:23:9 - (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point vue.d.ts
 // .temp/api-types/vue.d.ts:23:9 - (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point vue.d.ts
 

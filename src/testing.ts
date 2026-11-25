@@ -7,7 +7,7 @@
 import type { Lane } from './port.ts'
 import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
 import { sample, type Clock, type Schedule } from '@apackdev/orderings'
-import type { AnyEvent, Asks, Shape, State, Value } from './types.ts'
+import type { AnyEvent, Asks, Handle, RootGiven, Shape, State, Value } from './types.ts'
 import { system as kernel, type System } from './kernel.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
@@ -85,9 +85,9 @@ const declared = (def: unknown): Set<string> => {
 /** One way to make each event a state takes, keyed by its type: what `fromEvents` sends. */
 export type Makers<E extends AnyEvent> = { readonly [K in E['type']]: (random: Random) => Extract<E, { type: K }> }
 
-export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks> {
+export type FromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never> = {
   /** The state, and a maker for each event it declares under `on`. A declared event with no maker is refused. */
-  readonly state: State<S, E, A>
+  readonly state: State<S, E, A, G>
   readonly events: Makers<E>
   /** Sets up what the state runs in: the systems it reaches, started on this one. Optional. */
   readonly around?: (system: System, schedule: Schedule) => void
@@ -97,14 +97,14 @@ export interface FromEvents<S extends Shape, E extends AnyEvent, A extends Asks>
   readonly steps: number
   readonly runs: number
   readonly seed: number
-}
+} & ([G] extends [never] ? { readonly given?: never } : { readonly given: RootGiven<State<S, E, A, G>> })
 
 /**
  * Scenarios made from the events a state declares: each run sends `steps` of them, drawn from the seed, one after
  * another as a user would, under an ordering drawn from the same seed, and `always` is held after every step that
  * changed anything. Throws for the first run that fails, naming the seed that makes it again and the events it sent.
  */
-export async function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks>(options: FromEvents<S, E, A>): Promise<void> {
+export async function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(options: FromEvents<S, E, A, G>): Promise<void> {
   const types = [...declared(options.state.def)].sort()
   const missing = types.filter((type) => !(type in options.events))
   if (missing.length) throw new Error(`No way to make ${missing.join(', ')}, which the state declares it takes`)
@@ -124,7 +124,7 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
         sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') })
         const running = sys
         options.around?.(running, schedule)
-        const handle = running.start('under test', options.state)
+        const handle = (running.start as (ref: string, state: State<S, E, A, G>, entering: unknown) => Handle<Value<S>, E, A>)('under test', options.state, options.given)
         let failure: unknown
         const unsubscribe = running.subscribe(() => {
           if (failure !== undefined) return

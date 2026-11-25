@@ -2,7 +2,7 @@
 // system on a schedule, and scenarios made from the events a state declares.
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert'
 import { run } from './checks.mts'
-import { reaching } from '../src/index.ts'
+import { given, reaching } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
@@ -336,5 +336,24 @@ await run([
   ['explore is there for a pack to read how many orderings it ran', async () => {
     const explored = await explore(twoByTwo([]))
     deepStrictEqual({ orderings: explored.orderings, complete: explored.complete }, { orderings: 6, complete: true })
+  }],
+  ['fromEvents starts a root state that requires given data', async () => {
+    const seededState = state<{ data: { label: string; count: number } }, { type: 'INC' }>()({
+      data: { label: given, count: 0 },
+      on: { INC: (_, { data }) => ({ data: { count: data.count + 1 } }) },
+    })
+    const labels: string[] = []
+    await fromEvents({
+      state: seededState,
+      given: { label: 'alpha' },
+      events: { INC: () => ({ type: 'INC' }) },
+      always: (value, sent) => {
+        labels.push(value.data.label)
+        strictEqual(value.data.label, 'alpha')
+        strictEqual(value.data.count, sent.length)
+      },
+      steps: 4, runs: 2, seed: 1,
+    })
+    strictEqual(labels.length, 8)
   }],
 ])

@@ -647,6 +647,105 @@ const moves: Array<[string, () => void]> = [
     const okHandle = flaky.start('retry', flat)
     strictEqual(flaky.read(okHandle).data.n, 0)
   }],
+  ['plain-object replacement traces LARGE once per running instance and resets when restarted', () => {
+    const largeLines: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('LARGE')) largeLines.push(line) } })
+    const big = Array.from({ length: 10_001 }, (_, i) => i)
+    const holder = state<{ data: { items: number[] } }, { type: 'SET'; items: number[] }>()({
+      data: { items: [] },
+      on: { SET: ({ items }) => ({ data: { items } }) },
+    })
+    const h1 = sys.start('holder', holder)
+    sys.send(h1, { type: 'SET', items: big })
+    sys.send(h1, { type: 'SET', items: [...big, 10_001] })
+    strictEqual(largeLines.length, 1)
+    ok(largeLines[0]!.includes('holder holds 10001 items in items'))
+    sys.stop()
+    // Starting a fresh instance traces LARGE again (reported state is scoped to the Running instance, not leaked).
+    const h2 = sys.start('holder', holder)
+    sys.send(h2, { type: 'SET', items: big })
+    strictEqual(largeLines.length, 2)
+  }],
+  ['rolling back inside-queue items while earlier items remain preserves FIFO order and resets cleanly when emptied', () => {
+    const seen: string[] = []
+    const sys = system({ side: 'backend' })
+    const actor = state<{}, { type: 'START' } | { type: 'FAIL_AND_QUEUE' } | { type: 'NOTE'; tag: string }>()({
+      on: {
+        START: (_, { send }) => {
+          send({ type: 'FAIL_AND_QUEUE' })
+          send({ type: 'NOTE', tag: 'after-fail' })
+        },
+        FAIL_AND_QUEUE: (_, { send }) => {
+          send({ type: 'NOTE', tag: 'rolled-back' })
+          throw new Error('undo me')
+        },
+        NOTE: ({ tag }) => { seen.push(tag) },
+      },
+    })
+    const h = sys.start('a', actor)
+    sys.send(h, { type: 'START' })
+    deepStrictEqual(seen, ['after-fail'])
+    // Also verify when the rolled-back handler was the last item in `inside` (`head === items.length` after `cut`).
+    seen.length = 0
+    sys.send(h, { type: 'FAIL_AND_QUEUE' })
+    sys.send(h, { type: 'NOTE', tag: 'next-step' })
+    deepStrictEqual(seen, ['next-step'])
+  }],
+  ['a move supplying data for an inner substate does not expose that field to an enclosing state run() before the inner state is entered', () => {
+    const outerSawKeys: string[][] = []
+    const nested = state<{
+      states: {
+        idle: {}
+        outer: {
+          states: {
+            a: {}
+            inner: { data: { secret: string } }
+          }
+        }
+      }
+    }, { type: 'ENTER' }>()({
+      start: 'idle',
+      states: {
+        idle: {
+          on: { ENTER: () => ({ at: 'outer.inner', data: { secret: 'shh' } }) },
+        },
+        outer: {
+          start: 'a',
+          run({ data }) { outerSawKeys.push(Object.keys(data)) },
+          states: {
+            a: {},
+            inner: { data: { secret: given } },
+          },
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('nested', nested)
+    sys.send(h, { type: 'ENTER' })
+    deepStrictEqual(outerSawKeys, [[]])
+    strictEqual(sys.read(h).at, 'outer.inner')
+    deepStrictEqual(sys.read(h).data, { secret: 'shh' })
+  }],
+  ['data changed in a handler is frozen before a subsequent handler in the same step reads it', () => {
+    const frozenChecks: Array<{ top: boolean; nested: boolean }> = []
+    const netState = reaching<{ systems: { self: { events: { type: 'SECOND' }; asks: {} } }; views: {}; surfaces: {} }>()
+    const chained = netState<{ data: { items: number[] } }, { type: 'FIRST' } | { type: 'SECOND' }>()({
+      data: { items: [] },
+      on: {
+        FIRST: (_, { tell }) => {
+          tell('self', { type: 'SECOND' })
+          return { data: { items: [1, 2] } }
+        },
+        SECOND: (_, { data }) => {
+          frozenChecks.push({ top: Object.isFrozen(data), nested: Object.isFrozen(data.items) })
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('self', chained)
+    sys.send(h, { type: 'FIRST' })
+    deepStrictEqual(frozenChecks, [{ top: true, nested: true }])
+  }],
 ]
 
 await runChecks([...checks, ...moves])
