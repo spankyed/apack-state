@@ -281,6 +281,8 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   /** Gives one up: the one answering is told, and how it ended is not heard. */
   drop<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void
 
+  /** A state this one started, as it is now: nothing while it is not running. */
+  read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined
   /** A state this one started, as it is now. */
   read<V2>(of: Handle<V2, never, Asks>): V2
   /**
@@ -528,8 +530,27 @@ export type Asking<R, H extends string, E extends AnyEvent, N extends Net> = <
   heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Awaiting<R, H, E, N>
 
+/**
+ * Refuses `given` in any state entered automatically via `start` (at any depth): a `start` substate is entered with
+ * no supplied fields, so a `given` field there would never be provided.
+ */
+type NoStartGiven<D> =
+  D extends { start: infer K extends string; states: infer T extends Record<string, unknown> }
+    ? {
+        states: {
+          [P in keyof T]: P extends K
+            ? (T[P] extends { data: infer X }
+                ? { data: { [F in keyof X]: [X[F]] extends [Given] ? never : unknown } }
+                : unknown) & NoStartGiven<T[P]>
+            : NoStartGiven<T[P]>
+        }
+      }
+    : D extends { states: infer T extends Record<string, unknown> }
+      ? { states: { [P in keyof T]: NoStartGiven<T[P]> } }
+      : unknown
+
 /** `state`, for code that can reach `N` by name. In the app this is what a pack's generated facade would export. */
 export function reaching<N extends Net = Nothing>() {
   return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
-    <D extends Def<S, S, '', E, A, N>>(def: D): State<S, E, A, GivenIn<D>> => ({ def })
+    <D extends Def<S, S, '', E, A, N>>(def: D & NoStartGiven<NoInfer<D>>): State<S, E, A, GivenIn<D>> => ({ def })
 }

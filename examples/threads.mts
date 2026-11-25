@@ -317,7 +317,7 @@ function threadsSurface(log: (line: string) => void) {
           idle: {
             on: {
               SEND: ({ documentId }, { read, child }) => {
-                const text = read(child('draft')).data.text
+                const text = read(child('draft'))?.data.text ?? ''
                 if (!text) return { data: { problem: 'There is nothing to send.' } }
                 return { at: 'thread.sending', data: { text, documentId: documentId ?? null, problem: null } }
               },

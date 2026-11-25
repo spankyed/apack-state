@@ -112,6 +112,7 @@ const checks: Array<[string, () => void]> = [
     const tabs = Object.assign(Object.create(null) as Record<string, number>, { a: 1 })
     const base = freeze({ tabs })
     const { value, touched } = produce(base, (draft) => { draft.tabs.b = 2 })
+    strictEqual(Object.getPrototypeOf(value.tabs), null)
     deepStrictEqual({ ...value.tabs }, { a: 1, b: 2 })
     deepStrictEqual({ ...base.tabs }, { a: 1 })
     deepStrictEqual(paths(touched), ['tabs.b'])
@@ -304,6 +305,25 @@ const checks: Array<[string, () => void]> = [
     throws(() => kept!.n, /after the handler/)
     throws(() => { kept!.n = 2 }, /after the handler/)
     throws(() => { delete (kept as { n?: number }).n }, /after the handler/)
+    throws(() => 'n' in kept!, /after the handler/)
+    throws(() => Object.keys(kept!), /after the handler/)
+    throws(() => Reflect.ownKeys(kept!), /after the handler/)
+    throws(() => Object.getOwnPropertyDescriptor(kept!, 'n'), /after the handler/)
+    throws(() => Object.getPrototypeOf(kept!), /after the handler/)
+    throws(() => Object.defineProperty(kept!, 'n', { value: 2 }), /after the handler/)
+  }],
+  ['inherited Object.prototype names are not own fields: fixed drafts refuse them, open drafts can set them', () => {
+    const base = freeze({ count: 0 } as Record<string, unknown>)
+    throws(() => produce(base, (draft) => { draft['toString'] = 'x' }, { fixed: true }), /no field toString/)
+    throws(() => produce(base, (draft) => { delete draft['count'] }, { fixed: true }), /cannot be removed/)
+    const fixedDelProto = produce(base, (draft) => { delete draft['toString'] }, { fixed: true })
+    strictEqual(fixedDelProto.value, base)
+    const open = produce(base, (draft) => { draft['toString'] = 'own' })
+    strictEqual(Object.hasOwn(open.value, 'toString'), true)
+    strictEqual(open.value['toString'], 'own')
+    const delMissing = produce(base, (draft) => { delete draft['toString'] })
+    strictEqual(delMissing.value, base)
+    deepStrictEqual(delMissing.touched, [])
   }],
   ['an edit that throws leaves nothing behind', () => {
     const base = freeze({ a: { n: 1 } })

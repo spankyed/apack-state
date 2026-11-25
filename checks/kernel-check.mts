@@ -520,6 +520,133 @@ const moves: Array<[string, () => void]> = [
     it.send({ type: 'COUNT_THE_SAME' })
     strictEqual(it.told.length, before, 'a field given the value it holds is not a change')
   }],
+  ['inherited prototype names and non-object data payloads are refused cleanly', () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const s = state<{ data: { count: number } }, { type: 'PROTO' } | { type: 'NULL_DATA' } | { type: 'ARR_DATA' }>()({
+      data: { count: 0 },
+      on: {
+        PROTO: () => ({ data: { toString: 'bad' } as never }),
+        NULL_DATA: () => ({ data: null as never }),
+        ARR_DATA: () => ({ data: [] as never }),
+      },
+    })
+    const handle = sys.start('s', s)
+    sys.send(handle, { type: 'PROTO' })
+    sys.send(handle, { type: 'NULL_DATA' })
+    sys.send(handle, { type: 'ARR_DATA' })
+    strictEqual(sys.read(handle).data.count, 0)
+    strictEqual(Object.hasOwn(sys.read(handle).data, 'toString'), false)
+    strictEqual(defects.length, 3)
+    ok(defects[0]!.includes('has no field toString'))
+    ok(defects[1]!.includes('non-object'))
+    ok(defects[2]!.includes('non-object'))
+  }],
+  ['a move whose target starts at a substate with a missing given field is refused cleanly', () => {
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const badStartMove = {
+      def: {
+        start: 'a',
+        on: { GO: () => ({ at: 'b' }) },
+        states: {
+          a: {},
+          b: { start: 'inner', states: { inner: { data: { req: given } } } },
+        },
+      },
+    }
+    const handle = sys.start('m', badStartMove as never)
+    sys.send(handle as never, { type: 'GO' } as never)
+    strictEqual((sys.read(handle as never) as { at: string }).at, 'a')
+    deepStrictEqual(defects, ['DEFECT: m cannot enter b.inner without req'])
+  }],
+  ['an error thrown by a nested transact propagates instead of being swallowed as rollback', () => {
+    let depth = 0
+    const sys = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try {
+          if (depth === 2) throw new Error('nested db broken')
+          return fn()
+        } finally { depth-- }
+      },
+    })
+    const handle = sys.start('f', flat)
+    throws(() => sys.send(handle, { type: 'BUMP' }), /nested db broken/)
+  }],
+  ['start, stop, and log re-entrancy during flush defer to the next step without inverting StepLog order', () => {
+    const logged: Array<{ number: number; refs: string[] }> = []
+    let onLogAction: (() => void) | undefined
+    const sys = system({
+      side: 'backend',
+      log: (step) => {
+        logged.push({ number: step.number, refs: Object.keys(step.changed) })
+        const fn = onLogAction
+        onLogAction = undefined
+        fn?.()
+      },
+    })
+    const a = sys.start('a', flat)
+    let mode: 'none' | 'start' | 'stop' = 'start'
+    let startedHandle: typeof a | undefined
+    sys.subscribe(() => {
+      if (mode === 'start') {
+        mode = 'none'
+        startedHandle = sys.start('b', flat)
+        // Duplicate start of an already-queued ref must still be refused synchronously.
+        throws(() => sys.start('b', flat), /already has a running state named b/)
+        // Sending to the handle returned by queued start delivers after `b` begins.
+        sys.send(startedHandle, { type: 'BUMP' })
+      } else if (mode === 'stop') {
+        mode = 'none'
+        sys.stop()
+      }
+    })
+    sys.send(a, { type: 'BUMP' })
+    strictEqual(sys.read(startedHandle!).data.n, 1)
+    // Causal order: #1 start a, #2 bump a, #3 start b, #4 bump b.
+    deepStrictEqual(logged, [
+      { number: 1, refs: ['a'] },
+      { number: 2, refs: ['a'] },
+      { number: 3, refs: ['b'] },
+      { number: 4, refs: ['b'] },
+    ])
+
+    // Re-entrant send from inside host.log also preserves causal StepLog order.
+    onLogAction = () => sys.send(startedHandle!, { type: 'BUMP' })
+    sys.send(a, { type: 'BUMP' })
+    deepStrictEqual(logged.slice(4), [
+      { number: 5, refs: ['a'] },
+      { number: 6, refs: ['b'] },
+    ])
+
+    // Re-entrant stop from a subscriber defers until after the triggering step flushes and logs.
+    mode = 'stop'
+    sys.send(a, { type: 'BUMP' })
+    deepStrictEqual(sys.snapshot(), {})
+    deepStrictEqual(logged.slice(6), [
+      { number: 7, refs: ['a'] },
+      { number: 8, refs: ['b', 'a'] },
+    ])
+
+    // After stopping, `b` can be started again (the `starting` reservation was cleared).
+    const b2 = sys.start('b', flat)
+    strictEqual(sys.read(b2).data.n, 0)
+
+    // If host.transact throws before running `start`, the `starting` reservation is cleared so retrying succeeds.
+    let failOnce = true
+    const flaky = system({
+      side: 'backend',
+      transact: (fn) => {
+        if (failOnce) { failOnce = false; throw new Error('db unavailable') }
+        return fn()
+      },
+    })
+    throws(() => flaky.start('retry', flat), /db unavailable/)
+    const okHandle = flaky.start('retry', flat)
+    strictEqual(flaky.read(okHandle).data.n, 0)
+  }],
 ]
 
 await runChecks([...checks, ...moves])

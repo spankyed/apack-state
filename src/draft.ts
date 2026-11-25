@@ -44,7 +44,9 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   /** Makes a node, and every node around it, write to a copy of its own from here on. */
   const own = (node: Node): Record<string, unknown> => {
     if (!node.copy) {
-      node.copy = Array.isArray(node.base) ? [...node.base] : { ...node.base }
+      node.copy = Array.isArray(node.base)
+        ? [...node.base]
+        : Object.assign(Object.create(Object.getPrototypeOf(node.base) as object | null) as Record<string, unknown>, node.base)
       if (node.around) own(node.around)
     }
     return node.copy as Record<string, unknown>
@@ -135,9 +137,9 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
       set(_, key, value) {
         if (!open) closed()
         if (typeof key === 'symbol') return false
-        if (options.fixed && !node.around && !(key in node.base)) throw new Error(`There is no field ${key} to change`)
+        if (options.fixed && !node.around && !Object.hasOwn(node.base, key)) throw new Error(`There is no field ${key} to change`)
         const next = plainOf(value)
-        if (Object.is(latest(node)[key], next) && key in latest(node)) return true
+        if (Object.is(latest(node)[key], next) && Object.hasOwn(latest(node), key)) return true
         own(node)[key] = next
         node.inside.delete(key)
         note(node, key)
@@ -145,22 +147,23 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
       },
       deleteProperty(_, key) {
         if (!open) closed()
-        if (typeof key === 'symbol' || !(key in latest(node))) return true
+        if (typeof key === 'symbol' || !Object.hasOwn(latest(node), key)) return true
         if (options.fixed && !node.around) throw new Error(`The field ${key} cannot be removed`)
         delete own(node)[key]
         node.inside.delete(key)
         note(node, key)
         return true
       },
-      has: (_, key) => key in latest(node),
-      ownKeys: () => Reflect.ownKeys(latest(node)),
+      has: (_, key) => { if (!open) closed(); return key in latest(node) },
+      ownKeys: () => { if (!open) closed(); return Reflect.ownKeys(latest(node)) },
       getOwnPropertyDescriptor(_, key) {
+        if (!open) closed()
         const found = Reflect.getOwnPropertyDescriptor(latest(node), key)
         // An array's length cannot be reported configurable; everything else can be, since the target holds nothing.
         return found && { ...found, writable: true, configurable: !(isArray && key === 'length') }
       },
-      getPrototypeOf: () => Object.getPrototypeOf(base),
-      defineProperty: () => { throw new Error('A draft takes assignments, not property definitions') },
+      getPrototypeOf: () => { if (!open) closed(); return Object.getPrototypeOf(base) },
+      defineProperty: () => { if (!open) closed(); throw new Error('A draft takes assignments, not property definitions') },
     })
   }
 

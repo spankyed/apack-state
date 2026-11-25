@@ -105,16 +105,6 @@
     "why": "Each reader is let go once (a mirror's stop and useState's dispose each forget what they held), so a release never finds its ref held by another mirror; the second half of the guard is never what decides"
   },
   {
-    "key": "src/mirror.ts | ConditionalExpression | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | false",
-    "original": "!byRef.size",
-    "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
-  },
-  {
-    "key": "src/mirror.ts | BlockStatement | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | {}",
-    "original": "{ unsubscribe?.(); unsubscribe = undefined }",
-    "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
-  },
-  {
     "key": "src/mirror.ts | OptionalChaining | if (!byRef.size) { unsubscribe?.(); unsubscribe = undefined } | unsubscribe()",
     "original": "unsubscribe?.()",
     "why": "Not unsubscribing when the last reader goes leaves a listener that finds nothing mirrored and does nothing; acquiring again reuses it. Only the cost of a lookup per step differs, which no spec reads"
@@ -130,18 +120,8 @@
     "why": "Every state with states inside it has a start, so a state that is the case and has a state named below it in the path always has one inside it: what is read through the optional chain is never missing"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | path = `${path}.${def.start}` | ``",
-    "original": "`${path}.${def.start}`",
-    "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
-  },
-  {
     "key": "src/kernel.ts | OptionalChaining | def = def.states?.[def.start] ?? {} | def.states[def.start]",
     "original": "def.states?.[def.start]",
-    "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (problem) return problem | false",
-    "original": "problem",
     "why": "The start a move's target leads to is checked by the types: a start names one of its states, and one that needs nothing given. So the chain always finds the state, never has a problem, and its path is never said"
   },
   {
@@ -415,59 +395,14 @@
     "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
-    "original": "!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
-    "original": "!declared || item.of.controller.signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | false",
-    "original": "live.get(item.id) !== item.live",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
-  },
-  {
-    "key": "src/kernel.ts | LogicalOperator | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | (!declared || item.of.controller.signal.aborted) && live.get(item.id) !== item.live",
-    "original": "!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
-  },
-  {
-    "key": "src/kernel.ts | LogicalOperator | if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE | !declared && item.of.controller.signal.aborted",
-    "original": "!declared || item.of.controller.signal.aborted",
-    "why": "What ends or is heard of a read or a make is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
-  },
-  {
     "key": "src/kernel.ts | ArrayDeclaration | for (const field of fields.get(top.ref) ?? []) large(top, field) | [\"Stryker was here\"]",
     "original": "[]",
     "why": "With no field edited the loop is over a name that is not a field, whose value is undefined and so is never a list to report"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (!(field in top.data)) continue | false",
-    "original": "!(field in top.data)",
-    "why": "A field that is not there yet is entered by the move with the value given; written first as well, it is the same value, told as changed once either way"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (error instanceof Refusal) return refusal(error.kind, error.message, error.data) | true",
     "original": "error instanceof Refusal",
     "why": "apply throws nothing that is not a refusal: an edit's error is caught and reported inside it, so the refusal test is always true when reached"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (!followed || item.of.controller.signal.aborted) return MADE | false",
-    "original": "!followed || item.of.controller.signal.aborted",
-    "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
-  },
-  {
-    "key": "src/kernel.ts | LogicalOperator | if (!followed || item.of.controller.signal.aborted) return MADE | !followed && item.of.controller.signal.aborted",
-    "original": "!followed || item.of.controller.signal.aborted",
-    "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
-  },
-  {
-    "key": "src/kernel.ts | OptionalChaining | hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.of.following.get(item.id)?.because ?? new Set() } | item.of.following.get(item.id).because",
-    "original": "item.of.following.get(item.id)?.because",
-    "why": "A view's delivery to a state that was left changes nothing anyway: change refuses a left state's change, alive() refuses what its handler says, and a state still the case is still following what it was delivered"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!of || of.controller.signal.aborted) return MADE | false",
@@ -498,11 +433,6 @@
     "key": "src/kernel.ts | StringLiteral | if (signal.aborted) { trace(`${item.ref} stopped answering ${name}, as whoever asked had gone: ${message}`); return refusal('abandoned', message) } | \"\"",
     "original": "'abandoned'",
     "why": "When the asker of a handler that was itself asking has gone, the refusal it would get reaches nobody: the asker's own end has already been rejected with Left, here or across the link"
-  },
-  {
-    "key": "src/kernel.ts | EqualityOperator | if (count < RUNAWAY) { handle(item); continue } | count <= RUNAWAY",
-    "original": "count < RUNAWAY",
-    "why": "Where exactly the runaway limit falls, at ten thousand things in a step or one more: a spec holds that a step that never ends is cut short and says so, not the count"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!stopping && host.limit !== undefined && steps >= host.limit) { | true",
@@ -543,21 +473,6 @@
     "key": "src/kernel.ts | ArrowFunction | if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({})); continue } | () => undefined",
     "original": "() => ({})",
     "why": "What a state started as it is is given: nothing, as an empty object or as undefined, which begin takes as an empty object either way"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (made !== undefined) inside.push({ kind: 'result', of: active, value: made }) | true",
-    "original": "made !== undefined",
-    "why": "Work that returns nothing pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
-  },
-  {
-    "key": "src/kernel.ts | StringLiteral | turnAway(inside, 'It has taken every step it is allowed'); turnAway(outside, 'It has taken every step it is allowed') | \"\"",
-    "original": "'It has taken every step it is allowed'",
-    "why": "What is waiting inside a system is all taken within the step it was sent in, so at the start of a step past the limit there is never anything inside to turn away, and its message is never given"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (stepping) handleOf = begin(ref, def, initial) | false",
-    "original": "stepping",
-    "why": "Only a start made inside a step reaches this, which is a start from a subscriber or something else that leaves at a commit. There the state begins in the step that is leaving, whose commit has passed, and is read from the next; the mutant takes a nested step instead. Neither is a behaviour a spec holds: what a start from a subscriber should do is not decided (see the PR)"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
@@ -650,13 +565,18 @@
     "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
   },
   {
-    "key": "src/kernel.ts | BlockStatement | else try { within(() => { made = take(item); if (!made) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | {}",
-    "why": "take throws nothing but UNDONE: a handler's throw is caught inside it, and a unit nested in the step's is kept only with it, so it does not fail alone",
-    "original": "{ if (error !== UNDONE) throw error }"
+    "key": "src/kernel.ts | ConditionalExpression | if (deferred !== undefined) inside.push({ kind: 'result', of: active, value: deferred }) | true",
+    "original": "deferred !== undefined",
+    "why": "Work that returns no deferred move pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | else try { within(() => { made = take(item); if (!made) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | false",
-    "why": "take throws nothing but UNDONE: a handler's throw is caught inside it, and a unit nested in the step's is kept only with it, so it does not fail alone",
-    "original": "error !== UNDONE"
+    "key": "src/kernel.ts | StringLiteral | if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', CUT_SHORT))) | \"\"",
+    "original": "'answering an ask that will not be taken'",
+    "why": "The label passed to safely is traced only if Question.end throws; Question.end only resolves a promise and never throws"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | if (host.limit !== undefined && steps >= host.limit) throw new Error(`${called} cannot start ${ref}: ${LIMIT_REACHED}`) | true",
+    "original": "host.limit !== undefined",
+    "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
   }
 ]

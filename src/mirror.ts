@@ -93,7 +93,7 @@ export function mirrors(sys: System): Mirrors {
       if (changes[ref]?.making && into.making && latest.making) follow(into.making, latest.making)
       // A field the state replaced is written, and one it no longer has, having left the state that held it, goes.
       for (const field of fields[ref] ?? []) {
-        if (field in latest.data) into.data[field] = latest.data[field]; else delete into.data[field]
+        if (Object.hasOwn(latest.data, field)) into.data[field] = latest.data[field]; else delete into.data[field]
       }
     }
   }

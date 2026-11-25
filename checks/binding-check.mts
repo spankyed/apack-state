@@ -293,6 +293,142 @@ const checks: Array<[string, () => void]> = [
     deepStrictEqual(it.ran(), ['which', 'a'])
     strictEqual(it.seen.a, 0)
   }],
+  ['a child restarted within a single step notifies subscribers and mirrors with its new data, state, and making', () => {
+    const child = state<{
+      data: { label: string; fixed: string }
+      states: { a: {}; b: { data: { opt?: string | undefined } } }
+    }, { type: 'TO_B' }>()({
+      data: { label: given, fixed: 'same' },
+      start: 'a',
+      on: { TO_B: () => ({ at: 'b', data: { opt: undefined } }) },
+      states: { a: {}, b: { data: { opt: undefined as never } } },
+    })
+    const host = state<{
+      data: { gen: number }
+      states: { open: { data: { label?: string }; starts: { kid: typeof child } }; closed: {} }
+    }, { type: 'REOPEN'; label: string } | { type: 'REOPEN_AND_CLOSE'; label: string } | { type: 'MOVE_KID' } | { type: 'CLOSE' }>()({
+      data: { gen: 0 },
+      start: 'open',
+      states: {
+        open: {
+          data: { label: 'first' },
+          starts: (start) => ({ kid: start(child, { given: (d) => ({ label: d.label ?? 'first' }) }) }),
+          on: {
+            MOVE_KID: (_, { tell, child: of }) => { tell(of('kid'), { type: 'TO_B' }) },
+            REOPEN: ({ label }) => ({ at: 'open', data: { label } }),
+            REOPEN_AND_CLOSE: ({ label }, { send }) => { send({ type: 'CLOSE' }); return { at: 'open', data: { label } } },
+            CLOSE: () => ({ at: 'closed' }),
+          },
+        },
+        closed: {},
+      },
+    })
+    const logs: Array<{ changed: Record<string, { fields: readonly string[]; moved: boolean; making: boolean }> }> = []
+    const sys = system({ side: 'window', log: (step) => logs.push(step) })
+    const h = sys.start('host', host)
+    const kidHandle = sys.child(h, 'kid')
+    const held = mirror(sys, kidHandle)
+    const seen: Array<{ label: string | undefined; at: string | undefined }> = []
+    effect(() => { seen.push({ label: held.value?.data.label, at: held.value?.at }) })
+    sys.send(h, { type: 'MOVE_KID' })
+    deepStrictEqual(seen.at(-1), { label: 'first', at: 'b' })
+    strictEqual(Object.hasOwn(held.value!.data, 'opt'), true)
+    // Self-transition stops and restarts `kid` in the same step: mirror, subscriber, and StepLog must all see the fresh child.
+    sys.send(h, { type: 'REOPEN', label: 'second' })
+    deepStrictEqual(seen.at(-1), { label: 'second', at: 'a' })
+    strictEqual(Object.hasOwn(held.value!.data, 'opt'), false)
+    const step1 = logs.at(-1)!.changed['host/kid']!
+    strictEqual(step1.moved, true)
+    strictEqual(step1.making, false)
+    deepStrictEqual([...step1.fields].sort(), ['label', 'opt'])
+    // Restarting again while `kid` is ALREADY at `a`: `moved` is false and `fixed` is still omitted from fields.
+    sys.send(h, { type: 'REOPEN', label: 'third' })
+    const step2 = logs.at(-1)!.changed['host/kid']!
+    strictEqual(step2.moved, false)
+    strictEqual(step2.making, false)
+    deepStrictEqual([...step2.fields], ['label'])
+    // Restarting and then closing in the same step leaves `kid` absent (no crash in diff).
+    sys.send(h, { type: 'REOPEN_AND_CLOSE', label: 'fourth' })
+    strictEqual(held.value, undefined)
+    held.stop()
+
+    // Also verify a restarted child that declares `makes` updates `making` in both mirror and StepLog.
+    const svc = reaching<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
+    const maker = svc<{ data: { label: string }; makes: { save: 'one' } }, { type: 'GO' }>()({
+      data: { label: given },
+      makes: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), ended: () => undefined }) }),
+      on: { GO: (_, { make }) => { make('save') } },
+    })
+    const makerHost = svc<{ states: { open: { data: { label?: string }; starts: { kid: typeof maker } } } }, { type: 'GO' } | { type: 'REOPEN'; label: string }>()({
+      start: 'open',
+      states: {
+        open: {
+          data: { label: 'one' },
+          starts: (start) => ({ kid: start(maker, { given: (d) => ({ label: d.label ?? 'one' }) }) }),
+          on: {
+            GO: (_, { tell, child: of }) => { tell(of('kid'), { type: 'GO' }) },
+            REOPEN: ({ label }) => ({ at: 'open', data: { label } }),
+          },
+        },
+      },
+    })
+    const mLogs: Array<{ changed: Record<string, { making: boolean }> }> = []
+    const mSys = system({ side: 'window', log: (step) => mLogs.push(step) })
+    mSys.attach({ tell: () => {}, ask: () => () => {}, follow: () => ({ stop: () => {} }) })
+    const mh = mSys.start('mh', makerHost)
+    const mk = mirror(mSys, mSys.child(mh, 'kid'))
+    mSys.send(mh, { type: 'GO' })
+    strictEqual(mk.value?.making.save, true)
+    mSys.send(mh, { type: 'REOPEN', label: 'two' })
+    strictEqual(mk.value?.making.save, false)
+    strictEqual(mLogs.at(-1)!.changed['mh/kid']?.making, true)
+    mk.stop()
+    mSys.stop()
+  }],
+  ['mirrors unsubscribes from the system when its last reader stops, and re-subscribes when a new one starts', () => {
+    const sys = system({ side: 'window' })
+    const h = sys.start('threads', threads)
+    let subscribes = 0
+    let unsubscribes = 0
+    const spied = Object.assign(Object.create(Object.getPrototypeOf(sys)), sys, {
+      subscribe: (...args: Parameters<typeof sys.subscribe>) => {
+        subscribes++
+        const off = sys.subscribe(...args)
+        return () => { unsubscribes++; off() }
+      },
+    }) as typeof sys
+    const m1 = mirror<Value<Shape>>(spied, h)
+    const m2 = mirror<Value<Shape>>(spied, h)
+    strictEqual(subscribes, 1)
+    strictEqual(unsubscribes, 0)
+    m1.stop()
+    strictEqual(unsubscribes, 0)
+    m2.stop()
+    strictEqual(unsubscribes, 1)
+    const m3 = mirror<Value<Shape>>(spied, h)
+    strictEqual(subscribes, 2)
+    sys.send(h, { type: 'COUNT' })
+    strictEqual(m3.value.data.count, 1)
+    m3.stop()
+    strictEqual(unsubscribes, 2)
+  }],
+  ['a mirror deletes a removed substate field named after an Object.prototype key instead of copying the prototype method', () => {
+    const protoState = state<{ states: { plain: {}; withProto: { data: { toString: string } } } }, { type: 'ENTER' } | { type: 'LEAVE' }>()({
+      start: 'plain',
+      states: {
+        plain: { on: { ENTER: () => ({ at: 'withProto', data: { toString: 'custom' } }) } },
+        withProto: { data: { toString: given }, on: { LEAVE: () => ({ at: 'plain' }) } },
+      },
+    })
+    const sys = system({ side: 'window' })
+    const h = sys.start('p', protoState)
+    const held = mirror(sys, h)
+    sys.send(h, { type: 'ENTER' })
+    strictEqual((held.value.data as Record<string, unknown>).toString, 'custom')
+    sys.send(h, { type: 'LEAVE' })
+    strictEqual(Object.hasOwn(held.value.data, 'toString'), false)
+    held.stop()
+  }],
   ['a showing window waits for its next paint', () => {
     const page = fakePage()
     const ran: string[] = []

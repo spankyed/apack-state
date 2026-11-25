@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, reaching } from '../src/index.ts'
+import { given, reaching, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
@@ -214,6 +214,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const it = wired()
     it.send({ type: 'SPIN' })
     ok(it.traced.some((line) => line.includes('a step was cut short after 10000 things, at panel')))
+    strictEqual(it.traced.filter((line) => line.startsWith('DEFECT')).length, 1)
     const spun = it.count()
     ok(spun >= 10_000, `it counted ${spun}`)
     it.send({ type: 'COUNT' })
@@ -250,6 +251,111 @@ const checks: Array<[string, () => Promise<void>]> = [
     const fine = sys.start('fine', brokenAtOnce)
     strictEqual(sys.read(fine).data.n, 0)
     deepStrictEqual(defects.filter((line) => !line.includes('nowhere to go')), [])
+  }],
+  ['a failed declaration does not leak its ref into the next step log', async () => {
+    const logs: Array<{ changed: Record<string, unknown> }> = []
+    const sys = system({ side: 'backend', log: (step) => logs.push(step) })
+    const declaredBadly = { def: { data: { n: 0 }, starts: () => { throw new Error('declared badly') } } }
+    throws(() => sys.start('bad', declaredBadly as never), /declared badly/)
+    const fine = state<{ data: { n: number } }, never>()({ data: { n: 0 } })
+    sys.start('fine', fine)
+    deepStrictEqual(Object.keys(logs.at(-1)!.changed), ['fine'])
+  }],
+  ['cutting a runaway step short settles every queued and held ask and leaves the system idle', async () => {
+    const localState = reaching<{
+      systems: {
+        spinner: { events: { type: 'SPIN' }; asks: { PING: { args: {}; answer: string } } }
+        spinAsk: { events: { type: 'STEP' }; asks: { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } } }
+      }
+      surfaces: {}
+      views: {}
+    }>()
+    const sys = system({ side: 'backend' })
+    const spinner = localState<{ data: { n: number } }, { type: 'SPIN' }, { PING: { args: {}; answer: string } }>()({
+      data: { n: 0 },
+      on: {
+        SPIN: (_, { data, send }) => {
+          send({ type: 'SPIN' })
+          return { data: { n: data.n + 1 } }
+        },
+      },
+      asks: { PING: () => 'pong' },
+    })
+    sys.start('spinner', spinner)
+    let heldOutcome: unknown
+    let queuedOutcome: unknown
+    const launcher = localState<{}, never, { GO: { args: {}; answer: string } }>()({
+      asks: {
+        GO: async (_, { ask, tell }) => {
+          const p1 = ask('spinner', 'PING', {})
+          const p2 = ask('ghost' as never, 'PING', {})
+          tell('spinner', { type: 'SPIN' })
+          ;[queuedOutcome, heldOutcome] = await Promise.all([p1, p2])
+          return 'started'
+        },
+      },
+    })
+    const lh = sys.start('launcher', launcher)
+    const res = await sys.ask(lh, 'GO', {})
+    await rest()
+    strictEqual(res.ok, true)
+    strictEqual(sys.idle(), true)
+    ok(queuedOutcome !== undefined)
+    ok(heldOutcome !== undefined && !(heldOutcome as { ok: boolean }).ok && (heldOutcome as { failure: { kind: string } }).failure.kind === 'unavailable', JSON.stringify(heldOutcome))
+
+    // Also verify when the RUNAWAY boundary lands directly on an ask item AND another ask sits behind it in `inside`.
+    const askOutcomes: unknown[] = []
+    const spinAsk = localState<{ data: { n: number } }, { type: 'STEP' }, { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } }>()({
+      data: { n: 0 },
+      on: { STEP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
+      asks: {
+        PING: () => 'pong',
+        FLOOD: async (_, { ask, send }) => {
+          for (let i = 0; i < 10_000; i++) send({ type: 'STEP' })
+          const [a, b] = await Promise.all([ask('spinAsk', 'PING', {}), ask('spinAsk', 'PING', {})])
+          askOutcomes.push(a, b)
+          return 'ok'
+        },
+      },
+    })
+    const sah = sys.start('spinAsk', spinAsk)
+    await sys.ask(sah, 'FLOOD', {})
+    await rest()
+    strictEqual(sys.idle(), true)
+    strictEqual(askOutcomes.length, 2)
+    for (const outcome of askOutcomes) {
+      const f = (outcome as { ok: false; failure: { kind: string; message: string } }).failure
+      ok(!(outcome as { ok: boolean }).ok && f.kind === 'unavailable' && /cut short/.test(f.message), JSON.stringify(outcome))
+    }
+
+    // Also verify when matchStale() after RUNAWAY starts a child whose run() queues an ask: cutShort turns it away cleanly without a second defect.
+    const prDefects: string[] = []
+    const prSys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) prDefects.push(line) } })
+    prSys.start('spinAsk', spinAsk)
+    let childAskOutcome: unknown
+    const postRunawayChild = localState<{}, never>()({
+      run: async ({ ask }) => {
+        childAskOutcome = await ask('spinAsk', 'PING', {})
+      },
+      failed: () => undefined,
+    })
+    const postRunawayHost = localState<{ data: { kids: string[] }; starts: { kid: Each<typeof postRunawayChild> } }, { type: 'GO' } | { type: 'NOOP' }>()({
+      data: { kids: [] },
+      starts: (start) => ({ kid: start(postRunawayChild, { each: 'kids', given: () => ({}) }) }),
+      on: {
+        GO: (_, { send }) => {
+          for (let i = 0; i < 10_005; i++) send({ type: 'NOOP' })
+          return { data: { kids: ['a'] } }
+        },
+        NOOP: () => undefined,
+      },
+    })
+    const prh = prSys.start('postRunaway', postRunawayHost)
+    prSys.send(prh, { type: 'GO' })
+    await rest()
+    strictEqual(prSys.idle(), true)
+    strictEqual(prDefects.length, 1)
+    ok(childAskOutcome !== undefined && !(childAskOutcome as { ok: boolean }).ok && (childAskOutcome as { failure: { kind: string; message: string } }).failure.kind === 'unavailable' && /cut short/.test((childAskOutcome as { failure: { message: string } }).failure.message), JSON.stringify(childAskOutcome))
   }],
   // ── what code a state declares throws, and what is thrown that is not an Error ──────────────────────────────────
 
