@@ -210,7 +210,8 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 
 - **What began it, and everything after**: each thing handled in order, as its kind (an event, an ask, a view's
   result, how a read or write ended, what a state's work found), the state, and the name it was declared or sent by.
-  An event a state sent itself is marked `own`.
+  An event a state sent itself is marked `own`. When the system is given a `clock`, `now` stamps when the step began,
+  and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   what it is making changed.
 - **What left at the commit**, in order: answers, with `ok` or the failure's kind; progress; tells, asks, broadcasts,
@@ -239,7 +240,8 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **Work has one owner and stops when its owner does.** A state's `run` is the state's. An ask is the asker's. What a
   state starts, follows, awaits or makes is that state's.
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
-- **An ask whose asker has gone throws `Left` where it is awaited**, so `finally` runs and what was held is let go.
+- **An ask or `sleep` whose owner has gone throws `Left` where it is awaited**, so `finally` runs and what was held is let go.
+- **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
 - **Nothing depends on itself in a circle.** What a view delivers, or how a read ended, may not change a field it is
   itself asked from.
 - **Every ordering is checked, not the one that happened.** A schedule stands in for the event loop and runs a

@@ -1248,8 +1248,12 @@ projects. Each would loosen the fit to this app.
     things are not checked: whether a bare write at the top of a state's own work is inside a unit (the create and
     update steps make one), and a flow's events, which are made from its trigger nodes as it starts and need one
     declared event that says which was heard.
-- **Delayed transitions and history states** are absent. The app uses one delayed transition and no history states.
-  A delay, when there is one, goes through the kernel's `later` so that a schedule can choose when it fires.
+- **Delayed transitions and history states.** History states are absent (the app uses none). Monotonic delays and
+  step-stamped time are built: a system takes a structural `Clock` (`now` and `after`, matching `@apackdev/clock`'s
+  `controller.clock` and `@apackdev/orderings`'s `schedule.clock` via `onSchedule(schedule)`), stamps `StepLog.now`
+  and `scope.now` once per step, and offers `scope.sleep(ms)` in `run` and `asks` with cancellation on exit or
+  completion. Wall-clock deadlines (`until(wallTime)`) are [deferred](deferred/wall-deadlines.md) until kept states
+  arrive.
 - **The kernel's own rough edge.** Reading a state that has ended throws.
 
 ## Costs

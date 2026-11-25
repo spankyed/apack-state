@@ -213,6 +213,13 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   readonly data: Read<DataAt<R, H>>
   /** The whole value, as it is now. */
   readonly snapshot: Value<R>
+  /**
+   * The time in milliseconds since 1970, from the clock the system was given. Inside a step (a handler, or the
+   * synchronous start of `run` or an ask's handler), this is the step's stamped time, recorded in `StepLog.now` so
+   * handlers stay pure and replayable. In `run` or an ask's handler after an `await`, it reads the clock live: that
+   * read is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
+   */
+  readonly now: number
   /** Aborted when this state stops being the case. For an ask, also when whoever asked has gone. */
   readonly signal: AbortSignal
 
@@ -270,14 +277,19 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   child<K extends keyof StartsAt<R, H> & string>(name: K, ...key: StartsAt<R, H>[K] extends Each<any> ? [key: string] : []): HandleOf<StartsAt<R, H>[K]>
   /** Released, last first, when this state stops being the case. */
   use(release: () => void): void
+  /**
+   * Waits `ms` milliseconds on the clock's monotonic timer. Cancels and throws `Left` when this state stops being
+   * the case, when whoever asked has gone, or when the work that started it finishes.
+   */
+  sleep(ms: number): Promise<void>
 }
 
 /**
- * What an event's handler is given: everything but `ask`. A handler is synchronous and cannot await an answer, and
- * an ask it only started would end, if its state were left, with nothing around it to take that. Asking is for `run`
- * and for an ask's handler, which the kernel is around.
+ * What an event's handler is given: everything but `ask` and `sleep`. A handler is synchronous and cannot await, and
+ * an ask or sleep it only started would end, if its state were left, with nothing around it to take that. Asking and
+ * sleeping are for `run` and for an ask's handler, which the kernel is around.
  */
-export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask'>
+export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep'>
 
 export interface AskScope<R, H extends string, E extends AnyEvent, N extends Net, A extends AskShape> extends Scope<R, H, E, N> {
   /**

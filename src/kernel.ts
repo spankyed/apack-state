@@ -21,17 +21,18 @@
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
-import type { Following, Lane, Port, PortOutcome } from './port.ts'
+import type { Clock, Following, Lane, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * What an ask is ended with when whoever made it has gone: the state that asked was left, or the system stopped.
- * It is raised where the ask is awaited, as cancellation is everywhere else, so that `finally` runs and what was
- * held is released. The kernel discards it at the top of `run` and of an ask's handler; nothing has to catch it.
+ * What an ask or a `sleep` is ended with when its owner has gone: the state was left, whoever asked has gone, the
+ * work that started it finished, or the system stopped. It is raised where it is awaited, as cancellation is
+ * everywhere else, so that `finally` runs and what was held is released. The kernel discards it at the top of `run`
+ * and of an ask's handler; nothing has to catch it.
  */
 export class Left extends Error {
-  constructor(what: string) { super(`${what} was left before this ask was answered`); this.name = 'Left' }
+  constructor(what: string) { super(`${what} was left before it finished`); this.name = 'Left' }
 }
 
 /**
@@ -145,6 +146,8 @@ export interface Sent {
 export interface StepLog {
   /** This system's steps, counted from 1. */
   readonly number: number
+  /** When this step began, in milliseconds since 1970, if the system was given a clock. */
+  readonly now?: number
   /** `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it ran away. */
   readonly ended: 'committed' | 'lost' | 'cut short'
   /** Everything it handled, in order: the first is what began it. */
@@ -220,6 +223,11 @@ export function system(host: {
   /** Told of each step once it has ended: what it handled, what it changed, and what left. Never a payload. */
   log?(step: StepLog): void
   /**
+   * The clock this system takes `now` and `sleep` from (`new ClockController().clock` from `@apackdev/clock`, or
+   * `schedule.clock` via `onSchedule(schedule)`). Without one, reading `now` or calling `sleep` throws.
+   */
+  clock?: Clock
+  /**
    * How many steps it will take before it takes no more. For a check, so that a kernel that never comes to rest is
    * heard from. The app gives none: one thing leading to the next for as long as it runs is what an agent's loop is.
    */
@@ -257,7 +265,7 @@ export function system(host: {
   const answeringOf = new WeakMap<Question, Active>()
   const abandoned = new WeakSet<Question>()
   /** The step being logged: what it has handled, and, once it ends, what changed and what left. */
-  let logging: { handled: Handled[]; changed: StepLog['changed']; left: Sent[]; ended: StepLog['ended'] } | undefined
+  let logging: { now?: number; handled: Handled[]; changed: StepLog['changed']; left: Sent[]; ended: StepLog['ended'] } | undefined
   let logged = 0
   /** Thrown inside a unit to have what it wrote undone, and caught around it. */
   const UNDONE = Symbol('undone')
@@ -443,24 +451,51 @@ export function system(host: {
     }, { kind: 'ask', to: ref, name }, () => abandon(question))
   }))
 
-  const scopeOf = (mine: Active, signal: AbortSignal = mine.controller.signal) => {
+  let lastNow: number | undefined
+  let stepNow: number | undefined
+  const readNow = (): number => {
+    if (!host.clock) throw new Error(`${called} was given no clock; pass clock to system()`)
+    const raw = host.clock.now()
+    if (!Number.isFinite(raw)) throw new RangeError(`${called}'s clock returned a non-finite time: ${String(raw)}`)
+    lastNow = lastNow === undefined ? raw : Math.max(lastNow, raw)
+    return lastNow
+  }
+  const sleep = (ms: number, signal: AbortSignal): Promise<void> => {
+    const clock = host.clock
+    if (!clock) return Promise.reject(new Error(`${called} was given no clock; pass clock to system()`))
+    if (!Number.isFinite(ms)) return Promise.reject(new RangeError(`${called}'s sleep delay must be finite: ${String(ms)}`))
+    return asked(new Promise<void>((resolve, reject) => {
+      if (signal.aborted) { reject(new Left('sleep')); return }
+      let fired = false
+      let cancel!: () => void
+      const aborted = (): void => { safely('cancelling a sleep', cancel); reject(new Left('sleep')) }
+      try {
+        cancel = clock.after(ms, () => {
+          fired = true
+          signal.removeEventListener('abort', aborted)
+          resolve()
+        })
+      } catch (error) {
+        reject(error)
+        return
+      }
+      if (!fired) signal.addEventListener('abort', aborted)
+    }))
+  }
+
+  const eventScopeOf = (mine: Active, key?: string) => {
     const alive = (): boolean => !mine.controller.signal.aborted
     const ref = mine.top.ref
-    return {
+    const scope = {
       get data() { return mine.top.data },
       get snapshot() { return valueOf(mine.top) },
-      signal,
+      get now() { return stepNow ?? readNow() },
+      signal: mine.controller.signal,
       send: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
       tell: (to: string | { ref: string } | { surface: string }, event: AnyEvent) => { if (alive()) tell(to, event) },
-      ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
-        const asked = ask(to, name, args, signal, hears)
-        // An ask that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
-        asked.catch(() => {})
-        return asked
-      },
       broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) },
-      make: (name: string, key?: string) => { if (alive()) enqueue({ kind: 'make', of: mine, name, key }) },
-      drop: (name: string, key?: string) => { if (alive()) enqueue({ kind: 'drop', of: mine, name, key }) },
+      make: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'make', of: mine, name, key: k }) },
+      drop: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'drop', of: mine, name, key: k }) },
       report: (event: AnyEvent) => {
         if (!alive()) return
         const starter = mine.top.starter
@@ -468,10 +503,26 @@ export function system(host: {
         enqueue({ kind: 'event', ref: starter.ref, event: { ...event, from: starter.from } as AnyEvent })
       },
       read: (target: { ref: string }) => valueOf(running.get(target.ref)!),
-      child: (name: string, key?: string) => ({ ref: key === undefined ? `${ref}/${name}` : `${ref}/${name}/${key}` }),
+      child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
       use: (release: () => void) => { mine.releases.push(release) },
     }
+    return key === undefined ? scope : Object.assign(scope, { key })
   }
+  const workScopeOf = (mine: Active, signal: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine), {
+    signal,
+    ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
+      const asked = ask(to, name, args, signal, hears)
+      // An ask that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
+      asked.catch(() => {})
+      return asked
+    },
+    sleep: (ms: number) => {
+      const waiting = sleep(ms, workSignal)
+      // A sleep that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
+      waiting.catch(() => {})
+      return waiting
+    },
+  })
 
   const enter = (top: Running, def: LooseDef, name: string, around: Active | undefined, entering: Plain): Active => {
     const path = around?.path ? `${around.path}.${name}` : name
@@ -483,15 +534,25 @@ export function system(host: {
       else top.data = { ...top.data, [field]: initial }
     }
     if (path) trace(`${top.ref} entered ${path}`)
-    let made: unknown
-    // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
-    // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
-    const begin = (): void => { made = def.run?.(scopeOf(active)) }
-    const before = sayings()
-    try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); inside.push({ kind: 'failure', of: active, error }); return active }
-    if (made instanceof Promise) {
-      under(made, (value) => arrive({ kind: 'result', of: active, value }), (error) => arrive({ kind: 'failure', of: active, error }))
-    } else if (made !== undefined) inside.push({ kind: 'result', of: active, value: made })
+    if (def.run) {
+      const own = new AbortController()
+      const workSignal = AbortSignal.any([active.controller.signal, own.signal])
+      let made: unknown
+      // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
+      // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
+      const begin = (): void => { made = def.run!(workScopeOf(active, active.controller.signal, workSignal)) }
+      const before = sayings()
+      try { if (host.transact) host.transact(begin); else begin() } catch (error) { own.abort(); unsay(before); inside.push({ kind: 'failure', of: active, error }); return active }
+      if (made instanceof Promise) {
+        under(made,
+          (value) => { own.abort(); arrive({ kind: 'result', of: active, value }) },
+          (error) => { own.abort(); arrive({ kind: 'failure', of: active, error }) },
+        )
+      } else {
+        own.abort()
+        if (made !== undefined) inside.push({ kind: 'result', of: active, value: made })
+      }
+    }
     return active
   }
 
@@ -836,8 +897,7 @@ export function system(host: {
     trace(`${where} failed: ${said(error)}`)
     const failed = active.def.failed
     if (!failed) { trace(`DEFECT: ${where} says nowhere to go when its work fails, and stays as it is`); return MADE }
-    const { ask: _, ...scope } = scopeOf(active)
-    try { return apply(active, failed(error, scope)) } catch (thrown) { trace(`DEFECT: ${where}'s failed threw: ${said(thrown)}`); return NOT_MADE }
+    try { return apply(active, failed(error, eventScopeOf(active))) } catch (thrown) { trace(`DEFECT: ${where}'s failed threw: ${said(thrown)}`); return NOT_MADE }
   }
 
   /**
@@ -898,9 +958,8 @@ export function system(host: {
     if (item.kind === 'view') {
       const followed = declaredBy(item.of.def).follows[item.name]
       if (!followed || item.of.controller.signal.aborted) return MADE
-      const { ask: _, ...scope } = scopeOf(item.of)
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.of.following.get(item.id)?.because ?? new Set() }
-      try { return apply(item.of, followed.heard(item.update, item.key === undefined ? scope : { ...scope, key: item.key })) } catch (error) {
+      try { return apply(item.of, followed.heard(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
         trace(`DEFECT: ${item.of.top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`)
         return NOT_MADE
       }
@@ -948,8 +1007,7 @@ export function system(host: {
       const declared = table[item.name]
       if (!declared || item.of.controller.signal.aborted || live.get(item.id) !== item.live) return MADE
       const top = item.of.top
-      const { ask: _, ...scope } = scopeOf(item.of)
-      const given = item.key === undefined ? scope : { ...scope, key: item.key }
+      const given = eventScopeOf(item.of, item.key)
       // What a read delivers may not lead round to itself. An ask that was made once has nothing to come round to.
       hearing = item.made ? undefined : { id: `${top.ref}#${item.id}`, because: item.live.because }
       if (item.kind === 'progressed') {
@@ -987,9 +1045,8 @@ export function system(host: {
           : `${item.ref} ignored ${item.event.type}`)
         return MADE
       }
-      const { ask: _, ...scope } = scopeOf(found.of)
       // A handler that throws changes nothing: the state is as it was before the event, which it could handle.
-      try { return apply(found.of, found.handler(item.event, scope)) } catch (error) {
+      try { return apply(found.of, found.handler(item.event, eventScopeOf(found.of))) } catch (error) {
         trace(`DEFECT: ${item.ref} threw handling ${item.event.type}, and nothing changed: ${said(error)}`)
         return NOT_MADE
       }
@@ -998,6 +1055,9 @@ export function system(host: {
     askedOf.set(question, { ref: item.ref, name })
     const found = top && taker(top, 'asks', name)
     if (!found) { answer(question, refusal('unavailable', `${item.ref} does not take ${name}`)); return MADE }
+    const signal = gone ? AbortSignal.any([found.of.controller.signal, gone]) : found.of.controller.signal
+    const own = new AbortController()
+    const workSignal = AbortSignal.any([signal, own.signal])
     const failed = (error: unknown): AnyOutcome => {
       if (error instanceof Refusal) return refusal(error.kind, error.message, error.data)
       // The handler was itself asking, and whoever asked it went: it stopped answering, it did not fail.
@@ -1009,28 +1069,27 @@ export function system(host: {
       trace(`${item.ref} failed answering ${name}: ${message}`)
       return refusal('failed', message)
     }
-    const signal = gone ? AbortSignal.any([found.of.controller.signal, gone]) : found.of.controller.signal
     try {
-      const made = found.handler(args, {
-        ...scopeOf(found.of, signal),
+      const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, workSignal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
         progress: (update: unknown) => { if (!signal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
-      })
+      }))
       if (made instanceof Promise) {
         found.of.questions.add(question)
         answeringOf.set(question, found.of)
         under(made,
-          (value) => arrive(isAnswered(value) ? { kind: 'answer', question, outcome: { ok: true, value: value.answer }, change: { of: found.of, next: value.next } } : { kind: 'answer', question, outcome: { ok: true, value } }),
-          (error) => arrive({ kind: 'answer', question, outcome: failed(error) }),
+          (value) => { own.abort(); arrive(isAnswered(value) ? { kind: 'answer', question, outcome: { ok: true, value: value.answer }, change: { of: found.of, next: value.next } } : { kind: 'answer', question, outcome: { ok: true, value } }) },
+          (error) => { const outcome = failed(error); own.abort(); arrive({ kind: 'answer', question, outcome }) },
         )
         // What it wrote before it waited is kept: it answers in a later step, and this one is made.
         return MADE
       } else {
+        own.abort()
         const outcome: AnyOutcome = isAnswered(made) ? withChange(found.of, made.next, { ok: true, value: made.answer }) : { ok: true, value: made }
         answer(question, outcome)
         return outcome.ok
       }
-    } catch (error) { answer(question, failed(error)); return NOT_MADE }
+    } catch (error) { const outcome = failed(error); own.abort(); answer(question, outcome); return NOT_MADE }
   }
 
   /**
@@ -1102,7 +1161,6 @@ export function system(host: {
     if (broken) { turnAway(inside, STOPPED); turnAway(outside, STOPPED); return }
     stepping = true
     const log = host.log
-    logging = log ? { handled: [], changed: {}, left: [], ended: 'committed' } : undefined
     // Whether everything was handled. A throw before that is the kernel's own; one after is the database not keeping it.
     let handled = false
     const all = (): void => {
@@ -1132,6 +1190,8 @@ export function system(host: {
       handled = true
     }
     try {
+      stepNow = host.clock ? readNow() : undefined
+      logging = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, left: [], ended: 'committed' } : undefined
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {
         // The kernel's own throw: not a step that ended any way a log says, and not logged.
@@ -1141,7 +1201,7 @@ export function system(host: {
       }
       commit()
     } finally {
-      stepping = false; hearing = undefined
+      stepping = false; stepNow = undefined; hearing = undefined
       const told = logging
       logging = undefined
       if (log && told) safely('the step log', () => log({ number: ++logged, ...told }))

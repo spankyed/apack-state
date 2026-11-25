@@ -6,7 +6,7 @@
 // the schedule chooses the order between them; `everyOrder` runs every one, and `sample` a seed's worth.
 import type { Lane } from './port.ts'
 import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
-import { sample, type Schedule } from '@apackdev/orderings'
+import { sample, type Clock, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Shape, State, Value } from './types.ts'
 import { system as kernel, type System } from './kernel.ts'
 
@@ -44,12 +44,13 @@ export function connect(window: System, backend: System, schedule?: Pick<Schedul
 }
 
 /**
- * What a system is given to run on a schedule: what it puts off goes into the lanes it names, and its frames into a
- * lane of their own, so the schedule chooses when each runs. Spread into `system({ side, ...onSchedule(schedule) })`.
+ * What a system is given to run on a schedule: what it puts off goes into the lanes it names, its frames into a
+ * lane of their own, and its clock is the schedule's clock, so the schedule chooses when each runs. Spread into
+ * `system({ side, ...onSchedule(schedule) })`.
  */
-export function onSchedule(schedule: Schedule, name = 'a system'): { later(lane: Lane, run: () => void): void; frame(run: () => void): void } {
+export function onSchedule(schedule: Schedule, name = 'a system'): { later(lane: Lane, run: () => void): void; frame(run: () => void): void; clock: Clock } {
   const frames: Lane = { label: `${name}'s frame` }
-  return { later: (lane, run) => schedule.later(lane, run), frame: (run) => schedule.later(frames, run) }
+  return { later: (lane, run) => schedule.later(lane, run), frame: (run) => schedule.later(frames, run), clock: schedule.clock }
 }
 
 /** Numbers drawn from a seed: the same seed, the same draws. */

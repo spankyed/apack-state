@@ -116,6 +116,12 @@ export interface Changes {
     readonly moved: boolean;
 }
 
+// @public
+export interface Clock {
+    after(ms: number, run: () => void): () => void;
+    now(): number;
+}
+
 // Warning: (ae-forgotten-export) The symbol "Work" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "DataOf" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "MakesOf" needs to be exported by the entry point index.d.ts
@@ -180,7 +186,7 @@ export interface EachOf<D, X> {
 }
 
 // @public
-export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask'>;
+export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep'>;
 
 // @public
 export interface Failure {
@@ -416,11 +422,13 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
     drop<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void;
     // Warning: (ae-forgotten-export) The symbol "MakesAt" needs to be exported by the entry point index.d.ts
     make<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void;
+    readonly now: number;
     read<V2>(of: Handle<V2, never, Asks>): V2;
     // Warning: (ae-forgotten-export) The symbol "ReportsOf" needs to be exported by the entry point index.d.ts
     report(event: Read<ReportsOf<R>>): void;
     send(event: Read<E | InternalOf<R>>): void;
     readonly signal: AbortSignal;
+    sleep(ms: number): Promise<void>;
     readonly snapshot: Value<R>;
     tell<K extends SystemsOf<N>>(to: K, event: Read<N['systems'][K]['events']>): void;
     // (undocumented)
@@ -495,6 +503,7 @@ export interface StepLog {
     readonly ended: 'committed' | 'lost' | 'cut short';
     readonly handled: readonly Handled[];
     readonly left: readonly Sent[];
+    readonly now?: number;
     readonly number: number;
 }
 
@@ -530,6 +539,7 @@ export function system(host: {
     frame?(run: () => void): void;
     trace?(line: string): void;
     log?(step: StepLog): void;
+    clock?: Clock;
     limit?: number;
 }): System;
 
@@ -594,16 +604,16 @@ export function within<V extends {
 // Warnings were encountered during analysis:
 //
 // .temp/api-types/types.d.ts:219:5 - (ae-forgotten-export) The symbol "MakingOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:408:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:413:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:415:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:420:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:431:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:467:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:630:5 - (ae-forgotten-export) The symbol "Given_" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:630:5 - (ae-forgotten-export) The symbol "AskOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:631:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:631:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:420:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:425:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:427:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:432:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:443:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:479:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:642:5 - (ae-forgotten-export) The symbol "Given_" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:642:5 - (ae-forgotten-export) The symbol "AskOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:643:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:643:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

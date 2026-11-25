@@ -32,3 +32,13 @@ export interface Port {
  * whole of what a schedule may choose.
  */
 export interface Lane { readonly label: string }
+/**
+ * A clock a system takes its time and delays from. Matches `@apackdev/clock`'s `controller.clock` and
+ * `@apackdev/orderings`'s `schedule.clock` structurally with no runtime dependency on either package.
+ */
+export interface Clock {
+  /** Monotonically clamped wall time in milliseconds since 1970. */
+  now(): number
+  /** Runs `run` after `ms` milliseconds on a monotonic timer. Returns what cancels it before it runs. */
+  after(ms: number, run: () => void): () => void
+}
