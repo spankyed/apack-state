@@ -36,14 +36,14 @@ jobs:
         # end however long it grows, and every other file of src/ in one: a file added to src/ is mutated without
         # being named here.
         include:
-          - id: kernel-1-275
-            part: 'src/kernel.ts:1-275'
-          - id: kernel-276-581
-            part: 'src/kernel.ts:276-581'
-          - id: kernel-582-821
-            part: 'src/kernel.ts:582-821'
-          - id: kernel-822-end
-            part: 'src/kernel.ts:822-99999'
+          - id: kernel-1-475
+            part: 'src/kernel.ts:1-475'
+          - id: kernel-476-806
+            part: 'src/kernel.ts:476-806'
+          - id: kernel-807-985
+            part: 'src/kernel.ts:807-985'
+          - id: kernel-986-end
+            part: 'src/kernel.ts:986-99999'
           - id: other
             part: 'src/**/*.ts,!src/kernel.ts'
     steps:

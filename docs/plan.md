@@ -769,8 +769,8 @@ a link while the hold waited for no watch to be behind.
   completes waits until it is left; and killing a flow is something the brain is asked. All fourteen step types
   move with the brain.
 - **Durable is later than committed.** A commit is on disk within a second (group commit). An answer released after
-  a commit and before that can outlive its row through a power cut. A handler whose answer must not says
-  `durable: true`, as `transact` takes today, and its step waits.
+  a commit and before that can outlive its row through a power cut. `transact` takes `durable: true` on elmdb; a
+  handler option to ask a step to wait for durability is deferred until a handler needs it ([Not built](#not-built)).
 - **What a state holds is lost when the process ends; its rows are not.** After a restart a state is rebuilt from
   rows and what it was given, so anything a backend state must not lose is a row. A state that is kept is the
   exception to come ([Not built](#not-built)).
@@ -841,9 +841,10 @@ thing declined here: one transaction over two stores.
 
 ## What the prototype proves
 
-Everything below is in this repository and runs from its root; [files.md](files.md)
-has the commands. Types and kernel together are about 1,600 lines, and the draft 145. What runs, each file
-reporting its own count:
+Everything below is in this repository and runs via `npm test` (28 vitest spec files in Node, 21 in Chromium);
+[files.md](files.md) has the commands. Types and kernel together are about 1,900 lines, and the draft about 180.
+What runs, grouped by topic (the suite has grown since the initial prototype to cover logs, links, clocks, peers,
+the brain slice, the testing kit, graphs, and mutation tooling as well):
 
 | File | Checks | What it holds the kernel to |
 |---|---|---|
@@ -866,8 +867,9 @@ reporting its own count:
 | `checks/rows-property.mts` | 4 properties | The same rule over runs made from a seed, in order and under way together |
 | `checks/views-check.mts` | 10 | A window hears of a step after its views show it |
 
-Five examples run beside them and compare what each step leaves: `examples/search.mts`, `examples/threads.mts`, `examples/views.mts`,
-`examples/commit.mts` and `examples/library.mts`. `vue-tsc` checks a component file with a template.
+Six examples sit beside them: five run and compare what each step leaves (`examples/search.mts`,
+`examples/threads.mts`, `examples/views.mts`, `examples/commit.mts`, and `examples/brain.mts`), and
+`examples/library.mts` typechecks against stand-ins for its imports. `vue-tsc` checks component files with templates.
 
 - **Two real features are ported.** The code search, backend and surface (`examples/search.mts`), runs: results stream, a second
   search aborts the first on the backend, and cancel works. About 167 and 192 non-blank lines become about 39 and 77.

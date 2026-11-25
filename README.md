@@ -6,9 +6,9 @@ package, `@apackdev/state`.
 **A system is states that reach each other by name. Each runs in steps, and a step is kept whole or not at all:
 its data, the rows it wrote, and what it said.**
 
-Status: started, 2026-11-23, from a prototype that was grown beside a plan in apack's repository. What is here is
-that prototype's kernel and everything that holds it to what it says. Nothing in apack uses it yet, and the layout
-and API are the prototype's, not yet a package's: files are `.mts`, and checks are scripts, not specs.
+Status: packaged as `@apackdev/state` (`.`, `./vue`, `./testing`), with zero runtime dependencies, Node and Chromium
+browser specs, TypeScript 5.7+ floor checking, API Extractor reports, and mutation testing. Nothing in apack has
+switched over yet; releases are installed by GitHub tarball URL (`pkg-<commit>`).
 
 ## Where to start
 
@@ -22,15 +22,18 @@ and API are the prototype's, not yet a package's: files are `.mts`, and checks a
 
 | Folder | Holds |
 |---|---|
-| `src/` | The package: the types a state is checked against (`types.ts`) and the kernel (`kernel.ts`), drafts, the mirror a component reads, the Vue binding, and the schedule that runs a scenario under every ordering |
-| `checks/` | What holds the kernel to what it says, each file a script that exits non-zero when something does not hold. Rows are checked in memory and on [elmdb](https://github.com/spankyed/elmdb) |
-| `examples/` | Parts of apack ported to it: search, commit, threads, views, the library system |
-| `measure/` | What things cost. These print, and refuse nothing |
+| `src/` | The package: types (`types.ts`), kernel (`kernel.ts`), port/clock contracts (`port.ts`), drafts (`draft.ts`), Vue mirror and binding (`mirror.ts`, `vue.ts`), testing kit (`testing.ts`), window framing (`window-frame.ts`), and turn helper (`turn.ts`) |
+| `checks/` | Vitest specs holding the kernel to what it says (run in Node and Chromium). Rows are checked in memory and on [elmdb](https://github.com/spankyed/elmdb) |
+| `type-tests/` | Compile-time `@ts-expect-error` and positive type checks, including Vue templates checked with `vue-tsc` |
+| `examples/` | Parts of apack ported to it: search, commit, threads, views, the brain slice, and the library system |
+| `etc/` | API Extractor reports (`*.api.md`) and derived example graphs (`graphs/*.txt`) |
+| `measure/` | Benchmarks (`npm run bench`, recorded in `bench/`) |
 | `surveys/` | Scripts that read an apack checkout: how it uses XState, and where it writes to the database |
 | `tools/` | A state's graph, derived from its types |
 
-It is one of three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps the rows a step writes, and
-[apack-link](https://github.com/spankyed/apack-link) carries what states say between a backend and its windows.
+It works with three siblings: [elmdb](https://github.com/spankyed/elmdb) keeps the rows a step writes,
+[apack-link](https://github.com/spankyed/apack-link) carries what states say between a backend and its windows, and
+[apack-orderings](https://github.com/spankyed/apack-orderings) drives exhaustive interleaving schedules.
 
 ## Checking a pack's states
 
