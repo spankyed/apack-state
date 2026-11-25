@@ -20,7 +20,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ export interface StepLog {
 export interface Changes { readonly moved: boolean; /** Whether what it is making changed. */ readonly making: boolean }
 
 export interface System {
-  start<S extends Shape, E extends AnyEvent, A extends Asks>(ref: string, made: State<S, E, A>): Handle<Value<S>, E, A, AllStarts<S>>
+  start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
   /**
    * A state that this one starts, by the name it is declared under, and by key where there is one for each. This is
    * how something outside a handler reaches one: a component reading one card of many.
@@ -1286,10 +1286,11 @@ export function system(host: {
 
   const self: System = {
     port,
-    start: (ref, made) => {
+    start: (ref, made, ...entering) => {
       let handleOf: { ref: string }
-      if (stepping) handleOf = begin(ref, made.def as LooseDef)
-      else { step(() => { handleOf = begin(ref, made.def as LooseDef) }); pump() }
+      const initial = entering[0] as Plain | undefined
+      if (stepping) handleOf = begin(ref, made.def as LooseDef, initial)
+      else { step(() => { handleOf = begin(ref, made.def as LooseDef, initial) }); pump() }
       return handleOf!
     },
     child: ((of: { ref: string }, name: string, key?: string) => ({ ref: key === undefined ? `${of.ref}/${name}` : `${of.ref}/${name}/${key}` })) as unknown as System['child'],

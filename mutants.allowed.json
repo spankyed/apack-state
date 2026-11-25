@@ -555,7 +555,7 @@
     "why": "What is waiting inside a system is all taken within the step it was sent in, so at the start of a step past the limit there is never anything inside to turn away, and its message is never given"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (stepping) handleOf = begin(ref, made.def as LooseDef) | false",
+    "key": "src/kernel.ts | ConditionalExpression | if (stepping) handleOf = begin(ref, made.def as LooseDef, initial) | false",
     "original": "stepping",
     "why": "Only a start made inside a step reaches this, which is a start from a subscriber or something else that leaves at a commit. There the state begins in the step that is leaving, whose commit has passed, and is read from the next; the mutant takes a nested step instead. Neither is a behaviour a spec holds: what a start from a subscriber should do is not decided (see the PR)"
   },

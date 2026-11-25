@@ -535,7 +535,7 @@ export interface System {
     send<E extends AnyEvent>(to: Handle<unknown, E, Asks>, event: Read<E>): void;
     snapshot(): Record<string, unknown>;
     // (undocumented)
-    start<S extends Shape, E extends AnyEvent, A extends Asks>(ref: string, made: State<S, E, A>): Handle<Value<S>, E, A, AllStarts<S>>;
+    start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>;
     // (undocumented)
     stop(): void;
     subscribe(listener: (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void): () => void;
