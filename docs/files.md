@@ -36,6 +36,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, and that nothing carried is in it |
 | `checks/clock-check.mts` | A system's clock: step-stamped `now` in handlers and logs, live `now` after an `await` in work, monotonic clamping, no-clock refusals, and `sleep(ms)` cancellation under every ordering. Runs |
 | `checks/peers-check.mts` | Named non-window peers: `attach(name, peer)`, `tell({ peer }, event)` commit-time delivery, `outcome: 'dropped'` logging, `safely` isolation, and no view hold over `@apackdev/link` under every ordering. Runs |
+| `checks/brain-check.mts` | A slice of apack's brain: dynamic trigger nodes via one declared `TRIGGER` event, recursive subflows, commit-time `runHistory` peer facts with `now`, `sleep(ms)` delays, and `KILL_BRAIN` cancellation under every ordering. Runs |
 | `checks/testing-check.mts` | That kit, held to what it says |
 | `src/turn.ts` | The next turn of the event loop, in Node and in a window: what the kernel puts off with when it is given nothing, and what every check waits a turn with |
 | `checks/interleaving-check.mts` | Scenarios run under every ordering: a search over a search, a cancel, a click among progress, a window closing. Runs, for about 7 seconds |
@@ -75,6 +76,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/kernel-check.mts` | What the kernel does with a change to data, a move that edits a draft and the refused edits included. Runs |
 | `checks/draft-check.mts` | The checks a hand-built draft has to pass. Runs |
 | `examples/search.mts` | The app's code search, backend and surface, ported. Runs, and checks what each step leaves |
+| `examples/brain.mts` | A slice of the app's brain ported: recursive flows and subflows, dynamic triggers via one declared `TRIGGER` event, `runHistory` peer, clock `now`/`sleep`, and structured `signal` cancellation. Runs, and checks what each step leaves |
 | `examples/library.mts` | The app's library system ported handler for handler. Typechecks against stand-ins for its imports; not run |
 | `examples/threads.mts` | Three backend systems, a state per thread, and two windows: asks, tells, a reply the thread writes and broadcasts, windows that leave part-way, and a refusal that carries data. Runs, and checks what each step leaves |
 | `examples/views.mts` | A surface following views, modelled on the threads surface: one always, one while a thread is open, one per tab. Runs, and checks what is followed after each step |

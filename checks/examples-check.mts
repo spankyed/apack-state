@@ -8,7 +8,7 @@ import { expect, it } from 'vitest'
 const root = join(import.meta.dirname, '..')
 const tsx = join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 
-for (const name of ['commit', 'search', 'threads', 'views']) {
+for (const name of ['brain', 'commit', 'search', 'threads', 'views']) {
   it(`examples/${name}.mts runs, and each step leaves what it says`, () => {
     // Waits for the process to exit, whatever it does.
     const ran = spawnSync(process.execPath, [tsx, join('examples', `${name}.mts`)], { cwd: root, encoding: 'utf8' })

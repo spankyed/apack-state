@@ -1246,10 +1246,12 @@ projects. Each would loosen the fit to this app.
     checked against the first ported feature that does both, since what is to be found again differs by feature.
   - *The brain*, whose decisions are under [What it does not cover](#what-it-does-not-cover): the run history a
     peer that is told and not written, a step type's handler returning its result, and an action keeping units of
-    its own. Two
-    things are not checked: whether a bare write at the top of a state's own work is inside a unit (the create and
-    update steps make one), and a flow's events, which are made from its trigger nodes as it starts and need one
-    declared event that says which was heard.
+    its own. A scripted slice in `examples/brain.mts` and `checks/brain-check.mts` exercises dynamic trigger events
+    (handled through one declared `TRIGGER` event), recursive subflows (`starts`), commit-time `runHistory` peer facts
+    with step-stamped `now`, `sleep(ms)` delays, failing steps, a final step stopping its siblings, and `KILL_BRAIN`
+    cancellation. Left to check when porting the real brain: crash mid-step and recovery, database intent rows and
+    whether a bare write at the top of a state's own work is inside a unit (the create and update steps make one), and
+    real step executors / model calls.
 - **Delayed transitions and history states.** History states are absent (the app uses none). Monotonic delays and
   step-stamped time are built: a system takes a structural `Clock` (`now` and `after`, matching `@apackdev/clock`'s
   `controller.clock` and `@apackdev/orderings`'s `schedule.clock` via `onSchedule(schedule)`), stamps `StepLog.now`
