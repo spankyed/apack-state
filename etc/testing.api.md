@@ -30,6 +30,17 @@ export interface Connected {
     readonly window: Link;
 }
 
+// @public
+export interface DefectGuard {
+    allow(pattern: string | RegExp): void;
+    assertNone(): void;
+    readonly defects: readonly string[];
+    readonly trace: (line: string) => void;
+}
+
+// @public
+export function defectGuard(forward?: (line: string) => void): DefectGuard;
+
 export { everyOrder }
 
 export { explore }
@@ -85,6 +96,21 @@ export { sample }
 export { Scenario }
 
 export { Schedule }
+
+// Warning: (ae-forgotten-export) The symbol "Handle" needs to be exported by the entry point testing.d.ts
+//
+// @public
+export function waitFor<V, S extends V>(sys: System, handle: Handle<V, never, Asks, any>, predicate: (value: V) => value is S, options?: WaitForOptions): Promise<S>;
+
+// @public (undocumented)
+export function waitFor<V>(sys: System, handle: Handle<V, never, Asks, any>, predicate: (value: V) => boolean, options?: WaitForOptions): Promise<V>;
+
+// @public
+export interface WaitForOptions {
+    readonly clock?: Pick<Clock, 'after'>;
+    readonly signal?: AbortSignal;
+    readonly timeout?: number;
+}
 
 // Warnings were encountered during analysis:
 //

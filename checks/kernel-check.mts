@@ -746,6 +746,57 @@ const moves: Array<[string, () => void]> = [
     sys.send(h, { type: 'FIRST' })
     deepStrictEqual(frozenChecks, [{ top: true, nested: true }])
   }],
+  ['nested states that shadow an enclosing data field are refused at start, while sibling states may share field names', () => {
+    const sys = system({ side: 'backend' })
+    const directShadow = {
+      def: {
+        data: { error: null },
+        start: 'clean',
+        states: {
+          clean: {},
+          a: { data: { error: '' } },
+        },
+      },
+    }
+    throws(() => sys.start('direct', directShadow as never), /direct declares error again at a, shadowing an enclosing state/)
+    strictEqual('direct' in sys.snapshot(), false)
+
+    const deepShadow = {
+      def: {
+        data: { error: null },
+        start: 'mid',
+        states: {
+          mid: {
+            start: 'leaf',
+            states: {
+              leaf: { data: { error: '' } },
+            },
+          },
+        },
+      },
+    }
+    throws(() => sys.start('deep', deepShadow as never), /deep declares error again at mid\.leaf, shadowing an enclosing state/)
+    strictEqual('deep' in sys.snapshot(), false)
+
+    // Sibling states sharing a field name are allowed and transition cleanly without losing enclosing data.
+    const siblings = state<{
+      data: { id: string }
+      states: { idle: {}; a: { data: { note: string } }; b: { data: { note: number } } }
+    }, { type: 'TO_A' } | { type: 'TO_B' }>()({
+      data: { id: 'ok' },
+      start: 'idle',
+      states: {
+        idle: { on: { TO_A: () => ({ at: 'a', data: { note: 'hi' } }) } },
+        a: { data: { note: '' }, on: { TO_B: () => ({ at: 'b', data: { note: 7 } }) } },
+        b: { data: { note: 0 } },
+      },
+    })
+    const sh = sys.start('sib', siblings)
+    sys.send(sh, { type: 'TO_A' })
+    deepStrictEqual(sys.read(sh), { at: 'a', data: { id: 'ok', note: 'hi' } })
+    sys.send(sh, { type: 'TO_B' })
+    deepStrictEqual(sys.read(sh), { at: 'b', data: { id: 'ok', note: 7 } })
+  }],
 ]
 
 await runChecks([...checks, ...moves])

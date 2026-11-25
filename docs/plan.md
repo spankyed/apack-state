@@ -1219,7 +1219,7 @@ projects. Each would loosen the fit to this app.
   one-method sink), declare optional `peers` on `Net`, and send to it via `tell({ peer: name }, event)`. Tells
   deliver `peer.tell(name, event)` after the step commits with no view hold (or record `outcome: 'dropped'` in
   `StepLog.left` if unattached).
-- **Field names unique along a path** are assumed and not enforced.
+- **Field names unique along a path** are enforced at compile time (`NoShadowedData`) and at runtime (`cannotBegin()`).
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
   able to outlive its process: where it is and its data, as they stood at its last step. It is not designed.

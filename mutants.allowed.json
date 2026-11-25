@@ -155,12 +155,12 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const listener of listeners) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | leaving.push(() => { for (const listener of listeners) safely('a subscriber', () => listener(refs, which, where)) }) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | leaving.push(() => { for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, which, where)) }) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },

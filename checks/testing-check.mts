@@ -1,12 +1,12 @@
 // What a pack's checks are written with (`@apackdev/state/testing`): every ordering, a clock the schedule moves, a
 // system on a schedule, and scenarios made from the events a state declares.
-import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, rejects, strictEqual, throws } from 'node:assert'
 import { run } from './checks.mts'
 import { given, reaching } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
-import { everyOrder, explore, fromEvents, onSchedule, replay, type Scenario } from '../src/testing.ts'
+import { defectGuard, everyOrder, explore, fromEvents, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
 import { system } from '../src/kernel.ts'
 
 const state = reaching()
@@ -355,5 +355,208 @@ await run([
       steps: 4, runs: 2, seed: 1,
     })
     strictEqual(labels.length, 8)
+  }],
+  ['waitFor resolves immediately or on a later step with narrowed type, ignores unrelated states, and cleans up on settle', async () => {
+    const flow = state<{
+      states: { idle: {}; done: { data: { result: string } } }
+    }, { type: 'FINISH'; result: string }>()({
+      start: 'idle',
+      states: {
+        idle: { on: { FINISH: ({ result }) => ({ at: 'done', data: { result } }) } },
+        done: { data: { result: given } },
+      },
+    })
+    const sys = system({ side: 'window' })
+    const h = sys.start('flow', flow)
+    const other = sys.start('other', counter)
+
+    // Synchronous fast-path when already matching.
+    const immediate = await waitFor(sys, h, (v) => v.at === 'idle')
+    strictEqual(immediate.at, 'idle')
+
+    // Async match with type-predicate narrowing; unrelated state changes must not re-invoke predicate.
+    let checks = 0
+    const pending = waitFor(
+      sys,
+      h,
+      (v): v is Extract<typeof v, { at: 'done' }> => {
+        checks++
+        return v.at === 'done'
+      },
+    )
+    strictEqual(checks, 1)
+    sys.send(other, { type: 'ADD', by: 1 })
+    strictEqual(checks, 1)
+    sys.send(h, { type: 'FINISH', result: 'ok' })
+    const matched = await pending
+    strictEqual(matched.at, 'done')
+    strictEqual(matched.data.result, 'ok')
+    strictEqual(checks, 2)
+
+    // After settlement, further changes do not call the predicate again (unsubscribed).
+    sys.send(other, { type: 'ADD', by: 2 })
+    strictEqual(checks, 2)
+    sys.stop()
+  }],
+  ['waitFor rejects on stopped state, predicate throw, timeout (real and custom clock), and AbortSignal', async () => {
+    const sys = system({ side: 'window' })
+    const h = sys.start('c', counter)
+
+    // Predicate throwing synchronously rejects.
+    await rejects(waitFor(sys, h, () => { throw new Error('bad initial') }), /bad initial/)
+
+    // Predicate throwing on a later update rejects and unsubscribes.
+    let calls = 0
+    const laterThrow = waitFor(sys, h, (v) => {
+      calls++
+      if (v.data.count === 1) throw new Error('bad update')
+      return false
+    })
+    sys.send(h, { type: 'ADD', by: 1 })
+    await rejects(laterThrow, /bad update/)
+    sys.send(h, { type: 'ADD', by: 1 })
+    strictEqual(calls, 2)
+
+    // Pre-aborted signal rejects immediately without evaluating predicate.
+    const preAborted = new AbortController()
+    preAborted.abort(new Error('already aborted'))
+    let preRan = false
+    await rejects(waitFor(sys, h, () => { preRan = true; return true }, { signal: preAborted.signal }), /already aborted/)
+    strictEqual(preRan, false)
+
+    // Aborting while waiting rejects and unsubscribes.
+    const ac = new AbortController()
+    let abortCalls = 0
+    const abortedWait = waitFor(sys, h, () => { abortCalls++; return false }, { signal: ac.signal })
+    ac.abort(new Error('cancelled'))
+    await rejects(abortedWait, /cancelled/)
+    sys.send(h, { type: 'ADD', by: 1 })
+    strictEqual(abortCalls, 1)
+
+    // Custom clock timeout: fires at 0ms, and cancels cleanly when predicate matches first.
+    let timerFired: (() => void) | undefined
+    let timerCancelled = 0
+    const mockClock = {
+      after: (_ms: number, runFn: () => void) => {
+        timerFired = runFn
+        return () => { timerCancelled++; timerFired = undefined }
+      },
+    }
+    const clockTimeout = waitFor(sys, h, () => false, { timeout: 0, clock: mockClock })
+    timerFired!()
+    await rejects(clockTimeout, /waitFor\(c\) timed out after 0ms/)
+    strictEqual(timerCancelled, 1)
+
+    const clockMatch = waitFor(sys, h, (v) => v.data.count === 4, { timeout: 50, clock: mockClock })
+    sys.send(h, { type: 'ADD', by: 1 })
+    strictEqual((await clockMatch).data.count, 4)
+    strictEqual(timerCancelled, 2)
+    strictEqual(timerFired, undefined)
+
+    // Real setTimeout timeout rejects cleanly, and resolving before timeout clears both timer and abort listener.
+    await rejects(waitFor(sys, h, () => false, { timeout: 5 }), /waitFor\(c\) timed out after 5ms/)
+
+    // Waiting without a timeout does not arm an implicit 0ms timer.
+    const noTimeout = waitFor(sys, h, (v) => v.data.count === 5)
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    sys.send(h, { type: 'ADD', by: 1 })
+    strictEqual((await noTimeout).data.count, 5)
+
+    // Resolving before a real setTimeout clears the timer and removes the `'abort'` listener exactly once.
+    const acCleanup = new AbortController()
+    const removedEvents: string[] = []
+    const origRemove = acCleanup.signal.removeEventListener.bind(acCleanup.signal)
+    acCleanup.signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, opts?: boolean | EventListenerOptions) => {
+      removedEvents.push(type)
+      return origRemove(type, listener, opts)
+    }) as typeof acCleanup.signal.removeEventListener
+    const earlyResolve = waitFor(sys, h, (v) => v.data.count === 6, { timeout: 10, signal: acCleanup.signal })
+    sys.send(h, { type: 'ADD', by: 1 })
+    strictEqual((await earlyResolve).data.count, 6)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    deepStrictEqual(removedEvents, ['abort'])
+
+    // Stopping while waiting rejects, and waiting on an already-stopped handle rejects immediately.
+    const stopWait = waitFor(sys, h, () => false)
+    sys.stop()
+    await rejects(stopWait, /c stopped before waitFor matched/)
+    await rejects(waitFor(sys, h, () => true), /c is not running/)
+
+    // Concurrent waitFor callers on the same step both settle even though the first unsubscribes mid-flush,
+    // both on normal commits and when a failed transaction stops the system (`lost()`).
+    const sys2 = system({ side: 'window' })
+    const h2 = sys2.start('c', counter)
+    const p1 = waitFor(sys2, h2, (v) => v.data.count === 1)
+    const p2 = waitFor(sys2, h2, (v) => v.data.count === 1)
+    sys2.send(h2, { type: 'ADD', by: 1 })
+    const [r1, r2] = await Promise.all([p1, p2])
+    strictEqual(r1.data.count, 1)
+    strictEqual(r2.data.count, 1)
+    sys2.stop()
+
+    let failCommit = false
+    let depth = 0
+    const flaky = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try {
+          const out = fn()
+          if (depth === 1 && failCommit) throw new Error('disk full')
+          return out
+        } finally { depth-- }
+      },
+    })
+    const fh = flaky.start('c', counter)
+    const lp1 = waitFor(flaky, fh, (v) => v.data.count === 99)
+    const lp2 = waitFor(flaky, fh, (v) => v.data.count === 99)
+    failCommit = true
+    flaky.send(fh, { type: 'ADD', by: 1 })
+    await rejects(lp1, /c stopped before waitFor matched/)
+    await rejects(lp2, /c stopped before waitFor matched/)
+  }],
+  ['defectGuard captures DEFECT lines, forwards all trace output, and fails on unallowed defects', () => {
+    // Works with no forward listener as well.
+    const quiet = defectGuard()
+    quiet.trace('plain info')
+    quiet.assertNone()
+    strictEqual(quiet.defects.length, 0)
+
+    const forwarded: string[] = []
+    const guard = defectGuard((line) => forwarded.push(line))
+    const faulty = state<{ data: { count: number } }, { type: 'BOOM' } | { type: 'BAD_MOVE' } | { type: 'OK' }>()({
+      data: { count: 0 },
+      on: {
+        BOOM: () => { throw new Error('boom!') },
+        BAD_MOVE: () => ({ at: 'nope' }) as never,
+        OK: (_, { data }) => ({ data: { count: data.count + 1 } }),
+      },
+    })
+    const sys = system({ side: 'window', trace: guard.trace })
+    const h = sys.start('f', faulty)
+    sys.send(h, { type: 'OK' })
+    // Unhandled event produces a non-DEFECT trace line: forwarded, not recorded as a defect.
+    sys.send(h, { type: 'IGNORED' } as never)
+    guard.assertNone()
+    strictEqual(guard.defects.length, 0)
+    ok(forwarded.some((line) => !line.startsWith('DEFECT:')))
+
+    sys.send(h, { type: 'BOOM' })
+    sys.send(h, { type: 'BOOM' })
+    sys.send(h, { type: 'BAD_MOVE' })
+    strictEqual(guard.defects.length, 3)
+    throws(() => guard.assertNone(), /Unexpected kernel defect\(s\):\n.*boom!.*\n.*boom!.*\n.*has no state nope/)
+
+    // A global `/g` regex matching at index 0 matches every occurrence without stateful `lastIndex` drift.
+    guard.allow(/^DEFECT:.*boom!/g)
+    throws(() => guard.assertNone(), /has no state nope/)
+
+    // String patterns match literally (even with regex metacharacters like `+`).
+    guard.trace('DEFECT: bad a+b')
+    guard.allow('has no state nope')
+    throws(() => guard.assertNone(), /bad a\+b/)
+    guard.allow('a+b')
+    guard.assertNone()
+    sys.stop()
   }],
 ])

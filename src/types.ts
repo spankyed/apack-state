@@ -549,8 +549,28 @@ type NoStartGiven<D> =
       ? { states: { [P in keyof T]: NoStartGiven<T[P]> } }
       : unknown
 
+/**
+ * Refuses any nested state whose `data` redeclares a field name already declared by an enclosing state: exiting the
+ * inner state deletes its declared fields from the running state's data, which would silently erase the enclosing
+ * state's field. Sibling states may share field names because they are never active together.
+ */
+type NoShadowedData<S, Above extends string = never> =
+  S extends { states: infer T extends Record<string, Shape> }
+    ? {
+        states: {
+          [P in keyof T]:
+            (T[P] extends { data: infer X }
+              ? [Extract<keyof X & string, Above | (keyof DataOf<S> & string)>] extends [never]
+                ? unknown
+                : { data: { [F in Extract<keyof X & string, Above | (keyof DataOf<S> & string)>]: never } }
+              : unknown)
+            & NoShadowedData<T[P], Above | (keyof DataOf<S> & string)>
+        }
+      }
+    : unknown
+
 /** `state`, for code that can reach `N` by name. In the app this is what a pack's generated facade would export. */
 export function reaching<N extends Net = Nothing>() {
   return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
-    <D extends Def<S, S, '', E, A, N>>(def: D & NoStartGiven<NoInfer<D>>): State<S, E, A, GivenIn<D>> => ({ def })
+    <D extends Def<S, S, '', E, A, N>>(def: D & NoStartGiven<NoInfer<D>> & NoShadowedData<S>): State<S, E, A, GivenIn<D>> => ({ def })
 }
