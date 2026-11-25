@@ -726,6 +726,26 @@ const moves: Array<[string, () => void]> = [
     strictEqual(sys.read(h).at, 'outer.inner')
     deepStrictEqual(sys.read(h).data, { secret: 'shh' })
   }],
+  ['data changed in a handler is frozen before a subsequent handler in the same step reads it', () => {
+    const frozenChecks: Array<{ top: boolean; nested: boolean }> = []
+    const netState = reaching<{ systems: { self: { events: { type: 'SECOND' }; asks: {} } }; views: {}; surfaces: {} }>()
+    const chained = netState<{ data: { items: number[] } }, { type: 'FIRST' } | { type: 'SECOND' }>()({
+      data: { items: [] },
+      on: {
+        FIRST: (_, { tell }) => {
+          tell('self', { type: 'SECOND' })
+          return { data: { items: [1, 2] } }
+        },
+        SECOND: (_, { data }) => {
+          frozenChecks.push({ top: Object.isFrozen(data), nested: Object.isFrozen(data.items) })
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('self', chained)
+    sys.send(h, { type: 'FIRST' })
+    deepStrictEqual(frozenChecks, [{ top: true, nested: true }])
+  }],
 ]
 
 await runChecks([...checks, ...moves])
