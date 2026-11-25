@@ -136,6 +136,121 @@ const checks: Array<[string, () => void]> = [
     const { value } = produce(base, (draft) => { draft.a.n = 2; draft.b = draft.a })
     deepStrictEqual(value, { a: { n: 2 }, b: { n: 2 } })
   }],
+  ['placing a part of the draft inside a new object or array unwraps every nested draft, leaving plain, non-plain and frozen values untouched', () => {
+    class Box { constructor(readonly id: string, readonly other?: Box) {} }
+    const box = new Box('x')
+    const base = freeze({
+      a: { n: 1 },
+      box,
+      wrapped: null as { inner: { n: number }; box: Box } | null,
+      items: [] as Array<{ n: number }>,
+      plainObj: null as { k: number } | null,
+      plainArr: null as number[] | null,
+      frozenObj: null as { readonly v: number } | null,
+      freshBox: null as Box | null,
+      nullProto: null as Record<string, { n: number }> | null,
+    })
+    const freshObj = { k: 1 }
+    const freshArr = [1, 2]
+    let getterReads = 0
+    const frozenObj = Object.freeze({ get v() { getterReads++; return 42 } })
+    let madeBox!: Box
+    const { value } = produce(base, (draft) => {
+      draft.a.n = 2
+      draft.wrapped = { inner: draft.a, box: draft.box }
+      draft.items = [draft.a]
+      draft.plainObj = freshObj
+      draft.plainArr = freshArr
+      draft.frozenObj = frozenObj
+      madeBox = new Box('fresh', draft.box)
+      draft.freshBox = madeBox
+      const dict = Object.create(null) as Record<string, { n: number }>
+      dict.inner = draft.a
+      draft.nullProto = dict
+    })
+    // Freezing plain results must succeed (no closed draft proxies left inside).
+    freeze(value.wrapped)
+    freeze(value.items)
+    freeze(value.nullProto)
+    deepStrictEqual(value.wrapped, { inner: { n: 2 }, box })
+    strictEqual(value.wrapped!.box, box)
+    deepStrictEqual(value.items, [{ n: 2 }])
+    strictEqual(value.plainObj, freshObj)
+    strictEqual(value.plainArr, freshArr)
+    strictEqual(value.frozenObj, frozenObj)
+    strictEqual(value.freshBox, madeBox)
+    ok(value.freshBox instanceof Box)
+    strictEqual(Object.getPrototypeOf(value.nullProto), null)
+    deepStrictEqual({ ...value.nullProto }, { inner: { n: 2 } })
+    strictEqual(getterReads, 0)
+
+    // Reading only a non-plain field still unwraps its whole proxy when placed inside a new object.
+    const wholeOnly = produce(freeze({ box, wrapped: null as { box: Box } | null }), (draft) => {
+      draft.wrapped = { box: draft.box }
+    })
+    strictEqual(wholeOnly.value.wrapped!.box, box)
+  }],
+  ['fresh plain assignments are not walked when no nested draft was handed out', () => {
+    let reads = 0
+    const fresh = { get big() { reads++; return 1 } }
+    const base = freeze({ payload: null as { readonly big: number } | null })
+    const { value } = produce(base, (draft) => { draft.payload = fresh })
+    strictEqual(value.payload, fresh)
+    strictEqual(reads, 0)
+  }],
+  ['cyclic and shared plain graphs terminate cleanly and unwrap every nested draft', () => {
+    const base = freeze({
+      a: { n: 1 },
+      cyclicObj: null as Record<string, unknown> | null,
+      cyclicArr: null as unknown[] | null,
+      sharedPlain: null as { left: { k: number }; right: { k: number } } | null,
+      sharedPlainArr: null as number[][] | null,
+      sharedDraft: null as { left: { inner: { n: number } }; right: { inner: { n: number } } } | null,
+      sharedDraftArr: null as Array<Array<{ n: number }>> | null,
+    })
+    const plainLeaf = { k: 7 }
+    const plainPair = { left: plainLeaf, right: plainLeaf }
+    const plainArrLeaf = [1, 2]
+    const plainArrPair = [plainArrLeaf, plainArrLeaf]
+    const { value } = produce(base, (draft) => {
+      draft.a.n = 2
+      const objLoop: Record<string, unknown> = { inner: draft.a }
+      objLoop.self = objLoop
+      draft.cyclicObj = objLoop
+
+      const arrLoop: unknown[] = [draft.a]
+      arrLoop.push(arrLoop)
+      draft.cyclicArr = arrLoop
+
+      draft.sharedPlain = plainPair
+      draft.sharedPlainArr = plainArrPair
+
+      const draftLeaf = { inner: draft.a }
+      draft.sharedDraft = { left: draftLeaf, right: draftLeaf }
+
+      const draftArrLeaf = [draft.a]
+      draft.sharedDraftArr = [draftArrLeaf, draftArrLeaf]
+    })
+    freeze(value.cyclicObj)
+    freeze(value.cyclicArr)
+    freeze(value.sharedDraft)
+    freeze(value.sharedDraftArr)
+
+    deepStrictEqual(value.cyclicObj!.inner, { n: 2 })
+    strictEqual(value.cyclicObj!.self, value.cyclicObj)
+    deepStrictEqual(value.cyclicArr![0], { n: 2 })
+    strictEqual(value.cyclicArr![1], value.cyclicArr)
+
+    strictEqual(value.sharedPlain, plainPair)
+    strictEqual(value.sharedPlain!.right, plainLeaf)
+    strictEqual(value.sharedPlainArr, plainArrPair)
+    strictEqual(value.sharedPlainArr![1], plainArrLeaf)
+
+    strictEqual(value.sharedDraft!.left, value.sharedDraft!.right)
+    deepStrictEqual(value.sharedDraft!.left, { inner: { n: 2 } })
+    strictEqual(value.sharedDraftArr![0], value.sharedDraftArr![1])
+    deepStrictEqual(value.sharedDraftArr![0], [{ n: 2 }])
+  }],
   ['what is not plain reads as itself, runs its methods, and can be replaced', () => {
     class Repository { #opened = 0; constructor(readonly directory: string) {} open(): number { return ++this.#opened } }
     const first = new Repository('/a')
