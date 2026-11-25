@@ -114,6 +114,8 @@ type Item =
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
   | { kind: 'out'; leave: () => void; said?: Said }
 
+type Queued = Item | { kind: 'run'; fn: () => void; stopping: boolean }
+
 /**
  * A database's `transact`, which is all the kernel knows of one: it runs a function as one unit, whose writes are kept
  * together when it returns and undone when it throws. One inside another joins it, and is undone alone when it throws.
@@ -254,7 +256,7 @@ export function system(host: {
     try { call() } catch (error) { trace(`DEFECT: ${what} threw: ${said(error)}`) }
   }
   const running = new Map<string, Running>()
-  const outside: Item[] = []
+  const outside: Queued[] = []
   const inside: Item[] = []
   /**
    * What leaves when the step commits: answers, progress, what crosses a link, and word to subscribers. `anyway` is
@@ -789,7 +791,11 @@ export function system(host: {
         }, { kind: 'follow', to: feature, name: view })
         return () => {
           stopped = true
-          if (following) { const live = following; following = undefined; out(() => live.stop(), { kind: 'unfollow', to: feature, name: view }) }
+          if (!following) return
+          const live = following
+          following = undefined
+          if (stepping) out(() => live.stop(), { kind: 'unfollow', to: feature, name: view })
+          else live.stop()
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
@@ -1200,7 +1206,7 @@ export function system(host: {
    * Answers every ask among what was waiting to be taken, and lets the rest go: for a system that takes no more
    * steps, so that nobody is left waiting on one.
    */
-  const turnAway = (waiting: Item[], why: string): void => {
+  const turnAway = (waiting: Queued[], why: string): void => {
     for (const item of waiting.splice(0)) if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', why)))
   }
   const STOPPED = 'It stopped when it could not keep what a step wrote'
@@ -1349,17 +1355,28 @@ export function system(host: {
     } finally {
       stepping = false; stepNow = undefined; hearing = undefined; logging = undefined
     }
-    const wasFlushing = flushing
     flushing = true
     try { flush() } finally {
-      flushing = wasFlushing
       if (log && told) safely('the step log', () => log({ number: ++logged, ...told }))
+      flushing = false
     }
   }
   /** What was sent in this step to a state that is not running, until the step's match says whether it is to be. */
   const held: Array<Extract<Item, { ref: string }>> = []
   let settling = false
-  const pump = (): void => { while (!stepping && !flushing && outside.length) step(() => handle(outside.shift()!)) }
+  const starting = new Set<string>()
+  const pump = (): void => {
+    while (!stepping && !flushing && outside.length) {
+      const next = outside[0]!
+      if (next.kind === 'run') { outside.shift(); step(next.fn, next.stopping) }
+      else step(() => { outside.shift(); handle(next) })
+    }
+  }
+  const run = (fn: () => void, stopping = false): void => {
+    if (stepping) { fn(); return }
+    outside.push({ kind: 'run', fn, stopping })
+    pump()
+  }
   const arrive = (item: Item): void => { handOver(); outside.push(item); pump() }
   const enqueue = (item: Item): void => { if (stepping) inside.push(item); else arrive(item) }
 
@@ -1391,15 +1408,19 @@ export function system(host: {
     start: (ref, made, ...entering) => {
       if (broken) throw new Error(`${called} cannot start ${ref}: ${STOPPED}`)
       if (host.limit !== undefined && steps >= host.limit) throw new Error(`${called} cannot start ${ref}: ${LIMIT_REACHED}`)
-      if (running.has(ref)) throw new Error(`${called} already has a running state named ${ref}`)
+      if (running.has(ref) || starting.has(ref)) throw new Error(`${called} already has a running state named ${ref}`)
       const def = made.def as LooseDef
       const initial = entering[0] as Plain | undefined
       const problem = cannotBegin(def, initial)
       if (problem) throw new Error(`${ref} ${problem}`)
-      let handleOf: { ref: string }
-      if (stepping) handleOf = begin(ref, def, initial)
-      else { step(() => { handleOf = begin(ref, def, initial) }); pump() }
-      return handleOf!
+      starting.add(ref)
+      try {
+        run(() => { starting.delete(ref); begin(ref, def, initial) })
+      } catch (error) {
+        starting.delete(ref)
+        throw error
+      }
+      return { ref }
     },
     child: ((of: { ref: string }, name: string, key?: string) => ({ ref: key === undefined ? `${of.ref}/${name}` : `${of.ref}/${name}/${key}` })) as unknown as System['child'],
     send: (to, event) => arrive({ kind: 'event', ref: to.ref, event }),
@@ -1423,11 +1444,7 @@ export function system(host: {
       }
       if (up) throw new Error(`${called} is already attached to a backend`)
       up = peerOrName
-      if (!host.views && running.size && !broken) {
-        const markAll = (): void => { for (const ref of running.keys()) stale.set(ref, 'all') }
-        if (stepping) markAll()
-        else { step(markAll); pump() }
-      }
+      if (!host.views && running.size && !broken) run(() => { for (const ref of running.keys()) stale.set(ref, 'all') })
       return () => {
         if (up !== peerOrName) return
         up = undefined
@@ -1441,11 +1458,7 @@ export function system(host: {
       }
     }) as System['attach'],
     idle: () => pending === 0 && !due && !stepping && !flushing && outside.length === 0,
-    stop: () => {
-      const stopAll = (): void => { for (const ref of [...running.keys()].reverse()) end(ref) }
-      if (stepping) stopAll()
-      else { step(stopAll, true); pump() }
-    },
+    stop: () => run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
   }
   return self
 }

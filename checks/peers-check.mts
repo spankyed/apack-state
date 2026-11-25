@@ -242,10 +242,13 @@ await run([
     await rest()
     strictEqual(idleInCallback, false)
     deepStrictEqual(flushOrder, ['peer:1', 'peer:2', 'inc'])
-    deepStrictEqual(readInCallback, { data: { n: 0 } })
+    strictEqual(readInCallback, undefined)
     strictEqual((sys2.snapshot().counter as { data: { n: number } }).data.n, 1)
-    ok(logs.some((step) => step.handled.some((item) => item.kind === 'event' && item.name === 'TWO')))
-    ok(logs.some((step) => step.handled.some((item) => item.kind === 'event' && item.name === 'INC')))
+    // Causal StepLog order: #1 start runner, #2 TWO, #3 start counter, #4 INC.
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3, 4])
+    ok(logs[1]!.handled.some((item) => item.kind === 'event' && item.name === 'TWO'))
+    ok('counter' in logs[2]!.changed)
+    ok(logs[3]!.handled.some((item) => item.kind === 'event' && item.name === 'INC'))
 
     // 3. Re-entrant stop() from inside peer.tell() AND from inside a handler ends all states cleanly and drains outside.
     const sys3 = system({ side: 'backend' })

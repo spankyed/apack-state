@@ -575,6 +575,78 @@ const moves: Array<[string, () => void]> = [
     const handle = sys.start('f', flat)
     throws(() => sys.send(handle, { type: 'BUMP' }), /nested db broken/)
   }],
+  ['start, stop, and log re-entrancy during flush defer to the next step without inverting StepLog order', () => {
+    const logged: Array<{ number: number; refs: string[] }> = []
+    let onLogAction: (() => void) | undefined
+    const sys = system({
+      side: 'backend',
+      log: (step) => {
+        logged.push({ number: step.number, refs: Object.keys(step.changed) })
+        const fn = onLogAction
+        onLogAction = undefined
+        fn?.()
+      },
+    })
+    const a = sys.start('a', flat)
+    let mode: 'none' | 'start' | 'stop' = 'start'
+    let startedHandle: typeof a | undefined
+    sys.subscribe(() => {
+      if (mode === 'start') {
+        mode = 'none'
+        startedHandle = sys.start('b', flat)
+        // Duplicate start of an already-queued ref must still be refused synchronously.
+        throws(() => sys.start('b', flat), /already has a running state named b/)
+        // Sending to the handle returned by queued start delivers after `b` begins.
+        sys.send(startedHandle, { type: 'BUMP' })
+      } else if (mode === 'stop') {
+        mode = 'none'
+        sys.stop()
+      }
+    })
+    sys.send(a, { type: 'BUMP' })
+    strictEqual(sys.read(startedHandle!).data.n, 1)
+    // Causal order: #1 start a, #2 bump a, #3 start b, #4 bump b.
+    deepStrictEqual(logged, [
+      { number: 1, refs: ['a'] },
+      { number: 2, refs: ['a'] },
+      { number: 3, refs: ['b'] },
+      { number: 4, refs: ['b'] },
+    ])
+
+    // Re-entrant send from inside host.log also preserves causal StepLog order.
+    onLogAction = () => sys.send(startedHandle!, { type: 'BUMP' })
+    sys.send(a, { type: 'BUMP' })
+    deepStrictEqual(logged.slice(4), [
+      { number: 5, refs: ['a'] },
+      { number: 6, refs: ['b'] },
+    ])
+
+    // Re-entrant stop from a subscriber defers until after the triggering step flushes and logs.
+    mode = 'stop'
+    sys.send(a, { type: 'BUMP' })
+    deepStrictEqual(sys.snapshot(), {})
+    deepStrictEqual(logged.slice(6), [
+      { number: 7, refs: ['a'] },
+      { number: 8, refs: ['b', 'a'] },
+    ])
+
+    // After stopping, `b` can be started again (the `starting` reservation was cleared).
+    const b2 = sys.start('b', flat)
+    strictEqual(sys.read(b2).data.n, 0)
+
+    // If host.transact throws before running `start`, the `starting` reservation is cleared so retrying succeeds.
+    let failOnce = true
+    const flaky = system({
+      side: 'backend',
+      transact: (fn) => {
+        if (failOnce) { failOnce = false; throw new Error('db unavailable') }
+        return fn()
+      },
+    })
+    throws(() => flaky.start('retry', flat), /db unavailable/)
+    const okHandle = flaky.start('retry', flat)
+    strictEqual(flaky.read(okHandle).data.n, 0)
+  }],
 ]
 
 await runChecks([...checks, ...moves])

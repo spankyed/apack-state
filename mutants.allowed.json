@@ -475,11 +475,6 @@
     "why": "What a state started as it is is given: nothing, as an empty object or as undefined, which begin takes as an empty object either way"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (stepping) handleOf = begin(ref, def, initial) | false",
-    "original": "stepping",
-    "why": "Only a start made inside a step reaches this, which is a start from a subscriber or something else that leaves at a commit. There the state begins in the step that is leaving, whose commit has passed, and is read from the next; the mutant takes a nested step instead. Neither is a behaviour a spec holds: what a start from a subscriber should do is not decided (see the PR)"
-  },
-  {
     "key": "src/kernel.ts | ArrayDeclaration | const live: Live = { seen: [], because: new Set(), stop: () => given.abort() } | [\"Stryker was here\"]",
     "original": "[]",
     "why": "What was asked for is kept in seen only to compare a standing read or view with the data; a make is said, not compared, and never reads it"

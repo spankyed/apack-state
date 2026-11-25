@@ -406,6 +406,78 @@ await run([
     strictEqual(follows, 3)
     window.stop()
   }],
+  ['detaching a window port stops all views directly in zero steps even at host.limit, and attach during flush defers cleanly', async () => {
+    let follows = 0
+    let stops = 0
+    let txCount = 0
+    const logs: StepLog[] = []
+    const makePort = (): Port => ({
+      tell: () => {},
+      ask: () => () => {},
+      follow: () => {
+        follows++
+        return { stop: () => { stops++ } }
+      },
+    })
+    const twoViews = state<{ data: { n: number } }, { type: 'BUMP' }>()({
+      data: { n: 0 },
+      follows: (follow) => ({
+        a: follow('threads', 'count', { args: () => ({}), heard: () => undefined }),
+        b: follow('threads', 'count', { args: () => ({}), heard: () => undefined }),
+      }),
+      on: { BUMP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
+    })
+    // Window with limit: 2 (step 1 = start, step 2 = BUMP -> limit reached).
+    const limited = system({
+      side: 'window',
+      name: WINDOW,
+      limit: 2,
+      transact: (fn) => { txCount++; return fn() },
+      log: (step) => { logs.push(step) },
+    })
+    const detach = limited.attach(makePort())
+    const h = limited.start('p', twoViews)
+    strictEqual(follows, 2)
+    strictEqual(txCount, 1)
+    strictEqual(logs.length, 1)
+    limited.send(h, { type: 'BUMP' })
+    const txAtLimit = txCount
+    strictEqual(logs.length, 2)
+
+    // At host.limit: detach must stop BOTH views directly without running steps or opening transact.
+    detach()
+    strictEqual(stops, 2)
+    strictEqual(txCount, txAtLimit)
+    strictEqual(logs.length, 2)
+
+    // Re-attaching at host.limit must not bypass the step limit.
+    limited.attach(makePort())
+    strictEqual(follows, 2)
+    strictEqual(txCount, txAtLimit)
+    limited.stop()
+
+    // Attaching a backend port from inside a subscriber during flush defers the follow step so StepLog stays in order.
+    const flushLogs: StepLog[] = []
+    let flushFollows = 0
+    const w = system({ side: 'window', name: WINDOW, log: (step) => { flushLogs.push(step) } })
+    const wh = w.start('p', twoViews)
+    let armed = true
+    w.subscribe(() => {
+      if (!armed) return
+      armed = false
+      w.attach({
+        tell: () => {},
+        ask: () => () => {},
+        follow: () => { flushFollows++; return { stop: () => {} } },
+      })
+    })
+    w.send(wh, { type: 'BUMP' })
+    strictEqual(flushFollows, 2)
+    deepStrictEqual(flushLogs.map((s) => s.number), [1, 2, 3])
+    strictEqual(flushLogs[1]!.handled[0]?.name, 'BUMP')
+    deepStrictEqual(flushLogs[2]!.left.map((s) => s.kind), ['follow', 'follow'])
+    w.stop()
+  }],
 ], async (tally) => {
   for (const how of ['one after the other', 'both at once'] as const) {
     // Two systems and a link have more orderings than a check can run each of: a seed's worth of them, as the checks
