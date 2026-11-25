@@ -106,7 +106,7 @@ const noId = (id: string | null): string => { if (id === null) throw new Error('
 const oddState = state<Odd, OddEvent, OddAsks>()({
   data: { count: 0, id: null, waited: null },
   starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
-  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), update: () => {} }) }),
+  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), updated: () => {} }) }),
   loads: (load) => ({ wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), done: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
   calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
   on: {

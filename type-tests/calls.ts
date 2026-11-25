@@ -1,8 +1,8 @@
-// The writes a state makes: where one may be said, and with which key.
+// The writes a state calls: where one may be called, and with which key.
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import type * as from from '../checks/makes-check.mts'
+import type * as from from '../checks/calls-check.mts'
 declare const state: typeof from.state
 type Jobs = from.Jobs
 type JobsEvent = from.JobsEvent

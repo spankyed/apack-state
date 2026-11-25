@@ -1,8 +1,8 @@
-// The reads a state awaits: what can be asked, and what it is asked from.
+// The reads a state loads: what can be asked, and what it is asked from.
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import type * as from from '../checks/awaits-check.mts'
+import type * as from from '../checks/loads-check.mts'
 declare const state: typeof from.state
 type Reader = from.Reader
 type ReaderEvent = from.ReaderEvent

@@ -51,14 +51,14 @@ const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
     list: follow('threads', 'list', {
       from: [],
       args: () => ({}),
-      update: (update) => (update.ok ? { data: { threads: update.value } } : { data: { problem: `list: ${update.error}` } }),
+      updated: (update) => (update.ok ? { data: { threads: update.value } } : { data: { problem: `list: ${update.failure.message}` } }),
     }),
 
     // One for each open tab. Which tabs are open is the data; opening or closing one is all it takes.
     tab: follow('threads', 'tab', {
       each: 'openTabs',
       args: (threadId) => ({ threadId }),
-      update: (update, { key }) => (update.ok ? { data: (d) => { d.tabs[key] = update.value } } : { data: { problem: `tab: ${update.error}` } }),
+      updated: (update, { key }) => (update.ok ? { data: (d) => { d.tabs[key] = update.value } } : { data: { problem: `tab: ${update.failure.message}` } }),
     }),
   }),
 
@@ -83,7 +83,7 @@ const threadsSurface = state<ThreadsSurface, ThreadsSurfaceEvent>()({
         detail: follow('threads', 'detail', {
           from: ['id'],
           args: ({ id }) => ({ id }),
-          update: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: `detail: ${update.error}` } }),
+          updated: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: `detail: ${update.failure.message}` } }),
         }),
       }),
     },
@@ -102,7 +102,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('views.mts')) {
   const deliver = (): void => { for (const each of watches) { const update = each.read(); const now = JSON.stringify(update); if (now !== each.last) { each.last = now; each.heard(update) } } }
   const commit = (change: () => void): void => { change(); deliver() }
   const store: ViewHost = (_feature, view, args, heard) => {
-    const of = (id: string): ViewUpdate<unknown> | undefined => (rows.has(id) ? undefined : { ok: false, error: `no thread ${id}` })
+    const of = (id: string): ViewUpdate<unknown> | undefined => (rows.has(id) ? undefined : { ok: false, failure: { kind: 'not-found', message: `no thread ${id}` } })
     const read = (): ViewUpdate<unknown> => {
       if (view === 'list') return { ok: true, value: [...rows].map(([id, row]) => ({ id, title: row.title })) }
       const id = (args as { id?: string; threadId?: string }).id ?? (args as { threadId: string }).threadId

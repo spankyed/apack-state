@@ -329,7 +329,7 @@ await run([
       follows: (follow) => ({
         list: follow('runs', 'list', {
           args: () => ({}),
-          update: (update) => (update.ok ? { data: { rows: update.value } } : undefined),
+          updated: (update) => (update.ok ? { data: { rows: update.value } } : undefined),
         }),
       }),
       on: {
@@ -442,7 +442,7 @@ await run([
     backend.send(h1, { type: 'TRIGGER' })
     await rest()
     const lostStep = logs.at(-1)!
-    strictEqual(lostStep.ended, 'lost')
+    strictEqual(lostStep.status, 'lost')
     deepStrictEqual(lostStep.sent, [{ kind: 'peer', to: 'runHistory', name: 'RUN_ENDED', outcome: 'dropped' }])
 
     // The same stop path without a step log also completes cleanly without throwing.
@@ -517,7 +517,7 @@ await run([
         follows: (follow) => ({
           list: follow('runs', 'list', {
             args: () => ({}),
-            update: (update, { data, tell }) => {
+            updated: (update, { data, tell }) => {
               if (!update.ok) return undefined
               if (!data.sent) {
                 tell('runner', { type: 'RECORD', id: 'run-1', detail: 'bulk' })

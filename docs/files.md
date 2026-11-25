@@ -42,8 +42,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/interleaving-check.mts` | Scenarios run under every ordering: a search over a search, a cancel, a click among progress, a window closing. Runs, for about 7 seconds |
 | `examples/commit.mts` | A slice of the app's commit surface ported: its status and a diff as reads it loads, staging and a push as writes it calls. Runs, and checks what each step leaves |
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |
-| `checks/awaits-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field. Runs |
-| `checks/makes-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel. Runs, for about 10 seconds |
+| `checks/loads-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field. Runs |
+| `checks/calls-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel. Runs, for about 10 seconds |
 | `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
 | `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |

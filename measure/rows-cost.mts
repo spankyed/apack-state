@@ -89,7 +89,7 @@ const asking = async (hold: Hold, asks: number, writes: boolean, apartMs: number
   const link = connect(window, backend)
   const handle = window.start('panel', linked<{ data: { count: number } }, never, WindowAsks>()({
     data: { count: 0 },
-    follows: (follow) => ({ count: follow('rows', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+    follows: (follow) => ({ count: follow('rows', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
     answers: { ADD: async ({ id }, { ask }) => (await ask('rows', 'CREATE', { id })).ok },
   }))
   for (let at = 0; at < 20; at++) await window.ask(handle, 'ADD', { id: `warm-${at}` })

@@ -143,9 +143,7 @@ export class Cancelled extends Error {
 
 // @public
 export interface Changes {
-    // (undocumented)
-    readonly moved: boolean; /** Whether its pending calls changed. */
-    // (undocumented)
+    readonly moved: boolean;
     readonly pending: boolean;
 }
 
@@ -236,7 +234,7 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F 
     from?: [Many] extends [string] ? never : readonly K[];
     each?: Many;
     args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']>;
-    update: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
+    updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Followed<R, H, E, N>;
 
 // @public
@@ -257,7 +255,7 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
     // (undocumented)
     readonly from?: readonly string[];
     // (undocumented)
-    readonly update: Function;
+    readonly updated: Function;
     // (undocumented)
     readonly view: string;
 }
@@ -390,8 +388,8 @@ export type PeerPort = Pick<Port, 'tell'>;
 
 // @public
 export interface Port {
-    ask(to: string, name: string, args: unknown, heard: (update: unknown) => void, ended: (outcome: PortOutcome) => void): () => void;
-    follow(feature: string, view: string, args: unknown, shown: (update: unknown) => void, over: (failure: Failure) => void): Following;
+    ask(to: string, name: string, args: unknown, progress: (update: unknown) => void, done: (outcome: PortOutcome) => void): () => void;
+    follow(feature: string, view: string, args: unknown, updated: (update: unknown) => void, failed: (failure: Failure) => void): Following;
     tell(to: string, event: unknown): void;
 }
 
@@ -420,9 +418,9 @@ export type Read<T> = T extends Whole ? T : T extends (...given: never[]) => unk
 
 // @public (undocumented)
 export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
-    ask<K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks'] & string>(of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void): Promise<OutcomeOf<AskOf<N, K, Q>>>;
+    ask<K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks'] & string>(of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void): Promise<OutcomeOf<AskOf<N, K, Q>>>;
     // (undocumented)
-    ask<A2 extends Asks, Q extends keyof A2 & string>(of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void): Promise<OutcomeOf<A2[Q]>>;
+    ask<A2 extends Asks, Q extends keyof A2 & string>(of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void): Promise<OutcomeOf<A2[Q]>>;
     broadcast<K extends keyof N['surfaces'] & string>(to: K, event: Read<N['surfaces'][K]['events']>): void;
     // Warning: (ae-forgotten-export) The symbol "CallsAt" needs to be exported by the entry point index.d.ts
     call<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CallsAt<R, H>[K] extends 'each' ? [key: string] : []): void;
@@ -507,6 +505,9 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 }
 
 // @public
+export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S, never>) => State<S, E, A, GivenIn<D>>;
+
+// @public
 export interface StepLog {
     readonly changed: Readonly<Record<string, {
         readonly fields: readonly string[];
@@ -514,17 +515,17 @@ export interface StepLog {
         readonly at: string;
         readonly pending: boolean;
     }>>;
-    readonly ended: 'committed' | 'lost' | 'cut short';
     readonly handled: readonly Handled[];
     readonly now?: number;
     readonly number: number;
     readonly sent: readonly Sent[];
+    readonly status: 'committed' | 'lost' | 'halted';
 }
 
 // @public (undocumented)
 export interface System {
     // (undocumented)
-    ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
+    ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
     attach(peer: Port): () => void;
     attach(name: string, peer: PeerPort): () => void;
     child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
@@ -577,15 +578,7 @@ export type Value<S> = ([Names<S>] extends [never] ? {
 });
 
 // @public
-export type ViewHost = (feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void) => (() => void) | Viewing;
-
-// @public
-export interface Viewing {
-    // (undocumented)
-    caughtUp?(then: () => void, soon: boolean): void;
-    // (undocumented)
-    stop(): void;
-}
+export type ViewHost = (feature: string, view: string, args: object, updated: (update: ViewUpdate<unknown>) => void) => (() => void) | Following;
 
 // @public
 export type ViewUpdate<T> = {
@@ -593,7 +586,7 @@ export type ViewUpdate<T> = {
     readonly value: T;
 } | {
     readonly ok: false;
-    readonly error: string;
+    readonly failure: Failure;
 };
 
 // @public (undocumented)
@@ -618,18 +611,18 @@ export function within<V extends {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/types.d.ts:223:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:447:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:452:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:454:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:459:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:470:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:506:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:587:5 - (ae-forgotten-export) The symbol "Given_" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:588:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:628:5 - (ae-forgotten-export) The symbol "DataAt" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:628:5 - (ae-forgotten-export) The symbol "AskOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:629:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:216:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:440:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:445:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:447:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:452:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:463:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:499:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:580:5 - (ae-forgotten-export) The symbol "Given_" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:581:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:621:5 - (ae-forgotten-export) The symbol "DataAt" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:621:5 - (ae-forgotten-export) The symbol "AskOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:622:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -4,7 +4,7 @@ ThreadsSurface
   states: list, detail
     anywhere         SHOW_LIST          → list
     anywhere         VIEW_THREAD        → detail
-  changes data only: TABS_CHANGED, list (hearing), tab (hearing), detail (hearing) in detail
+  changes data only: TABS_CHANGED, list (updated), tab (updated), detail (updated) in detail
   follows list: threads list, from nothing: once
   follows tab: threads tab, one for each key of openTabs
   follows detail in detail: threads detail, from id

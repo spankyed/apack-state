@@ -3,6 +3,7 @@
 //
 // A state's value is where it is and the data there:  { at: 'thread.sending', data: { … } }
 
+import type { Failure, Following } from './port.ts'
 
 export type AnyEvent = { readonly type: string }
 /**
@@ -49,17 +50,12 @@ export type Net = {
 type Nothing = { systems: {}; surfaces: {}; views: {} }
 
 /** What a view delivers: its result, and each changed result after it, or why it could not be read. */
-export type ViewUpdate<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string }
+export type ViewUpdate<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly failure: Failure }
 /**
- * A view running: what stops it, and, where whatever runs it can say so, what calls `then` once it has been handed
- * everything kept before the call. `soon` says something is blocked on it.
+ * What runs a view: it calls `updated` with the result and every changed result until it is stopped. It returns what
+ * stops it, or a `Following`: one that can say when it has caught up is what a backend holds what it sends windows for.
  */
-export interface Viewing { stop(): void; caughtUp?(then: () => void, soon: boolean): void }
-/**
- * What runs a view: it calls `heard` with the result and every changed result until it is stopped. It returns what
- * stops it, or a `Viewing`: one that can say when it has caught up is what a backend holds what it sends windows for.
- */
-export type ViewHost = (feature: string, view: string, args: object, heard: (update: ViewUpdate<unknown>) => void) => (() => void) | Viewing
+export type ViewHost = (feature: string, view: string, args: object, updated: (update: ViewUpdate<unknown>) => void) => (() => void) | Following
 
 export type AskEnd =
   | 'failed'        // the handler threw
@@ -252,15 +248,15 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   tell<K extends PeersOf<N>>(to: { readonly peer: K }, event: Read<PeerEventOf<N, K>>): void
 
   /**
-   * Asks a backend system, or a state this one started. `heard` is called with the progress made since it was last
+   * Asks a backend system, or a state this one started. `progress` is called with the progress made since it was last
    * called, as a list: however fast updates are produced, they arrive at most once a frame, so that a stream of
    * ten thousand is a few dozen changes and not ten thousand.
    */
   ask<K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks'] & string>(
-    of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, heard?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void,
+    of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void,
   ): Promise<OutcomeOf<AskOf<N, K, Q>>>
   ask<A2 extends Asks, Q extends keyof A2 & string>(
-    of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void,
+    of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void,
   ): Promise<OutcomeOf<A2[Q]>>
 
   /** From the backend: tells that surface, in every window, an event. */
@@ -433,7 +429,7 @@ export interface OneOf<D, X> { readonly state: X; readonly given: (data: Read<D>
 // ── one grammar for what a state starts, follows and loads ──────────────────────────────────────────────────────────
 //
 //   starts:  (start)  => ({ thread: start(thread, { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-//   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), update }) }),
+//   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated }) }),
 //   loads:   (load)   => ({ diff:   load('code', 'GET_GIT_DIFF', { from: ['selected'], args: ({ selected }) => selected, done }) }),
 //
 // Each says which fields of the data it depends on: `each`, a field with one of them for each of its keys, or
@@ -460,12 +456,12 @@ type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
 /** A view a state follows, as `follow` makes it. */
 export interface Followed<R, H extends string, E extends AnyEvent, N extends Net> {
   readonly feature: string; readonly view: string; readonly each?: string; readonly from?: readonly string[]
-  readonly args: Function; readonly update: Function
+  readonly args: Function; readonly updated: Function
   readonly _?: { r: R; h: H; e: E; n: N }
 }
 /**
  * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
- * one of them changes. With `each`, one is followed for each key of that field. What it delivers goes to `update`,
+ * one of them changes. With `each`, one is followed for each key of that field. What it delivers goes to `updated`,
  * which returns what happens next as any handler does.
  */
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
@@ -477,7 +473,7 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   /** A field with one to follow for each of its keys, in place of `from`. */
   each?: Many
   args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']>
-  update: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
+  updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
 /** An imperative ask called one at a time, as `one` builds it. */
@@ -570,3 +566,6 @@ export function forNet<N extends Net = Nothing>() {
   return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
     <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>): State<S, E, A, GivenIn<D>> => ({ def })
 }
+
+/** Defines a standalone state that reaches no external systems, surfaces, views, or peers by name. */
+export const state = forNet()

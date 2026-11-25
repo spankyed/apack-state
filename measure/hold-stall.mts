@@ -41,7 +41,7 @@ const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => 
   const link = connect(window, backend)
   const panel = window.start('panel', linked<{ data: { views: string[]; counts: Record<string, number> } }, never, PanelAsks>()({
     data: { views: Array.from({ length: VIEWS }, (_, at) => String(at)), counts: {} },
-    follows: (follow) => ({ count: follow('rows', 'count', { each: 'views', args: (view) => ({ view }), update: (update, { key }) => (update.ok ? { data: (d) => { d.counts[key] = update.value } } : undefined) }) }),
+    follows: (follow) => ({ count: follow('rows', 'count', { each: 'views', args: (view) => ({ view }), updated: (update, { key }) => (update.ok ? { data: (d) => { d.counts[key] = update.value } } : undefined) }) }),
     answers: { ADD: async ({ id }, { ask }) => (await ask('rows', 'CREATE', { id })).ok },
   }))
   // The steady stream: a write every 2 ms, each its own unit, from outside any ask, to each view's row in turn.

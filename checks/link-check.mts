@@ -36,7 +36,7 @@ type Panel = { data: { count: number; atAnswer: number[]; atEvent: number[] } }
 const panel = state<Panel, PanelEvents, PanelAsks>()({
   data: { count: 0, atAnswer: [], atEvent: [] },
   follows: (follow) => ({
-    count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
+    count: follow('threads', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
   }),
   on: {
     CREATED: (_, { data }) => ({ data: { atEvent: [...data.atEvent, data.count] } }),
@@ -323,7 +323,7 @@ await run([
       initial: 'watching',
       states: {
         watching: {
-          follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), update: () => undefined }) }),
+          follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), updated: () => undefined }) }),
           on: { CLOSE: () => ({ at: 'gone' }) },
         },
         gone: {},
@@ -422,8 +422,8 @@ await run([
     const twoViews = state<{ data: { n: number } }, { type: 'BUMP' }>()({
       data: { n: 0 },
       follows: (follow) => ({
-        a: follow('threads', 'count', { args: () => ({}), update: () => undefined }),
-        b: follow('threads', 'count', { args: () => ({}), update: () => undefined }),
+        a: follow('threads', 'count', { args: () => ({}), updated: () => undefined }),
+        b: follow('threads', 'count', { args: () => ({}), updated: () => undefined }),
       }),
       on: { BUMP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
     })

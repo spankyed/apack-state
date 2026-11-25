@@ -324,7 +324,7 @@ await run([
       follows: (follow) => ({
         list: follow('notes', 'list', {
           args: () => ({}),
-          update: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
+          updated: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
         }),
       }),
       loads: (wait) => ({
@@ -548,7 +548,7 @@ await run([
     strictEqual(outcome.ok, false)
     if (!outcome.ok) strictEqual(outcome.failure.kind, 'abandoned')
     const lostLog = logs.at(-1)!
-    strictEqual(lostLog.ended, 'lost')
+    strictEqual(lostLog.status, 'lost')
     deepStrictEqual(lostLog.sent.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
   }],
 ])

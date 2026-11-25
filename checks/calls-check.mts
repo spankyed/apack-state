@@ -1,8 +1,8 @@
-// The asks a state makes. These are writes: one is made once, because a handler said `make`. Nothing in the data
-// stands for it, so nothing in the data has to be taken out when it ends. Which are under way is the kernel's to
+// The asks a state calls. These are writes: one is fired once, because a handler called `call`. Nothing in the data
+// stands for it, so nothing in the data has to be taken out when it finishes. Which are pending is the kernel's to
 // keep, and is read beside the data.
 //
-//   npx vitest run makes
+//   npx vitest run calls
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { effect } from '@vue/reactivity'
 import { connect, rest, run, system } from './checks.mts'

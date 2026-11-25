@@ -126,7 +126,7 @@ const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => {
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
-  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
 })
 /** Once its work has waited a turn, outside any step, tells the worker something. */
 const teller = kinds<{ states: { telling: {}; told: {} } }, never>()({
@@ -160,7 +160,7 @@ await run([
     await rest()
     const typed = logs.window.at(-1)!
     deepStrictEqual(typed.handled, [{ kind: 'event', ref: 'panel', name: 'TYPE' }])
-    strictEqual(typed.ended, 'committed')
+    strictEqual(typed.status, 'committed')
     deepStrictEqual(logs.window.map((step) => step.number), logs.window.map((_, at) => at + 1))
   }],
   ['what changed is each state\'s fields that did, whether it moved, and where it is', async () => {
@@ -205,8 +205,8 @@ await run([
     window.send(handle, { type: 'TYPE', text: 'hello' })
     window.send(handle, { type: 'SEND' })
     await rest()
-    const lost = logs.backend.find((step) => step.ended === 'lost')
-    ok(lost, JSON.stringify(logs.backend.map((step) => step.ended)))
+    const lost = logs.backend.find((step) => step.status === 'lost')
+    ok(lost, JSON.stringify(logs.backend.map((step) => step.status)))
     // Whoever asked in it was told it failed, and the log says so.
     has(lost.sent, { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'failed' })
   }],
@@ -222,8 +222,8 @@ await run([
     store.failNext('the disk is full')
     backend.send(writer, { type: 'WRITE' })
     await turns()
-    const lost = logs.find((step) => step.ended === 'lost')
-    ok(lost, JSON.stringify(logs.map((step) => step.ended)))
+    const lost = logs.find((step) => step.status === 'lost')
+    ok(lost, JSON.stringify(logs.map((step) => step.status)))
     has(lost.sent, { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
   ['what is sent to a state that is not running is logged once, as it is taken', async () => {
@@ -348,12 +348,12 @@ await run([
     await turns()
     has(handledIn(logs), { kind: 'answer', ref: 'worker', name: 'RUN' })
   }],
-  ['a step that runs away is logged as cut short', async () => {
+  ['a step that runs away is logged as halted', async () => {
     const logs: StepLog[] = []
     const window = system({ side: 'window', log: (step) => { logs.push(step) }, trace: () => {} })
     window.send(window.start('runaway', runaway), { type: 'AGAIN' })
     await turns()
-    ok(logs.some((step) => step.ended === 'cut short'), JSON.stringify(logs.map((step) => step.ended)))
+    ok(logs.some((step) => step.status === 'halted'), JSON.stringify(logs.map((step) => step.status)))
   }],
   ['a window that starts and stops following in one turn logs both follow and unfollow and stops the view', async () => {
     const store = memory()

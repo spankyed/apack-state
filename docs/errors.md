@@ -16,19 +16,19 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `CLOSE: () => answered('closed' as const, { at: 'closed' }),` | TS2322: Type '() => Answered&lt;"closed", { at: "closed"; }>' is not assignable to type '(args: { reason: string; }, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: { reaso… | a move into `closed` has to give its reason |
 | `ADD: () => answered('one', { data: { count: 1 } }),` | TS2322: Type '() => Answered&lt;string, { data: { count: number; }; }>' is not assignable to type '(args: {}, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: {}; answer: nu… | the answer is still checked: this ask answers with a number |
 
-## The reads a state awaits: what can be asked, and what it is asked from.
+## The writes a state calls: where one may be called, and with which key.
 
-`type-tests/awaits.ts`
+`type-tests/calls.ts`
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `nobody: load('printer', 'LOOKUP', { args: () => ({ query: '' }), done: () => {} }),` | TS2345: Argument of type '"printer"' is not assignable to parameter of type '"library"'. | there is no such system to ask |
-| `nothing: load('library', 'SLEEP', { args: () => ({}), done: () => {} }),` | TS2345: Argument of type '"SLEEP"' is not assignable to parameter of type '"LOOKUP"'. | the library answers no such ask |
-| `wrong: load('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), done: () =>…` | TS2741: Property 'query' is missing in type '{ id: string; }' but required in type '{ readonly query: string; }'. | a lookup is asked for a query, not an id |
-| `titled: load('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), done:…` | TS2322: Type '"title"' is not assignable to type 'KeysField&lt;{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record&lt;strin… | a title is neither a list nor keyed, so it cannot say which to look up |
-| `unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: ti…` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
-| `misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
-| `both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ qu…` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is awaited from fields or for each key, not both at once |
+| `SAVE: (_, { call }) => { call('save') },` | TS2554: Expected 2 arguments, but got 1. | a save is declared by a state inside, so only a handler there can call it |
+| `ADD: (_, { call }) => { call('run') },` | TS2554: Expected 2 arguments, but got 1. | a job is one of many, so calling one takes its key |
+| `STOP_SAVING: (_, { cancel }) => { cancel('save', 'a') },` | TS2554: Expected 1 arguments, but got 2. | there is one save at a time, so it takes no key |
+| `DROP: (_, { call }) => { call('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"run" \| "save"'. | it declares no such call |
+| `run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),` | TS2322: Type 'CalledOne&lt;Jobs, "on", JobsEvent, App>' is not assignable to type 'CalledEach&lt;Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is declared with `each` |
+| `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) =>…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
+| `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { calls: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it declares calls has to define them |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -36,7 +36,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `void sys.child(handle, 'card')` | TS2554: Expected 3 arguments, but got 2. | a card is one of many, so forNet one takes its key |
+| `void sys.child(handle, 'card')` | TS2554: Expected 3 arguments, but got 2. | a card is one of many, so reaching one takes its key |
 | `void sys.child(handle, 'deck', 'a')` | TS2345: Argument of type '"deck"' is not assignable to parameter of type '"card"'. | the board starts no such state |
 
 ## Sleeping is for a state's work and an ask's handler, where a `Cancelled` can be taken.
@@ -76,12 +76,12 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `stock: follow('shop', 'stock', { from: [], args: () => ({}), update: () => {} }),` | TS2345: Argument of type '"stock"' is not assignable to parameter of type '"total" \| "price"'. | there is no such view |
+| `stock: follow('shop', 'stock', { from: [], args: () => ({}), updated: () => {} }),` | TS2345: Argument of type '"stock"' is not assignable to parameter of type '"total" \| "price"'. | there is no such view |
 | `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2741: Property 'currency' is missing in type '{ id: string; }' but required in type '{ readonly currency: string; }'. | the total is asked for a currency, not an id |
-| `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), update: () =…` | TS2322: Type '"currency"' is not assignable to type 'KeysField&lt;{ currency: string; total: number \| null; watching: string[]; prices: Record&lt;string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
+| `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), updated: () …` | TS2322: Type '"currency"' is not assignable to type 'KeysField&lt;{ currency: string; total: number \| null; watching: string[]; prices: Record&lt;string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
 | `noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: n…` | TS2339: Property 'note' does not exist on type '{ readonly currency: string; }'. | it reads the note, which it did not name: a field it does not name is not there to read |
 | `missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), up…` | TS2322: Type '"locale"' is not assignable to type '"problem" \| "total" \| "currency" \| "watching" \| "prices" \| "note"'. | the shop has no such field to read from |
-| `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), update: (upd…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
+| `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (up…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
 | `both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ …` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | a view is followed from fields or for each key, not both at once |
 
 ## Who may send a state what: the events it sends itself, and the surfaces it tells.
@@ -105,19 +105,19 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `START: (_, { ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope&lt;Panel, "", PanelEvent, App>'. | asking is for `run` and for an ask's handler |
 
-## The writes a state makes: where one may be said, and with which key.
+## The reads a state loads: what can be asked, and what it is asked from.
 
-`type-tests/makes.ts`
+`type-tests/loads.ts`
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `SAVE: (_, { call }) => { call('save') },` | TS2554: Expected 2 arguments, but got 1. | a save is declared by a state inside, so only a handler there can call it |
-| `ADD: (_, { call }) => { call('run') },` | TS2554: Expected 2 arguments, but got 1. | a job is one of many, so calling one takes its key |
-| `STOP_SAVING: (_, { cancel }) => { cancel('save', 'a') },` | TS2554: Expected 1 arguments, but got 2. | there is one save at a time, so it takes no key |
-| `DROP: (_, { call }) => { call('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"run" \| "save"'. | it declares no such call |
-| `run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),` | TS2322: Type 'CalledOne&lt;Jobs, "on", JobsEvent, App>' is not assignable to type 'CalledEach&lt;Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is declared with `each` |
-| `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) =>…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
-| `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { calls: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it declares calls has to define them |
+| `nobody: load('printer', 'LOOKUP', { args: () => ({ query: '' }), done: () => {} }),` | TS2345: Argument of type '"printer"' is not assignable to parameter of type '"library"'. | there is no such system to ask |
+| `nothing: load('library', 'SLEEP', { args: () => ({}), done: () => {} }),` | TS2345: Argument of type '"SLEEP"' is not assignable to parameter of type '"LOOKUP"'. | the library answers no such ask |
+| `wrong: load('library', 'LOOKUP', { each: 'watched', args: (id) => ({ id }), done: () =>…` | TS2741: Property 'query' is missing in type '{ id: string; }' but required in type '{ readonly query: string; }'. | a lookup is asked for a query, not an id |
+| `titled: load('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), done:…` | TS2322: Type '"title"' is not assignable to type 'KeysField&lt;{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record&lt;strin… | a title is neither a list nor keyed, so it cannot say which to look up |
+| `unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: ti…` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
+| `misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
+| `both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ qu…` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is awaited from fields or for each key, not both at once |
 
 ## Telling a named peer is checked against the peers and events declared on Net.
 
@@ -146,7 +146,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `BUMP: (_, { tell, child }) => { tell(child('card'), { type: 'BUMP' }) },` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so forNet one takes its key |
+| `BUMP: (_, { tell, child }) => { tell(child('card'), { type: 'BUMP' }) },` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so reaching one takes its key |
 | `ADD: (_, { child }) => { void child('deck') },` | TS2554: Expected 2 arguments, but got 1. | there is no such state to reach |
 | `CLOSE: (_, { child }) => { void child('helper') },` | TS2554: Expected 2 arguments, but got 1. | the helper is started by `open`, so only a handler inside `open` can reach it |
 | `RETITLE: (_, { report }) => { report({ type: 'CARD_BUMPED', bumps: 1 }) },` | TS2345: Argument of type '{ type: string; bumps: number; }' is not assignable to parameter of type 'never'. | the board declares nothing it reports, so it has nothing to report |
@@ -173,7 +173,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `useState('deck')` | TS2769: No overload matches this call. | the window runs no such state |
 | `it.send({ type: 'SHUFFLE' })` | TS2322: Type '"SHUFFLE"' is not assignable to type '"ADD" \| "CLOSE" \| "REMOVE" \| "BUMP" \| "RETITLE"'. | the board takes no such event |
-| `it.child('card')` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so forNet one takes its key |
+| `it.child('card')` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so reaching one takes its key |
 | `void one.state.value.data.bumps` | TS18048: 'one.state.value' is possibly 'undefined'. | a card may not be running, so what it holds cannot be read without saying what if it is not |
 | `void it.ask` | TS2339: Property 'ask' does not exist on type 'Bound&lt;Value&lt;Board>, BoardEvent, { card: Each&lt;State&lt;Card, { type: "BUMP"; }, {}, "id" \| "label">>; }>'. | a component sends; it does not ask |
 

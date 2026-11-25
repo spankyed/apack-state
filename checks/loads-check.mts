@@ -1,7 +1,7 @@
-// The asks a state awaits. These are reads: one is there because the data says so, for as long as it does. It names
+// The asks a state loads. These are reads: one is there because the data says so, for as long as it does. It names
 // the fields it reads, or the field with one for each of its keys, and which are asked follows from the data.
 //
-//   npx vitest run awaits
+//   npx vitest run loads
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'

@@ -1,7 +1,7 @@
 // What it costs TypeScript to check many states: a measurement. It prints, and refuses nothing.
 //
 // Writes a project of N states into `.temp/compile/<N>/`, each as a pack's would be: its own data, events, asks it
-// answers, a view it follows, a read it awaits, a write it makes, and states inside it, all forNet one app's
+// answers, a view it follows, a read it loads, a write it calls, and states inside it, all reaching one app's
 // systems and views. Then checks it with this repository's TypeScript, once warm, and reads what TypeScript says it
 // took (`--extendedDiagnostics`): the time to check, the types it made, and the memory it used, beside the wall time.
 //
@@ -44,7 +44,7 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
   data: { title: 'list ${at}', items: {}, selected: null, revision: 0, problem: null },
   initial: 'idle',
   follows: (follow) => ({
-    rows: follow('store', 'rows', { from: ['revision'], args: () => ({ list: ${at} }), update: (update) => (update.ok ? { data: { title: \`\${update.value.length} rows\` } } : { data: { problem: update.error } }) }),
+    rows: follow('store', 'rows', { from: ['revision'], args: () => ({ list: ${at} }), updated: (update) => (update.ok ? { data: { title: \`\${update.value.length} rows\` } } : { data: { problem: update.failure.message } }) }),
   }),
   loads: (load) => ({
     detail: load('store', 'DETAIL', { from: ['selected'], args: ({ selected }) => (selected ? { id: selected } : null), done: (outcome: Outcome<{ label: string }, { kind: string; message: string }>) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),

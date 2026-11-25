@@ -161,8 +161,8 @@ starts: (start) => ({
 
 // Views it follows: the detail of the open thread, and one for each open tab.
 follows: (follow) => ({
-  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), update: (update) => … }),
-  tab:    follow('threads', 'tab',    { each: 'openTabs', args: (threadId) => ({ threadId }), update: (update, { key }) => … }),
+  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated: (update) => … }),
+  tab:    follow('threads', 'tab',    { each: 'openTabs', args: (threadId) => ({ threadId }), updated: (update, { key }) => … }),
 }),
 ```
 
@@ -208,7 +208,7 @@ A system given `log` tells it of each step once it has ended, for a timeline or 
 ```ts
 system({ side: 'window', log: (step) => timeline.push(step) })
 
-// { number: 12, ended: 'committed',
+// { number: 12, status: 'committed',
 //   handled: [{ kind: 'event', ref: 'commit', name: 'commit.PUSH_BRANCH' }, { kind: 'call', ref: 'commit', name: 'push' }],
 //   changed: { commit: { fields: ['pushPhase'], moved: false, pending: true, at: 'ready' } },
 //   sent: [{ kind: 'ask', to: 'code', name: 'commit.PUBLISH_BRANCH' }] }
@@ -220,10 +220,10 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   its pending calls changed.
-- **What left at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
+- **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
   `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
-- **How it ended**: `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it
+- **How it finished (`status`)**: `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it
   ran away.
 - **Never what any of it carried.** An event's fields, an ask's arguments, an answer, progress, a refusal's message and
   data are none of them in a log. A log that throws is its own to answer for, and the system goes on.

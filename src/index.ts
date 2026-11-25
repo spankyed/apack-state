@@ -8,6 +8,7 @@ export {
   answered,
   forNet,
   given,
+  state,
   within,
   type AllStarts,
   type AnyEvent,
@@ -45,7 +46,6 @@ export {
   type State,
   type Value,
   type ViewHost,
-  type Viewing,
   type ViewUpdate,
 } from './types.ts'
 

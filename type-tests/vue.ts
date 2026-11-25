@@ -19,7 +19,7 @@ defineComponent(() => {
   useState('deck')
   // @ts-expect-error the board takes no such event
   it.send({ type: 'SHUFFLE' })
-  // @ts-expect-error a card is one of many, so forNet one takes its key
+  // @ts-expect-error a card is one of many, so reaching one takes its key
   it.child('card')
   const one = useState(() => it.child('card', 'a'))
   // @ts-expect-error a card may not be running, so what it holds cannot be read without saying what if it is not

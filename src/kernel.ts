@@ -21,7 +21,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type Viewing, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({
 
 type Plain = Record<string, unknown>
 type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
-  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; update: Function }>
+  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; of: string; ask: string; args: Function; done: Function; progress?: Function }>
 }
@@ -161,37 +161,42 @@ export interface Handled {
   /** An event the state sent itself. */
   readonly own?: true
 }
-/** One thing that left at a step's commit: what kind, to whom, and its name. Never what it carried. */
+/** One thing that was sent at a step's commit: what kind, to whom, and its name. Never what it carried. */
 export interface Sent {
   readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow'
   readonly to?: string
   readonly name?: string
-  /** How an answer ended (`ok`, or its failure's kind), or `dropped` / `failed` for a peer tell. */
+  /** How an answer finished (`ok`, or its failure's kind), or `dropped` / `failed` for a peer tell. */
   readonly outcome?: string
 }
 type Said = Sent | (() => Sent)
 /**
- * One step, once it has ended, as a timeline or a devtools panel would read it: what began it and everything it
- * handled after, the fields of each state that changed, and what left at its commit. Never what any of it carried.
+ * One step, once it has finished, as a timeline or a devtools panel would read it: what began it and everything it
+ * handled after, the fields of each state that changed, and what was sent at its commit. Never what any of it carried.
  */
 export interface StepLog {
   /** This system's steps, counted from 1. */
   readonly number: number
   /** When this step began, in milliseconds since 1970, if the system was given a clock. */
   readonly now?: number
-  /** `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it ran away. */
-  readonly ended: 'committed' | 'lost' | 'cut short'
+  /** `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it ran away. */
+  readonly status: 'committed' | 'lost' | 'halted'
   /** Everything it handled, in order: the first is what began it. */
   readonly handled: readonly Handled[]
   /** Each running state that changed: the fields of its data that did, whether it moved and where it is, and whether its pending calls changed. */
   readonly changed: Readonly<Record<string, { readonly fields: readonly string[]; readonly moved: boolean; readonly at: string; readonly pending: boolean }>>
-  /** What left at the commit, in order. */
+  /** What was sent at the commit, in order. */
   readonly sent: readonly Sent[]
 }
 
 
 /** What changed in one running state in one step: whether it moved to another state, and whether its pending calls changed. */
-export interface Changes { readonly moved: boolean; /** Whether its pending calls changed. */ readonly pending: boolean }
+export interface Changes {
+  /** Whether the state moved to a different path. */
+  readonly moved: boolean
+  /** Whether its pending calls changed. */
+  readonly pending: boolean
+}
 
 export interface System {
   start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
@@ -201,7 +206,7 @@ export interface System {
    */
   child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>
   send<E extends AnyEvent>(to: Handle<unknown, E, Asks>, event: Read<E>): void
-  ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, heard?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>
+  ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>
   read<V>(of: Started<V, never, Asks, any>): V | undefined
   read<V>(of: Handle<V, never, Asks>): V
   /** Every running state here, as of the last commit. */
@@ -253,7 +258,7 @@ export function system(host: {
   /** Runs something once per frame. A window gives `requestAnimationFrame`; the default is the next turn of the event loop. */
   frame?(run: () => void): void
   trace?(line: string): void
-  /** Told of each step once it has ended: what it handled, what it changed, and what left. Never a payload. */
+  /** Told of each step once it has finished: what it handled, what it changed, and what was sent. Never a payload. */
   log?(step: StepLog): void
   /**
    * The clock this system takes `now` and `sleep` from (`new ClockController().clock` from `@apackdev/clock`, or
@@ -298,8 +303,8 @@ export function system(host: {
   /** The state answering each ask it answers later, until the answer is taken; and each ask it left unanswered. */
   const answeringOf = new WeakMap<Question, Active>()
   const abandoned = new WeakSet<Question>()
-  /** The step being logged: what it has handled, and, once it ends, what changed and what left. */
-  let logging: { now?: number; handled: Handled[]; changed: StepLog['changed']; sent: Sent[]; ended: StepLog['ended'] } | undefined
+  /** The step being logged: what it has handled, and, once it finishes, what changed and what was sent. */
+  let logging: { now?: number; handled: Handled[]; changed: StepLog['changed']; sent: Sent[]; status: StepLog['status'] } | undefined
   let logged = 0
   /** Thrown inside a unit to have what it wrote undone, and caught around it. */
   const UNDONE = Symbol('undone')
@@ -320,7 +325,7 @@ export function system(host: {
     leaving.push(Object.assign(done, { lost: done }))
   }
   /**
-   * Takes back everything said since: what a handler sent, told, asked, had made or dropped, broadcast and reported
+   * Takes back everything said since: what a handler sent, told, asked, called or cancelled, broadcast and reported
    * as progress. What it says is its own until it is made, as its rows are, so one that threw, refused, or returned a
    * change that could not be made has said nothing. An ask among it is ended, since nothing will now answer it. The
    * kernel's own word stays: whoever asked is still told that it failed.
@@ -769,7 +774,7 @@ export function system(host: {
       }
 
       /**
-       * One of what this state follows or awaits, as it should be now. `seen` is the values of the fields it named:
+       * One of what this state follows or loads, as it should be now. `seen` is the values of the fields it named:
        * the data is never changed in place, so a field that changed is a different value, and comparing the two
        * says whether to ask again without working anything out.
        */
@@ -810,15 +815,15 @@ export function system(host: {
       // A window with no views of its own follows its backend's, over the attached port: what a view delivers comes
       // back in order with everything else the backend sends, held by the link.
       const peer = up
-      const views: ViewHost | undefined = host.views ?? (peer && ((feature, view, args, heard) => {
+      const views: ViewHost | undefined = host.views ?? (peer && ((feature, view, args, updated) => {
         let following: Following | undefined
         let stopped = false
         out(() => {
           if (stopped) return
           following = peer.follow(
             feature, view, args,
-            (update) => heard(update as ViewUpdate<unknown>),
-            (failure) => { following = undefined; heard({ ok: false, error: failure.message }) },
+            (update) => updated(update as ViewUpdate<unknown>),
+            (failure) => { following = undefined; updated({ ok: false, failure }) },
           )
         }, { kind: 'follow', to: feature, name: view })
         return () => {
@@ -834,7 +839,7 @@ export function system(host: {
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => settle(at.following, id, seen, (live) => {
           let asked: object
           try { asked = args() as object } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return undefined }
-          let runningView: (() => void) | Viewing
+          let runningView: (() => void) | Following
           try {
             runningView = views(declared.feature, declared.view, asked, (update) => {
               if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
@@ -1117,7 +1122,7 @@ export function system(host: {
       const followed = declaredBy(item.of.def).follows[item.name]
       if (!followed || item.of.following.get(item.id) !== item.live) return MADE
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
-      try { return apply(item.of, followed.update(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
+      try { return apply(item.of, followed.updated(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
         trace(`DEFECT: ${item.of.top.ref} threw hearing ${item.id}, and nothing changed: ${said(error)}`)
         return NOT_MADE
       }
@@ -1177,7 +1182,7 @@ export function system(host: {
       // A read that has ended stays as what was asked, so that it is not asked again until its fields change. There
       // is nothing left of it to give up: stopping it later tells nobody.
       else item.live.stop = () => {}
-      try { return apply(item.of, declared.done(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw taking how ${item.id} ended, and nothing changed: ${said(error)}`); return NOT_MADE }
+      try { return apply(item.of, declared.done(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw in ${item.id} done, and nothing changed: ${said(error)}`); return NOT_MADE }
     }
     if (item.kind === 'answer') {
       answeringOf.get(item.question)?.questions.delete(item.question)
@@ -1273,7 +1278,7 @@ export function system(host: {
     trace(`DEFECT: ${called} could not keep what a step wrote, and has stopped: its states were ahead of its rows. ${said(error)}`)
     changed.clear(); fields.clear(); places.clear(); stale.clear(); restarted.clear()
     // Whoever asked in this step is told it failed. Nothing else the step would have sent leaves.
-    if (told) told.ended = 'lost'
+    if (told) told.status = 'lost'
     for (const leave of leaving.splice(0)) {
       if (!leave.lost) continue
       safely('what leaves at the commit', leave.lost)
@@ -1367,7 +1372,7 @@ export function system(host: {
           // What it had done is committed, so that the states can be read and the report says where they got to.
           cutShort = true
           trace(`DEFECT: a step was cut short after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`)
-          if (told) told.ended = 'cut short'
+          if (told) told.status = 'halted'
           if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', CUT_SHORT)))
           turnAway(inside.drain(), CUT_SHORT)
           turnAway(held.splice(0), CUT_SHORT)
@@ -1393,7 +1398,7 @@ export function system(host: {
         else stepNow = readNow()
       }
       steps++
-      told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, sent: [], ended: 'committed' } : undefined
+      told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, sent: [], status: 'committed' } : undefined
       logging = told
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
       try { if (host.transact) host.transact(all); else all() } catch (error) {
@@ -1436,23 +1441,23 @@ export function system(host: {
 
   const port: Port = {
     tell: (to, event) => arrive({ kind: 'event', ref: to, event: event as AnyEvent }),
-    ask: (to, name, args, heard, ended) => {
+    ask: (to, name, args, progress, done) => {
       const gone = new AbortController()
       arrive({
         kind: 'ask', ref: to, name, args: args as object,
-        question: new Question((outcome) => ended(outcome as PortOutcome)),
-        heard,
+        question: new Question((outcome) => done(outcome as PortOutcome)),
+        heard: progress,
         gone: gone.signal,
       })
       return () => gone.abort(new Error('Whoever asked has gone'))
     },
-    follow: (feature, view, args, shown, over) => {
-      if (!host.views) { over({ kind: 'unavailable', message: `${called} runs no views` }); return { stop: () => {} } }
-      const running = host.views(feature, view, args as object, (update) => shown(update))
-      const viewing: Viewing = typeof running === 'function' ? { stop: running } : running
+    follow: (feature, view, args, updated, failed) => {
+      if (!host.views) { failed({ kind: 'unavailable', message: `${called} runs no views` }); return { stop: () => {} } }
+      const running = host.views(feature, view, args as object, (update) => updated(update))
+      const following: Following = typeof running === 'function' ? { stop: running } : running
       return {
-        stop: () => safely('stopping a view', () => viewing.stop()),
-        ...(viewing.caughtUp ? { caughtUp: viewing.caughtUp.bind(viewing) } : {}),
+        stop: () => safely('stopping a view', () => following.stop()),
+        ...(following.caughtUp ? { caughtUp: following.caughtUp.bind(following) } : {}),
       }
     },
   }

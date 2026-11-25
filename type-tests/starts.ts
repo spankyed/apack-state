@@ -20,7 +20,7 @@ state<Board, BoardEvent, BoardAsks>()({
   initial: 'open',
   starts: (start) => ({ card: start(card([]), { each: 'items', given: (id) => ({ id, label: '' }) }) }),
   on: {
-    // @ts-expect-error a card is one of many, so forNet one takes its key
+    // @ts-expect-error a card is one of many, so reaching one takes its key
     BUMP: (_, { tell, child }) => { tell(child('card'), { type: 'BUMP' }) },
     // @ts-expect-error there is no such state to reach
     ADD: (_, { child }) => { void child('deck') },

@@ -333,7 +333,7 @@ const either: Array<[string, () => Promise<void>]> = [
       follows: (follow) => ({
         title: follow('notes', 'title', {
           args: () => ({}),
-          update: (u) => (u.ok ? { data: { title: u.value } } : undefined),
+          updated: (u) => (u.ok ? { data: { title: u.value } } : undefined),
         }),
       }),
       answers: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },

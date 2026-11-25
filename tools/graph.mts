@@ -124,10 +124,10 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
           : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
           : from ? `from what ${text(from)} names` : 'from nothing: once'
         ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
-        for (const hears of name === 'follows' ? ['update'] : ['done', 'progress']) {
+        for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
           const handler = option(hears)
           const signature = handler && checker.getTypeAtLocation(handler.initializer ?? handler).getCallSignatures()[0]
-          if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears === 'done' ? 'ending' : 'hearing'})`)
+          if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears})`)
         }
       }
     }

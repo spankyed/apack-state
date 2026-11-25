@@ -38,14 +38,14 @@ const shop = state<Shop, ShopEvent>()({
     total: follow('shop', 'total', {
       from: ['currency'],
       args: ({ currency }) => ({ currency }),
-      update: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
+      updated: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.failure.message } }),
     }),
     // One for each item being watched.
     price: follow('shop', 'price', {
       each: 'watching',
       args: (id) => ({ id }),
-      update: (update, { key }) => {
-        if (!update.ok) return { data: { problem: `${key}: ${update.error}` } }
+      updated: (update, { key }) => {
+        if (!update.ok) return { data: { problem: `${key}: ${update.failure.message}` } }
         if (update.value < 0) throw new Error('a price below nothing')
         return { data: (d) => { d.prices[key] = update.value } }
       },
@@ -68,7 +68,7 @@ const shop = state<Shop, ShopEvent>()({
         echo: follow('shop', 'total', {
           from: ['note'],
           args: ({ note }) => ({ currency: note }),
-          update: (update) => (update.ok ? { data: { note: `heard ${update.value}` } } : undefined),
+          updated: (update) => (update.ok ? { data: { note: `heard ${update.value}` } } : undefined),
         }),
       }),
     },
@@ -87,13 +87,13 @@ const pair = state<Pair, PairEvent>()({
     left: follow('shop', 'total', {
       from: ['left'],
       args: ({ left }) => ({ currency: left }),
-      update: (update) => (update.ok ? { data: { right: `R${update.value}` } } : undefined),
+      updated: (update) => (update.ok ? { data: { right: `R${update.value}` } } : undefined),
     }),
     // And what `right` delivers says what `left` is asked for, which closes the circle.
     right: follow('shop', 'total', {
       from: ['right'],
       args: ({ right }) => ({ currency: right }),
-      update: (update) => (update.ok ? { data: { left: `L${update.value}` } } : undefined),
+      updated: (update) => (update.ok ? { data: { left: `L${update.value}` } } : undefined),
     }),
   }),
 })
@@ -139,7 +139,7 @@ const checks: Array<[string, () => void]> = [
     const { deliver, data, sys } = wired()
     deliver(eur, { ok: true, value: 12 })
     strictEqual(data().total, 12)
-    deliver(eur, { ok: false, error: 'no such currency' })
+    deliver(eur, { ok: false, failure: { kind: 'not-found', message: 'no such currency' } })
     strictEqual(data().problem, 'no such currency')
     sys.stop()
   }],
@@ -280,7 +280,7 @@ const two = state<Two, TwoEvent>()({
     total: follow('shop', 'total', {
       from: ['currency', 'suffix'],
       args: ({ currency, suffix }) => ({ currency: `${currency}${suffix}` }),
-      update: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: update.error } }),
+      updated: (update) => (update.ok ? { data: { total: update.value } } : { data: { problem: `${update.failure.kind}: ${update.failure.message}` } }),
     }),
   }),
   on: {
@@ -342,7 +342,7 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
   ['a view of a backend that runs none is heard as failing, saying so', async () => {
     const it = across(false)
     await rest()
-    ok(/runs no views/.test(it.data().problem ?? ''), String(it.data().problem))
+    ok(it.data().problem?.startsWith('unavailable:') && /runs no views/.test(it.data().problem ?? ''), String(it.data().problem))
   }],
   ['a local ViewHost that throws in views() or stop() is isolated without aborting exit or leaving zombie states', () => {
     const defects: string[] = []
@@ -383,7 +383,7 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
             total: follow('shop', 'total', {
               from: ['currency'],
               args: ({ currency }) => ({ currency }),
-              update: (u) => (u.ok ? { data: { total: u.value } } : undefined),
+              updated: (u) => (u.ok ? { data: { total: u.value } } : undefined),
             }),
           }),
           on: {
@@ -432,7 +432,7 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
             total: follow('shop', 'total', {
               from: ['currency'],
               args: ({ currency }) => ({ currency }),
-              update: (update) => { calls.push(`view:${update.ok ? update.value : update.error}`); return undefined },
+              updated: (update) => { calls.push(`view:${update.ok ? update.value : update.failure.message}`); return undefined },
             }),
           }),
           loads: (load) => ({

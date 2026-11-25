@@ -41,7 +41,7 @@ type Panel = { data: { count: number; atAnswer: number[]; atEvent: number[] } }
 const panel = state<Panel, PanelEvents, PanelAsks>()({
   data: { count: 0, atAnswer: [], atEvent: [] },
   follows: (follow) => ({
-    count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
+    count: follow('threads', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }),
   }),
   on: {
     CREATED: (_, { data }) => ({ data: { atEvent: [...data.atEvent, data.count] } }),
@@ -60,7 +60,7 @@ const watcher = (store: Rows) => state<{ data: { heard: number[] } }, never>()({
   follows: (follow) => ({
     count: follow('threads', 'count', {
       args: () => ({}),
-      update: (update, { data }) => {
+      updated: (update, { data }) => {
         if (!update.ok) return undefined
         store.put('import', `saw-${update.value}`, { state: 'seen' })
         if (update.value === 1) throw new Error('hearing broke')
@@ -158,7 +158,7 @@ await run([
       data: { ids: ['stuck'] },
       on: { DROP: () => ({ data: { ids: [] } }) },
       follows: (follow) => ({
-        item: follow('threads', 'count', { each: 'ids', args: () => ({}), update: () => undefined }),
+        item: follow('threads', 'count', { each: 'ids', args: () => ({}), updated: () => undefined }),
       }),
     }))
     const handle = window.start('panel', panel)
@@ -230,7 +230,7 @@ await run([
     const backend = system({ side: 'backend', transact: store.transact, views })
     backend.start('counter', state<{ data: { count: number } }, never>()({
       data: { count: 0 },
-      follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), update: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+      follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
     }))
     await settledAndRest(store)
     strictEqual(stopped, 0)
@@ -388,7 +388,7 @@ await run([
       data: { ids: ['silent'] },
       on: { DROP: () => ({ data: { ids: [] } }) },
       follows: (follow) => ({
-        item: follow('threads', 'count', { each: 'ids', args: () => ({}), update: () => undefined }),
+        item: follow('threads', 'count', { each: 'ids', args: () => ({}), updated: () => undefined }),
       }),
     }))
     const handle = window.start('panel', panel)

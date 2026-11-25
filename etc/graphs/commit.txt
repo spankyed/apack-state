@@ -1,7 +1,7 @@
 # Generated from the source by `npm run graph:update`; `npm run graph:check` holds it to the source.
 
 Commit
-  changes data only: commit.STAGE_FILE, commit.UNSTAGE_FILE, commit.VIEW_DIFF, commit.PUSH_BRANCH, commit.STOP_PUSH, commit.DISMISS_ERROR, REPOSITORY_CHANGED, status (ending), diff (ending), stage (ending), unstage (ending), push (ending), push (hearing)
+  changes data only: commit.STAGE_FILE, commit.UNSTAGE_FILE, commit.VIEW_DIFF, commit.PUSH_BRANCH, commit.STOP_PUSH, commit.DISMISS_ERROR, REPOSITORY_CHANGED, status (done), diff (done), stage (done), unstage (done), push (done), push (progress)
   loads   status: code commit.GET_GIT_STATUS, from revision
   loads   diff: code commit.GET_GIT_DIFF, from selectedGitFile
   calls   stage: code commit.STAGE_FILES, for each key it is told

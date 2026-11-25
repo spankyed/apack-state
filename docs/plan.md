@@ -81,7 +81,7 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `answers` | The asks it answers. May be async. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `run` | What it does while it is the case. May be async. What it returns happens only if the state still is the case |
 | `starts` | The states it starts, which run while it is the case |
-| `follows` | The views it follows while it is the case, each with an `update` handler for what it delivers |
+| `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
 | `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
 | `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
@@ -237,7 +237,7 @@ points at.
 
     ```ts
     starts:  (start)  => ({ thread: start(thread(inference), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), update: (update) => … }) }),
+    follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated: (update) => … }) }),
     loads:   (load)   => ({ diff:   load('code', 'commit.GET_GIT_DIFF', { from: ['selectedGitFile'], args: ({ selectedGitFile }) => selectedGitFile, done: (outcome) => … }) }),
     ```
 
@@ -277,7 +277,7 @@ points at.
     **A started state tells only its starter**, with `report(event)`, as only whoever asked hears an ask's progress.
     It arrives as an event like any other, with `from` saying which one told it.
 
-    **A view delivers to a handler**, `update`, which returns what happens next as every handler does, so data still
+    **A view delivers to a handler**, `updated`, which returns what happens next as every handler does, so data still
     changes only by what a handler returns.
 
     **An ask that is loaded is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
@@ -510,7 +510,7 @@ detail: {
     detail: follow('threads', 'detail', {
       from: ['id'],
       args: ({ id }) => ({ id }),
-      heard: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: update.error } }),
+      updated: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: update.failure.message } }),
     }),
   }),
 }
@@ -587,7 +587,7 @@ and are not counted. Outside the repositories, 136 functions in the built-in pac
 #### How it is joined
 
 The kernel is given the database's `transact`, and on a backend that runs views for its windows, views that can
-say when each has been handed what was kept: a `ViewHost` whose views are each a `Viewing` with `caughtUp`, which
+say when each has been handed what was kept: a `ViewHost` whose views are each a `Following` with `caughtUp`, which
 on elmdb is a watch's own `Watching.caughtUp({ soon: true })`:
 
 ```ts
@@ -859,8 +859,8 @@ the brain slice, the testing kit, graphs, and mutation tooling as well):
 | `checks/internal-check.mts` | 7 | Who may send a state what |
 | `checks/starts-check.mts` | 15 | The states a state starts |
 | `checks/follows-check.mts` | 16 | The views a state follows |
-| `checks/awaits-check.mts` | 12 | The reads a state awaits |
-| `checks/makes-check.mts` | 15 | The writes a state makes |
+| `checks/loads-check.mts` | 13 | The reads a state loads |
+| `checks/calls-check.mts` | 15 | The writes a state calls |
 | `checks/binding-check.mts` | 18 | What a reader is handed |
 | `checks/vue-check.mts` | 24 | Vue components, rendered and counted |
 | `checks/rows-check.mts` | 48 | A step as one unit of the database, in memory and on elmdb |
@@ -908,7 +908,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   is not declared; leaving the starts out; naming a field that is neither keyed nor a list; giving a started state
   less than it marks `given`; and naming bare a state that has to be given something. `examples/threads.mts` runs on it: a
   thread for each title, told which it is, and the composer's draft for as long as a thread is open.
-- **Reads and writes, with no ids** (`checks/awaits-check.mts`, 12 checks; `checks/makes-check.mts`, 15 checks; `examples/commit.mts`, 12
+- **Reads and writes, with no ids** (`checks/loads-check.mts`, 13 checks; `checks/calls-check.mts`, 15 checks; `examples/commit.mts`, 12
   comparisons). `examples/commit.mts` is a slice of the app's commit surface: its status and the diff of the selected file as
   reads, and staging, unstaging and a push as writes. Two files staged at once are both under way and both gone when
   they end; the status is read again when the repository changes; selecting another file gives up the read of the
@@ -1095,7 +1095,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   data is handed over as it is and is not frozen; a field replaced by an equal value runs its reader; and nothing a
   reader is handed can be written. One of many, reached from outside by name and key: a change in one runs only that
   one's reader; one that is not running reads as nothing, and its reader runs when it starts and when it stops. A
-  reader of whether one write is under way runs for that one and not for another (`checks/makes-check.mts`). The same file
+  reader of whether one write is pending runs for that one and not for another (`checks/calls-check.mts`). The same file
   checks a window's frame: the next paint while it shows, the next turn while it is hidden, and what was waiting
   handed over once when it hides. Six changes to a copy of the kernel and the mirror each fail a check: nothing
   frozen, everything frozen, a copy handed out, an equal value not written, a field the state no longer has kept, and
