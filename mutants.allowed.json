@@ -570,11 +570,6 @@
     "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (!Object.hasOwn(top.data, field)) continue | false",
-    "original": "!Object.hasOwn(top.data, field)",
-    "why": "A field that is not there yet is entered by the move with the value given; written first as well, it is the same value, told as changed once either way"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (deferred !== undefined) inside.push({ kind: 'result', of: active, value: deferred }) | true",
     "original": "deferred !== undefined",
     "why": "Work that returns no deferred move pushes a result of undefined, which apply takes as no change, the same as pushing nothing"
