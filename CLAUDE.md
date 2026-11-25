@@ -53,7 +53,7 @@ are deliberate, each where it is. `npm run package:lint` packs the package and r
 tarball.
 
 `etc/graphs/<example>.txt` is each example's graph, read from its types by `tools/graph.mts` without running it:
-its states, the moves its handlers can make, what it answers, starts, follows, awaits and makes, who it reaches,
+its states, the moves its handlers can make, what it answers, starts, follows, loads and calls, who it reaches,
 and what looks wrong. `npm run graph:check` holds them to the source, and `npm run graph:update` writes them.
 
 `etc/*.api.md` is what each entry offers, as API Extractor reads it from the source. A change to what the package
