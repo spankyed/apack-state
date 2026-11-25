@@ -136,7 +136,7 @@ export interface Sent {
   readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow'
   readonly to?: string
   readonly name?: string
-  /** How an answer ended (`ok`, or its failure's kind), or `dropped` for a peer tell with no attached peer. */
+  /** How an answer ended (`ok`, or its failure's kind), or `dropped` / `failed` for a peer tell. */
   readonly outcome?: string
 }
 type Said = Sent | (() => Sent)
@@ -395,14 +395,14 @@ export function system(host: {
       return
     }
     if (isPeer(to)) {
-      let dropped = false
+      let outcome: 'dropped' | 'failed' | undefined
       out(
         () => {
           const target = peers.get(to.peer)
-          if (!target) { dropped = true; trace(`no peer named ${to.peer} to tell ${event.type}`); return }
-          target.tell(to.peer, event)
+          if (!target) { outcome = 'dropped'; trace(`no peer named ${to.peer} to tell ${event.type}`); return }
+          try { target.tell(to.peer, event) } catch (error) { outcome = 'failed'; throw error }
         },
-        () => ({ kind: 'peer', to: to.peer, name: event.type, ...(dropped ? { outcome: 'dropped' } : {}) }),
+        () => ({ kind: 'peer', to: to.peer, name: event.type, ...(outcome ? { outcome } : {}) }),
       )
       return
     }

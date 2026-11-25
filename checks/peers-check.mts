@@ -155,7 +155,7 @@ await run([
     deepStrictEqual(backend.read(h).data.ids, ['r1'])
     ok(notified.includes('runner'))
     deepStrictEqual(logs.at(-1)!.left.filter((s) => s.kind === 'peer'), [
-      { kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED' },
+      { kind: 'peer', to: 'runHistory', name: 'STEP_RECORDED', outcome: 'failed' },
     ])
   }],
 
