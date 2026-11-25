@@ -482,7 +482,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.stop()
     await rest()
   }],
-  ['a finished ask or run scope drops any stray progress, send, tell, broadcast or use, while post-leave use releases immediately', async () => {
+  ['a finished ask or run scope drops any stray progress, send, tell, broadcast or use, while in-flight post-leave use releases immediately', async () => {
     const heard: string[] = []
     const events: string[] = []
     const broadcasts: string[] = []
@@ -490,14 +490,18 @@ const checks: Array<[string, () => Promise<void>]> = [
     const traced: string[] = []
     let strayAsk!: () => void
     let strayRun!: () => void
-    let lateUse!: (fn: () => void) => void
+    let onUse!: (fn: () => void) => void
+    let finishInFlight!: () => void
+    let syncLeftFailed = 0
     type StrayAsks = { PING: { args: {}; answer: string; progress: string } }
-    type StrayNet = { systems: { svc: { events: { type: 'NOTE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
+    type StrayNet = { systems: { svc: { events: { type: 'NOTE' } | { type: 'SAVE_USE' }; asks: StrayAsks } }; surfaces: { panel: { events: { type: 'BCAST' } } }; views: {} }
     const strayState = reaching<StrayNet>()
-    const svc = strayState<{}, { type: 'NOTE' }, StrayAsks>()({
-      on: { NOTE: () => { events.push('NOTE') } },
+    const svc = strayState<{}, { type: 'NOTE' } | { type: 'SAVE_USE' }, StrayAsks>()({
+      on: {
+        NOTE: () => { events.push('NOTE') },
+        SAVE_USE: (_, { use }) => { onUse = use },
+      },
       run({ send, tell, broadcast, use }) {
-        lateUse = use
         strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); use(() => { released.push('stray-run') }) }
       },
       asks: {
@@ -508,13 +512,29 @@ const checks: Array<[string, () => Promise<void>]> = [
         },
       },
     })
+    const inFlight = strayState<{}>()({
+      async run({ use }) {
+        await new Promise<void>((resolve) => { finishInFlight = resolve })
+        use(() => { released.push('after-leave') })
+        use(() => { throw new Error('late boom') })
+      },
+      failed: () => {},
+    })
+    const syncLeft = strayState<{}>()({
+      run() { throw new Left('sync-left') },
+      failed: () => { syncLeftFailed++ },
+    })
     const backend = system({ side: 'backend', trace: (line) => { traced.push(line) } })
     const win = system({ side: 'window' })
     win.start('panel', strayState<{}, { type: 'BCAST' }>()({ on: { BCAST: () => { broadcasts.push('BCAST') } } }))
     connect(win, backend)
     const h = backend.start('svc', svc)
+    backend.send(h, { type: 'SAVE_USE' })
+    backend.start('syncLeft', syncLeft)
     deepStrictEqual(await backend.ask(h, 'PING', {}, (updates) => heard.push(...updates)), { ok: true, value: 'ok' })
     await rest()
+    // Synchronous throw of Left in run() is discarded and never passed to failed().
+    strictEqual(syncLeftFailed, 0)
     strayAsk()
     strayRun()
     await rest()
@@ -523,16 +543,22 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(broadcasts, [])
     deepStrictEqual([...released], [])
 
-    // Stopping exits the state without running stray use() callbacks registered after work returned.
+    // Start in-flight async work, then stop the system before it finishes.
+    backend.start('inflight', inFlight)
     backend.stop()
-    await rest()
     deepStrictEqual([...released], [])
 
-    // Calling use() after the state has already left runs the release immediately via safely so resources do not leak.
-    lateUse(() => { released.push('after-leave') })
-    lateUse(() => { throw new Error('late boom') })
-    deepStrictEqual(released, ['after-leave'])
-    ok(traced.some((line) => /DEFECT: a release of svc threw: late boom/.test(line)), traced.join('\n'))
+    // Stray use() from already-finished work remains ignored even after the state has left.
+    strayAsk()
+    strayRun()
+    deepStrictEqual([...released], [])
+
+    // In-flight async work (and event-scope use without own) calling use() after its state left runs immediately.
+    finishInFlight()
+    await rest()
+    onUse(() => { released.push('on-after-leave') })
+    deepStrictEqual(released, ['after-leave', 'on-after-leave'])
+    ok(traced.some((line) => /DEFECT: a release of inflight threw: late boom/.test(line)), traced.join('\n'))
   }],
 ]
 

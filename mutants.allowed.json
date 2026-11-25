@@ -505,7 +505,7 @@
     "why": "Where exactly the runaway limit falls, at ten thousand things in a step or one more: a spec holds that a step that never ends is cut short and says so, not the count"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (host.limit !== undefined && steps >= host.limit) { | true",
+    "key": "src/kernel.ts | ConditionalExpression | if (!stopping && host.limit !== undefined && steps >= host.limit) { | true",
     "original": "host.limit !== undefined",
     "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
   },
@@ -648,11 +648,6 @@
     "key": "src/kernel.ts | StringLiteral | safely('what leaves as it stops', leave) | \"\"",
     "original": "'what leaves as it stops'",
     "why": "Where a DEFECT says what threw: it names the place in its report and nothing else, so its words are wording"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (item.kind === 'answer' && abandoned.has(item.question)) return MADE | true",
-    "original": "item.kind === 'answer'",
-    "why": "Only an ask's question is ever abandoned, and an answer is the only thing that comes back to one: an ask that arrives is a question nobody has answered, so the abandoned check finds nothing for anything but an answer"
   },
   {
     "key": "src/kernel.ts | BlockStatement | else try { within(() => { made = take(item); if (!made) throw UNDONE }) } catch (error) { if (error !== UNDONE) throw error } | {}",
