@@ -9,7 +9,7 @@ import { connect, rest, run, system } from './checks.mts'
 import { mirror } from '../src/mirror.ts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { forNet } from '../src/index.ts'
+import { forNet, type StepLog } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
@@ -239,6 +239,300 @@ const checks: Array<[string, () => Promise<void>]> = [
     await rest()
     strictEqual(defects.length, 1)
     deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: {}, save: false } })
+  }],
+  ['typed calls (one, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
+    type SvcAsks = {
+      PING: { args: {}; answer: string }
+      COMMIT: { args: { message: string; amend?: boolean }; progress: string; answer: string }
+      HUNK: { args: { path: string; hunk: number }; progress: string; answer: string }
+      UPLOAD: { args: { file: string }; progress: string; answer: string }
+    }
+    type SvcNet = { systems: { svc: { events: never; asks: SvcAsks } }; surfaces: {}; views: {} }
+    const svcState = forNet<SvcNet>()
+
+    const gated = new Map<string, () => void>()
+    const started: string[] = []
+    const aborted: string[] = []
+    const svc = svcState<{}, never, SvcAsks>()({
+      answers: {
+        PING: async () => { started.push('ping'); await turns(1); return 'pong' },
+        COMMIT: async ({ message, amend }, { progress, signal }) => {
+          const tag = `commit:${message}:${Boolean(amend)}`
+          started.push(tag)
+          progress('preparing')
+          await new Promise<void>((resolve) => {
+            gated.set(tag, resolve)
+            signal.addEventListener('abort', () => { aborted.push(tag); resolve() }, { once: true })
+          })
+          return `committed:${message}`
+        },
+        HUNK: async ({ path, hunk }, { progress, signal }) => {
+          const tag = `hunk:${path}#${hunk}`
+          started.push(tag)
+          progress(`staging-${hunk}`)
+          await new Promise<void>((resolve) => {
+            gated.set(tag, resolve)
+            signal.addEventListener('abort', () => { aborted.push(tag); resolve() }, { once: true })
+          })
+          return `staged:${path}#${hunk}`
+        },
+        UPLOAD: async ({ file }, { progress, signal }) => {
+          const tag = `upload:${file}`
+          started.push(tag)
+          progress(`uploading:${file}`)
+          await new Promise<void>((resolve) => {
+            gated.set(tag, resolve)
+            signal.addEventListener('abort', () => { aborted.push(tag); resolve() }, { once: true })
+          })
+          return `uploaded:${file}`
+        },
+      },
+    })
+
+    type PanelShape = {
+      data: { prefix: string; log: string[]; frozenInput: boolean[] }
+      states: {
+        on: {
+          calls: {
+            ping: 'one'
+            pingMany: 'many'
+            bareEach: 'each'
+            commit: { one: { message: string; amend?: boolean } }
+            hunk: { each: { hunk: number } }
+            upload: { many: { file: string } }
+            uploadMapped: { many: { name: string } }
+          }
+        }
+        off: {}
+      }
+    }
+    type PanelEvent =
+      | { type: 'PING' }
+      | { type: 'PING_MANY' }
+      | { type: 'BARE_EACH'; key: string }
+      | { type: 'COMMIT'; message: string; amend?: boolean }
+      | { type: 'HUNK'; path: string; hunk: number }
+      | { type: 'UPLOAD'; file: string }
+      | { type: 'UPLOAD_MAPPED'; name: string }
+      | { type: 'CANCEL_UPLOADS' }
+      | { type: 'LEAVE' }
+
+    const panel = svcState<PanelShape, PanelEvent>()({
+      data: { prefix: 'v1/', log: [], frozenInput: [] },
+      initial: 'on',
+      states: {
+        on: {
+          calls: ({ one, each, many }) => ({
+            // Omitted args for asks accepting `{}`
+            ping: one('svc', 'PING', {
+              done: (o) => (o.ok ? { data: (d) => { d.log.push(`ping:${o.value}`) } } : undefined),
+            }),
+            pingMany: many('svc', 'PING', {
+              done: (o) => (o.ok ? { data: (d) => { d.log.push(`pingMany:${o.value}`) } } : undefined),
+            }),
+            // Bare `each` reading `(key, data)` as its 2 arguments (no `input`)
+            bareEach: each('svc', 'UPLOAD', {
+              args: (key, data) => ({ file: `${data.prefix}${key}` }),
+              done: (o, { key }) => (o.ok ? { data: (d) => { d.log.push(`bare:${key}:${o.value}`) } } : undefined),
+            }),
+            // Direct input pass-through (args omitted) + frozen scope.input in progress & done
+            commit: one('svc', 'COMMIT', {
+              progress: (u, { input }) => ({
+                data: (d) => {
+                  d.log.push(`commit-p:${input.message}:${u.join(',')}`)
+                  d.frozenInput.push(Object.isFrozen(input))
+                },
+              }),
+              done: (o, { input }) => (o.ok
+                ? { data: (d) => { d.log.push(`commit-d:${input.message}:${o.value}`); d.frozenInput.push(Object.isFrozen(input)) } }
+                : undefined),
+            }),
+            // Keyed `each` with typed input + key & frozen input on progress & done
+            hunk: each('svc', 'HUNK', {
+              args: (path, input) => ({ path, hunk: input.hunk }),
+              progress: (u, { key, input }) => ({
+                data: (d) => {
+                  d.log.push(`hunk-p:${key}#${input.hunk}:${u.join(',')}`)
+                  d.frozenInput.push(Object.isFrozen(input))
+                },
+              }),
+              done: (o, { key, input }) => (o.ok
+                ? { data: (d) => { d.log.push(`hunk-d:${key}#${input.hunk}:${o.value}`) } }
+                : undefined),
+            }),
+            // Unkeyed concurrent `many` with direct pass-through (args omitted)
+            upload: many('svc', 'UPLOAD', {
+              progress: (u, { input }) => ({
+                data: (d) => {
+                  d.log.push(`upload-p:${input.file}:${u.join(',')}`)
+                  d.frozenInput.push(Object.isFrozen(input))
+                },
+              }),
+              done: (o, { input }) => (o.ok
+                ? { data: (d) => { d.log.push(`upload-d:${input.file}:${o.value}`) } }
+                : undefined),
+            }),
+            // Unkeyed concurrent `many` with mapped args(input, data)
+            uploadMapped: many('svc', 'UPLOAD', {
+              args: (input, data) => ({ file: `${data.prefix}${input.name}` }),
+              done: (o, { input }) => (o.ok
+                ? { data: (d) => { d.log.push(`mapped-d:${input.name}:${o.value}`) } }
+                : undefined),
+            }),
+          }),
+          on: {
+            PING: (_, { call }) => { call('ping') },
+            PING_MANY: (_, { call }) => { call('pingMany') },
+            BARE_EACH: ({ key }, { call }) => { call('bareEach', key) },
+            COMMIT: ({ message, amend }, { call }) => { call('commit', { message, amend }) },
+            HUNK: ({ path, hunk }, { call }) => { call('hunk', path, { hunk }) },
+            UPLOAD: ({ file }, { call }) => { call('upload', { file }) },
+            UPLOAD_MAPPED: ({ name }, { call }) => { call('uploadMapped', { name }) },
+            CANCEL_UPLOADS: (_, { cancel }) => { cancel('upload') },
+            LEAVE: () => ({ at: 'off' }),
+          },
+        },
+        off: {},
+      },
+    })
+
+    const logs: StepLog[] = []
+    const defects: string[] = []
+    const sys = system({ side: 'backend', log: (step) => logs.push(step), onDefect: (d) => defects.push(d.message) })
+    sys.start('svc', svc)
+    const h = sys.start('panel', panel)
+    const held = mirror(sys, h)
+
+    // Initial pending values: boolean for one, {} for each, 0 for many.
+    deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: {}, commit: false, hunk: {}, upload: 0, uploadMapped: 0 })
+
+    // Reactive mirror tracks `pending.upload` (number) independently of `pending.commit` (boolean).
+    const seen = { upload: 0, commit: 0 }
+    effect(() => { seen.upload++; void held.value.pending.upload })
+    effect(() => { seen.commit++; void held.value.pending.commit })
+    const baseline = { ...seen }
+
+    // 1. Omitted args (`one` and `many` for `{}` asks) and bare `each` with `(key, data)`
+    sys.send(h, { type: 'PING' })
+    sys.send(h, { type: 'PING_MANY' })
+    sys.send(h, { type: 'PING_MANY' })
+    sys.send(h, { type: 'BARE_EACH', key: 'k.txt' })
+    strictEqual(sys.read(h).pending.ping, true)
+    strictEqual(sys.read(h).pending.pingMany, 2)
+    deepStrictEqual(sys.read(h).pending.bareEach, { 'k.txt': true })
+    await turns(2)
+    gated.get('upload:v1/k.txt')!()
+    await rest()
+    strictEqual(sys.read(h).pending.ping, false)
+    strictEqual(sys.read(h).pending.pingMany, 0)
+    deepStrictEqual(sys.read(h).pending.bareEach, {})
+    deepStrictEqual(sys.read(h).data.log.filter((l) => l.startsWith('ping')).sort(), ['ping:pong', 'pingMany:pong', 'pingMany:pong'])
+    ok(sys.read(h).data.log.includes('bare:k.txt:uploaded:v1/k.txt'))
+
+    // 2. Typed `one` with direct pass-through + dedup + frozen input
+    const SECRET = 'SECRET_PAYLOAD_NEVER_IN_LOG'
+    sys.send(h, { type: 'COMMIT', message: SECRET, amend: true })
+    sys.send(h, { type: 'COMMIT', message: 'second-deduped' })
+    strictEqual(held.value.pending.commit, true)
+    strictEqual(seen.commit, baseline.commit + 1)
+    strictEqual(seen.upload, baseline.upload)
+    await turns(2)
+    gated.get(`commit:${SECRET}:true`)!()
+    await rest()
+    strictEqual(held.value.pending.commit, false)
+    ok(sys.read(h).data.log.includes(`commit-p:${SECRET}:preparing`))
+    ok(sys.read(h).data.log.includes(`commit-d:${SECRET}:committed:${SECRET}`))
+
+    // 3. Typed `each` with key + input
+    sys.send(h, { type: 'HUNK', path: 'a.ts', hunk: 2 })
+    sys.send(h, { type: 'HUNK', path: 'a.ts', hunk: 99 }) // deduped for key 'a.ts'
+    deepStrictEqual(sys.read(h).pending.hunk, { 'a.ts': true })
+    await turns(2)
+    gated.get('hunk:a.ts#2')!()
+    await rest()
+    deepStrictEqual(sys.read(h).pending.hunk, {})
+    ok(sys.read(h).data.log.includes('hunk-p:a.ts#2:staging-2'))
+    ok(sys.read(h).data.log.includes('hunk-d:a.ts#2:staged:a.ts#2'))
+
+    // 4. Typed `many` concurrent: NOT deduped, count increments/decrements, each gets its own input
+    sys.send(h, { type: 'UPLOAD', file: 'one.png' })
+    strictEqual(held.value.pending.upload, 1)
+    sys.send(h, { type: 'UPLOAD', file: 'two.png' })
+    strictEqual(held.value.pending.upload, 2)
+    sys.send(h, { type: 'UPLOAD_MAPPED', name: 'doc.md' })
+    strictEqual(sys.read(h).pending.uploadMapped, 1)
+    await turns(2)
+    gated.get('upload:one.png')!()
+    await turns(3)
+    strictEqual(held.value.pending.upload, 1)
+    gated.get('upload:two.png')!()
+    gated.get('upload:v1/doc.md')!()
+    await rest()
+    strictEqual(held.value.pending.upload, 0)
+    strictEqual(sys.read(h).pending.uploadMapped, 0)
+    ok(sys.read(h).data.log.includes('upload-d:one.png:uploaded:one.png'))
+    ok(sys.read(h).data.log.includes('upload-d:two.png:uploaded:two.png'))
+    ok(sys.read(h).data.log.includes('mapped-d:doc.md:uploaded:v1/doc.md'))
+
+    // Every scope.input delivered was deeply frozen.
+    ok(sys.read(h).data.frozenInput.length >= 4 && sys.read(h).data.frozenInput.every(Boolean))
+
+    // 5. `cancel('upload')` cancels ALL in-flight `many` calls (without cancelling other calls), and cancelling when 0 does not emit a change.
+    let notified = 0
+    const stopSub = sys.subscribe(() => { notified++ })
+    sys.send(h, { type: 'CANCEL_UPLOADS' })
+    strictEqual(notified, 0)
+    strictEqual(sys.read(h).pending.upload, 0)
+    stopSub()
+    sys.send(h, { type: 'UPLOAD', file: 'c1.png' })
+    sys.send(h, { type: 'UPLOAD', file: 'c2.png' })
+    sys.send(h, { type: 'UPLOAD_MAPPED', name: 'keep.md' })
+    strictEqual(sys.read(h).pending.upload, 2)
+    strictEqual(sys.read(h).pending.uploadMapped, 1)
+    await turns(1)
+    sys.send(h, { type: 'CANCEL_UPLOADS' })
+    strictEqual(sys.read(h).pending.upload, 0)
+    strictEqual(sys.read(h).pending.uploadMapped, 1)
+    gated.get('upload:v1/keep.md')!()
+    await rest()
+    deepStrictEqual(aborted.sort(), ['upload:c1.png', 'upload:c2.png'])
+    ok(!sys.read(h).data.log.some((l) => l.includes('upload-d:c1.png') || l.includes('upload-d:c2.png')))
+    ok(sys.read(h).data.log.includes('mapped-d:keep.md:uploaded:v1/keep.md'))
+
+    // 6. Throwing in call `progress` and `done` reports descriptive defects.
+    const badCall = svcState<{ calls: { boom: { one: { file: string } } } }, { type: 'GO' }>()({
+      calls: ({ one }) => ({
+        boom: one('svc', 'UPLOAD', {
+          progress: () => { throw new Error('bad-progress') },
+          done: () => { throw new Error('bad-done') },
+        }),
+      }),
+      on: { GO: (_, { call }) => { call('boom', { file: 'boom.png' }) } },
+    })
+    const bh = sys.start('badCall', badCall)
+    sys.send(bh, { type: 'GO' })
+    await turns(2)
+    gated.get('upload:boom.png')!()
+    await rest()
+    ok(defects.some((m) => m.includes('badCall threw in boom progress') && m.includes('bad-progress')), defects.join(' | '))
+    ok(defects.some((m) => m.includes('badCall threw in boom done') && m.includes('bad-done')), defects.join(' | '))
+
+    // 6. Leaving the state cancels all in-flight `many` calls and resets count to 0.
+    sys.send(h, { type: 'UPLOAD', file: 'leave.png' })
+    strictEqual(sys.read(h).pending.upload, 1)
+    await turns(1)
+    sys.send(h, { type: 'LEAVE' })
+    strictEqual(sys.read(h).pending.upload, 0)
+    await rest()
+    ok(aborted.includes('upload:leave.png'))
+
+    // 7. StepLog never leaks `input` payloads and never leaks synthetic counter keys for `many`.
+    strictEqual(JSON.stringify(logs).includes(SECRET), false)
+    const uploadCalls = logs.flatMap((s) => s.handled).filter((e) => e.kind === 'call' && e.name === 'upload')
+    ok(uploadCalls.length >= 2 && uploadCalls.every((e) => e.key === undefined))
+
+    held.stop()
+    sys.stop()
   }],
 ]
 

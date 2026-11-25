@@ -519,6 +519,76 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
     sys2.stop()
     await rest()
   }],
+  ['conditional follows: returning null, undefined, or false skips or stops the view and resumes when truthy again', async () => {
+    type CondEvent = { type: 'SET'; currency: string | null | undefined; enabled: boolean; unrelated: number }
+    type Cond = { data: { currency: string | null | undefined; enabled: boolean; unrelated: number; total: number | null } }
+    let argsCalls = 0
+    const cond = state<Cond, CondEvent>()({
+      data: { currency: null, enabled: false, unrelated: 0, total: null },
+      follows: (follow) => ({
+        total: follow('shop', 'total', {
+          from: ['currency', 'enabled'],
+          args: ({ currency, enabled }) => {
+            argsCalls++
+            if (!enabled) return false
+            if (currency === null) return null
+            if (currency === undefined) return undefined
+            return { currency }
+          },
+          updated: (update) => (update.ok ? { data: { total: update.value } } : undefined),
+        }),
+      }),
+      on: {
+        SET: ({ currency, enabled, unrelated }) => ({ data: { currency, enabled, unrelated } }),
+      },
+    })
+    const { views, following } = host()
+    const sys = system({ side: 'window', views })
+    const h = sys.start('cond', cond)
+    deepStrictEqual(following(), [])
+    strictEqual(argsCalls, 1)
+
+    // Unrelated field change does not re-evaluate args while paused.
+    sys.send(h, { type: 'SET', currency: null, enabled: false, unrelated: 1 })
+    strictEqual(argsCalls, 1)
+    deepStrictEqual(following(), [])
+
+    // Returning null / undefined still follows nothing.
+    sys.send(h, { type: 'SET', currency: null, enabled: true, unrelated: 1 })
+    deepStrictEqual(following(), [])
+    sys.send(h, { type: 'SET', currency: undefined, enabled: true, unrelated: 1 })
+    deepStrictEqual(following(), [])
+
+    // Becoming truthy starts following the view.
+    sys.send(h, { type: 'SET', currency: 'EUR', enabled: true, unrelated: 1 })
+    deepStrictEqual(following(), ['EUR'])
+
+    // Turning off stops the active view.
+    sys.send(h, { type: 'SET', currency: 'EUR', enabled: false, unrelated: 1 })
+    deepStrictEqual(following(), [])
+
+    // Re-enabling starts following again.
+    sys.send(h, { type: 'SET', currency: 'USD', enabled: true, unrelated: 1 })
+    deepStrictEqual(following(), ['USD'])
+    sys.stop()
+
+    // Also works across a link: unfollows on backend when args becomes falsy, refollows when truthy.
+    const remote = host()
+    const backend = system({ side: 'backend', views: remote.views })
+    const win = system({ side: 'window' })
+    connect(win, backend)
+    const wh = win.start('cond', cond)
+    await rest()
+    deepStrictEqual(remote.following(), [])
+    win.send(wh, { type: 'SET', currency: 'JPY', enabled: true, unrelated: 0 })
+    await rest()
+    deepStrictEqual(remote.following(), ['JPY'])
+    win.send(wh, { type: 'SET', currency: null, enabled: true, unrelated: 0 })
+    await rest()
+    deepStrictEqual(remote.following(), [])
+    win.stop()
+    backend.stop()
+  }],
 ]
 
 await run([...checks, ...moreChecks])

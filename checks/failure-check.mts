@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, forNet, type Each } from '../src/index.ts'
+import { given, forNet, type Defect, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
@@ -329,8 +329,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     }
 
     // Also verify when matchStale() after RUNAWAY starts a child whose run() queues an ask: halted turns it away cleanly without a second defect.
-    const prDefects: string[] = []
-    const prSys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) prDefects.push(line) } })
+    const prDefects: Defect[] = []
+    const prSys = system({ side: 'backend', onDefect: (d) => prDefects.push(d) })
     prSys.start('spinAsk', spinAsk)
     let childAskOutcome: unknown
     const postRunawayChild = localState<{}, never>()({
@@ -355,6 +355,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     await rest()
     strictEqual(prSys.idle(), true)
     strictEqual(prDefects.length, 1)
+    strictEqual(prDefects[0]!.ref, 'postRunaway')
+    ok(prDefects[0]!.message.includes('postRunaway'), prDefects[0]!.message)
     ok(childAskOutcome !== undefined && !(childAskOutcome as { ok: boolean }).ok && (childAskOutcome as { failure: { kind: string; message: string } }).failure.kind === 'unavailable' && /halted/.test((childAskOutcome as { failure: { message: string } }).failure.message), JSON.stringify(childAskOutcome))
   }],
   // ── what code a state declares throws, and what is thrown that is not an Error ──────────────────────────────────
@@ -393,6 +395,58 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.followed, [{ id: 'a' }])
     await rest()
     strictEqual(it.now().data.waited, 'done')
+  }],
+  ['onDefect receives structured defects with ref and original error, and a throwing onDefect listener is isolated', async () => {
+    const boom = new Error('handler exploded')
+    const defects: Defect[] = []
+    const traced: string[] = []
+    const s = forNet()<{ data: { n: number } }, { type: 'THROW' } | { type: 'BAD' } | { type: 'INC' }>()({
+      data: { n: 0 },
+      on: {
+        THROW: () => { throw boom },
+        BAD: () => ({ data: { nope: 1 } }) as never,
+        INC: (_, { data }) => ({ data: { n: data.n + 1 } }),
+      },
+    })
+    const sys = system({
+      side: 'window',
+      trace: (line) => traced.push(line),
+      onDefect: (d) => {
+        defects.push(d)
+        if (defects.length === 1) throw new Error('onDefect itself threw')
+      },
+    })
+    const h = sys.start('s', s)
+    const badRun = forNet()<{ data: { n: number } }, never>()({
+      data: { n: 0 },
+      run: () => ({ at: 'nope' }) as never,
+    })
+    sys.start('badRun', badRun)
+    const subBoom = new Error('sub boom')
+    const stopSub = sys.subscribe(() => { throw subBoom })
+    sys.send(h, { type: 'THROW' })
+    sys.send(h, { type: 'BAD' })
+    sys.send(h, { type: 'INC' })
+    stopSub()
+    strictEqual(sys.read(h).data.n, 1)
+    strictEqual(defects.length, 4)
+    // 0: badRun sync run refused transition (no error key)
+    strictEqual(defects[0]!.ref, 'badRun')
+    strictEqual('error' in defects[0]!, false)
+    ok(defects[0]!.message.includes('badRun') && defects[0]!.message.includes('nope'))
+    // 1: THROW handler error (first onDefect threw; second onwards still delivered)
+    strictEqual(defects[1]!.ref, 's')
+    strictEqual(defects[1]!.error, boom)
+    ok(defects[1]!.message.includes('handler exploded'))
+    // 2: BAD data update (no error key)
+    strictEqual(defects[2]!.ref, 's')
+    strictEqual('error' in defects[2]!, false)
+    ok(defects[2]!.message.includes('has no field nope'))
+    // 3: subscribe listener threw (no ref key, has original error)
+    strictEqual('ref' in defects[3]!, false)
+    strictEqual(defects[3]!.error, subBoom)
+    // All defects were also traced with DEFECT: prefix, and the throw inside onDefect did not recurse or crash.
+    strictEqual(traced.filter((l) => l.startsWith('DEFECT:')).length, 4)
   }],
 ]
 

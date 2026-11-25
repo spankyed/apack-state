@@ -91,7 +91,7 @@ type Plain = Record<string, unknown>
 type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; done: Function; progress?: Function }>
-  calls?: (calls: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; of: string; ask: string; args: Function; done: Function; progress?: Function }>
+  calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
 }
 
 interface Active {
@@ -123,7 +123,7 @@ interface Active {
 interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
-  calls: Map<string, 'one' | 'each'>
+  calls: Map<string, 'one' | 'each' | 'many'>
   /** Fields of this running state already traced as `LARGE`, freed when the state stops. */
   readonly reported: Set<string>
   ref: string; data: Plain; root: Active; starter?: { readonly ref: string; readonly from: string }
@@ -135,9 +135,9 @@ type Item =
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
   | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown> }
-  | { kind: 'done'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; outcome: AnyOutcome }
-  | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; live: Live; updates: unknown[] }
-  | { kind: 'call'; of: Active; name: string; key: string | undefined }
+  | { kind: 'done'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; outcome: AnyOutcome }
+  | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; updates: unknown[] }
+  | { kind: 'call'; of: Active; name: string; key: string | undefined; hasInput: boolean; input: unknown }
   | { kind: 'cancel'; of: Active; name: string; key: string | undefined }
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
   | { kind: 'out'; leave: () => void; said?: Said }
@@ -198,6 +198,16 @@ export interface Changes {
   readonly pending: boolean
 }
 
+/** A programming mistake or unrecoverable failure reported by the kernel. */
+export interface Defect {
+  /** Plain-English description of what went wrong (without any `DEFECT: ` prefix). */
+  readonly message: string
+  /** The running state involved, when the defect belongs to one. */
+  readonly ref?: string
+  /** The thrown error or value, when the defect was caused by a throw. */
+  readonly error?: unknown
+}
+
 export interface System {
   start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
   /**
@@ -231,6 +241,7 @@ export interface System {
    */
   idle(): boolean
   stop(): void
+  [Symbol.dispose](): void
 }
 
 /** More than this handled in one step is states telling each other without end: the step is cut short and reported. */
@@ -258,6 +269,11 @@ export function system(host: {
   /** Runs something once per frame. A window gives `requestAnimationFrame`; the default is the next turn of the event loop. */
   frame?(run: () => void): void
   trace?(line: string): void
+  /**
+   * Called for every kernel defect (a throwing handler/callback, refused data/move, cycle, runaway step, or lost
+   * transaction), in addition to `trace`. Exceptions thrown by `onDefect` itself are ignored.
+   */
+  onDefect?(defect: Defect): void
   /** Told of each step once it has finished: what it handled, what it changed, and what was sent. Never a payload. */
   log?(step: StepLog): void
   /**
@@ -272,9 +288,17 @@ export function system(host: {
   limit?: number
 }): System {
   const trace = (line: string): void => { host.trace?.(line) }
+  const defect = (message: string, ref?: string, error?: unknown): void => {
+    trace(`DEFECT: ${message}`)
+    if (!host.onDefect) return
+    const entry: Defect = { message, ...(ref === undefined ? {} : { ref }), ...(error === undefined ? {} : { error }) }
+    try { host.onDefect(entry) } catch {}
+  }
   const called = host.name ?? host.side
   /** How many things are under way: work, asks, and what was put off. Nothing is, when this is nought. */
   let pending = 0
+  /** Deterministic counter for unkeyed concurrent (`many`) calls. */
+  let manySeq = 0
   /** Counts a promise as under way until it settles, and whatever its settling does is done. */
   const under = <T,>(made: Promise<T>, done: (value: T) => void, failed: (error: unknown) => void): void => {
     pending++
@@ -285,8 +309,8 @@ export function system(host: {
   const frames: Lane = { label: `${called}'s frame` }
   const frame = host.frame ?? ((run: () => void): void => later(frames, run))
   /** Code that is not the kernel's, called where its throwing must not stop the step it is in. */
-  const safely = (what: string, call: () => void): void => {
-    try { call() } catch (error) { trace(`DEFECT: ${what} threw: ${said(error)}`) }
+  const safely = (what: string, call: () => void, ref?: string): void => {
+    try { call() } catch (error) { defect(`${what} threw: ${said(error)}`, ref, error) }
   }
   const running = new Map<string, Running>()
   const outside = new Queue<Queued>()
@@ -404,11 +428,16 @@ export function system(host: {
     const value: Plain = at ? { at, data } : { data }
     if (!top.calls.size) return Object.freeze(value)
     // Which of the imperative asks it declares are currently in flight, in the active states.
-    const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? {} : false]))
+    const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? {} : kind === 'many' ? 0 : false]))
     for (let active: Active | undefined = top.root; active; active = active.inside) {
       for (const id of active.pending.keys()) {
         const cut = id.indexOf('/')
-        if (cut < 0) pending[id] = true; else (pending[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true
+        if (cut < 0) pending[id] = true
+        else {
+          const name = id.slice(0, cut)
+          if (top.calls.get(name) === 'many') pending[name] = (pending[name] as number) + 1
+          else (pending[name] as Plain)[id.slice(cut + 1)] = true
+        }
       }
     }
     return Object.freeze({ ...value, pending: frozen(pending) })
@@ -426,7 +455,7 @@ export function system(host: {
   const tell = (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent): void => {
     if (isSurface(to)) {
       // A surface is in a window, and is told there. The backend has one of it in every window, and broadcasts.
-      if (host.side !== 'window') { trace(`DEFECT: ${called} told the surface ${to.surface} ${event.type}. A surface is told from its own window, and broadcast to from the backend`); return }
+      if (host.side !== 'window') { defect(`${called} told the surface ${to.surface} ${event.type}. A surface is told from its own window, and broadcast to from the backend`); return }
       enqueue({ kind: 'event', ref: to.surface, event })
       return
     }
@@ -555,7 +584,14 @@ export function system(host: {
       send: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
       tell: (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent) => { if (alive()) tell(to, event) },
       broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) },
-      call: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'call', of: mine, name, key: k }) },
+      call: (name: string, ...rest: unknown[]) => {
+        if (!alive()) return
+        const kind = mine.top.calls.get(name)
+        const key = kind === 'each' ? rest[0] as string : undefined
+        const hasInput = kind === 'each' ? rest.length > 1 : rest.length > 0
+        const input = hasInput ? frozen(kind === 'each' ? rest[1] : rest[0]) : undefined
+        enqueue({ kind: 'call', of: mine, name, key, hasInput, input })
+      },
       cancel: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'cancel', of: mine, name, key: k }) },
       report: (event: AnyEvent) => {
         if (!alive()) return
@@ -623,11 +659,11 @@ export function system(host: {
         }
         const nextData = data === undefined || typeof data === 'function' ? {} : data
         if (!isPlainObject(nextData)) {
-          trace(`DEFECT: ${top.ref} cannot change data with a non-object value`)
+          defect(`${top.ref} cannot change data with a non-object value`, top.ref)
           throw UNDONE
         }
         const cannot = cannotGo(top, at, nextData)
-        if (cannot) { trace(`DEFECT: ${top.ref} ${cannot}`); throw UNDONE }
+        if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); throw UNDONE }
         if (typeof data === 'function') {
           if (!apply(active, { data })) throw UNDONE
           deferred = { at }
@@ -719,6 +755,7 @@ export function system(host: {
         calls: def.calls?.({
           one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }),
           each: (of: string, ask: string, options: object) => ({ kind: 'each', of, ask, ...options }),
+          many: (of: string, ask: string, options: object) => ({ kind: 'many', of, ask, ...options }),
         }) ?? {},
       }
       declared.set(def, found)
@@ -755,9 +792,9 @@ export function system(host: {
         const under = `${top.ref}/${name}`
         const start = (ref: string, def: unknown, from: string, given: () => Plain): void => {
           let entering: Plain
-          try { entering = given() } catch (error) { trace(`DEFECT: ${top.ref} could not say what to give ${ref}: ${said(error)}`); return }
+          try { entering = given() } catch (error) { defect(`${top.ref} could not say what to give ${ref}: ${said(error)}`, top.ref, error); return }
           const problem = cannotBegin(def as LooseDef, entering)
-          if (problem) { trace(`DEFECT: ${ref} ${problem}`); return }
+          if (problem) { defect(`${ref} ${problem}`, ref); return }
           at.started.add(ref)
           begin(ref, def as LooseDef, entering, { ref: top.ref, from })
         }
@@ -767,7 +804,7 @@ export function system(host: {
         trace(`${top.ref} looked at ${declared.each} for which ${name} to run`)
         const wanted = new Map<string, string>()
         for (const key of keysOf(top.data[declared.each])) {
-          if (key.includes('/')) trace(`DEFECT: ${top.ref} has a ${name} under ${JSON.stringify(key)}, and a key cannot hold a slash`); else wanted.set(`${under}/${key}`, key)
+          if (key.includes('/')) defect(`${top.ref} has a ${name} under ${JSON.stringify(key)}, and a key cannot hold a slash`, top.ref); else wanted.set(`${under}/${key}`, key)
         }
         for (const ref of [...at.started]) if (ref.startsWith(`${under}/`) && !wanted.has(ref)) { at.started.delete(ref); end(ref) }
         for (const [ref, key] of wanted) if (!at.started.has(ref)) start(ref, declared.state.def, key, () => declared.given(key, top.data) as Plain)
@@ -778,18 +815,20 @@ export function system(host: {
        * the data is never changed in place, so a field that changed is a different value, and comparing the two
        * says whether to ask again without working anything out.
        */
-      const settle = (live: Map<string, Live>, id: string, seen: readonly unknown[], begin: (entry: Live) => (() => void) | undefined, nothing = false): void => {
+      const settle = (live: Map<string, Live>, id: string, seen: readonly unknown[], args: () => unknown, begin: (what: object, entry: Live) => (() => void) | undefined): void => {
         const now = live.get(id)
         if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return
+        let what: object | null | undefined | false
+        try { what = args() as object | null | undefined | false } catch (error) { defect(`${top.ref} could not say what to ask ${id} for: ${said(error)}`, top.ref, error); return }
         // There is nothing to ask for now: what was asked is given up, and nothing can come round.
-        if (nothing) { now?.stop(); live.set(id, { seen, because: new Set(), stop: () => {} }); return }
+        if (!what) { now?.stop(); live.set(id, { seen, because: new Set(), stop: () => {} }); return }
         const here = `${top.ref}#${id}`
         // A circle would be asked again, deliver again, and never come to rest, each round a read. It is refused
         // where it closes: this one goes on as it was.
         if (now && hearing && (hearing.id === here || hearing.because.has(here))) {
-          trace(hearing.id === here
-            ? `DEFECT: what ${here} delivered changed a field it is itself asked from. It goes on as it was`
-            : `DEFECT: what ${hearing.id} delivered changed a field ${here} is asked from, and ${here} is what led to ${hearing.id} being asked. ${here} goes on as it was`)
+          defect(hearing.id === here
+            ? `what ${here} delivered changed a field it is itself asked from. It goes on as it was`
+            : `what ${hearing.id} delivered changed a field ${here} is asked from, and ${here} is what led to ${hearing.id} being asked. ${here} goes on as it was`, top.ref)
           return
         }
         now?.stop()
@@ -798,7 +837,7 @@ export function system(host: {
         // In place before it begins, so that whatever it delivers can be told from what an earlier one did.
         const entry: Live = { seen, because, stop: () => {} }
         live.set(id, entry)
-        const stop = begin(entry)
+        const stop = begin(what, entry)
         if (stop) entry.stop = stop; else live.delete(id)
       }
       const picked = (from: readonly string[]): Plain => Object.fromEntries(from.map((field) => [field, top.data[field]]))
@@ -836,21 +875,21 @@ export function system(host: {
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
-        const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => settle(at.following, id, seen, (live) => {
-          let asked: object
-          try { asked = args() as object } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return undefined }
-          let runningView: (() => void) | Following
-          try {
-            runningView = views(declared.feature, declared.view, asked, (update) => {
-              if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
-            })
-          } catch (error) {
-            trace(`DEFECT: ${top.ref} could not follow ${id}: ${said(error)}`)
-            return undefined
-          }
-          const stop = typeof runningView === 'function' ? runningView : () => runningView.stop()
-          return () => safely(`stopping ${top.ref}'s view ${id}`, stop)
-        })
+        const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
+          settle(at.following, id, seen, args, (what, live) => {
+            let runningView: (() => void) | Following
+            try {
+              runningView = views(declared.feature, declared.view, what, (update) => {
+                if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
+              })
+            } catch (error) {
+              defect(`${top.ref} could not follow ${id}: ${said(error)}`, top.ref, error)
+              return undefined
+            }
+            const stop = typeof runningView === 'function' ? runningView : () => runningView.stop()
+            return () => safely(`stopping ${top.ref}'s view ${id}`, stop, top.ref)
+          })
+        }
         if (declared.each !== undefined) {
           for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key))
         } else {
@@ -862,21 +901,17 @@ export function system(host: {
 
       for (const [name, declared] of Object.entries(declaredBy(at.def).loads)) {
         const awaited = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
-          let asked: object | null | undefined | false
-          try { asked = args() as object | null | undefined | false } catch (error) { trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`); return }
-          const what = asked
           // Nothing to ask for is nothing asked, and it is still looked at again when its fields change.
-          settle(at.awaiting, id, seen, (live) => {
-          if (!what) return () => {}
-          const given = new AbortController()
-          const signal = AbortSignal.any([at.controller.signal, given.signal])
-          const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted
-          const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) })
-          const made = ask(declared.of, declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
-          // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
-          made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {})
-          return () => given.abort()
-          }, !what)
+          settle(at.awaiting, id, seen, args, (what, live) => {
+            const given = new AbortController()
+            const signal = AbortSignal.any([at.controller.signal, given.signal])
+            const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted
+            const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) })
+            const made = ask(declared.of, declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
+            // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
+            made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {})
+            return () => given.abort()
+          })
         }
         if (declared.each !== undefined) {
           for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => declared.args(key))
@@ -964,7 +999,7 @@ export function system(host: {
   }
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): void => {
-    const calls = new Map<string, 'one' | 'each'>()
+    const calls = new Map<string, 'one' | 'each' | 'many'>()
     const survey = (of: LooseDef): void => {
       for (const [name, called] of Object.entries(declaredBy(of).calls)) calls.set(name, called.kind)
       for (const inner of Object.values(of.states ?? {})) survey(inner)
@@ -1008,13 +1043,13 @@ export function system(host: {
       // An edit that is refused changes nothing, and the move it came with is not made either.
       // A move is looked at before the edit is made: one that cannot be made takes its edit with it.
       const cannot = at === undefined ? undefined : cannotGo(top, at, {})
-      if (cannot) { trace(`DEFECT: ${top.ref} ${cannot}`); return NOT_MADE }
+      if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); return NOT_MADE }
       // Which fields there are is the states' to say, so the edit may change them and neither add nor remove one.
       // The write that tries throws there and then, and an edit that throws has changed nothing.
       try { made = produce(before, data, { fixed: true, topLevel: true }) } catch (error) {
         // A change that came with an answer may refuse, with one of the refusals its ask declares.
         if (mayRefuse && error instanceof Refusal) throw error
-        trace(`DEFECT: ${top.ref}: ${said(error)}${whereOf(error)}`)
+        defect(`${top.ref}: ${said(error)}${whereOf(error)}`, top.ref, error)
         return NOT_MADE
       }
       const { value, touched } = made
@@ -1024,13 +1059,13 @@ export function system(host: {
       if (at !== undefined) { const was = top.data; go(top, at, {}); moved(top, was) }
       return MADE
     }
-    if (!isPlainObject(data)) { trace(`DEFECT: ${top.ref} cannot change data with a non-object value`); return NOT_MADE }
+    if (!isPlainObject(data)) { defect(`${top.ref} cannot change data with a non-object value`, top.ref); return NOT_MADE }
     // The same rule for fields as for an edit: every one of them has to be a field there will be, or none is taken.
     // Without a move those are the fields there are. With one, they are the fields of the states the move leaves it in.
     const cannot = at === undefined
       ? Object.keys(data).filter((field) => !Object.hasOwn(top.data, field)).map((field) => `has no field ${field} to change`)[0]
       : cannotGo(top, at, data)
-    if (cannot) { trace(`DEFECT: ${top.ref} ${cannot}`); return NOT_MADE }
+    if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); return NOT_MADE }
     // Data first, then the move: the work of a state that is entered reads the data as the handler left it.
     let nextData: Plain | undefined
     for (const [field, value] of Object.entries(data)) {
@@ -1061,8 +1096,8 @@ export function system(host: {
     const where = `${active.top.ref}${active.path ? ` in ${active.path}` : ''}`
     trace(`${where} failed: ${said(error)}`)
     const failed = active.def.failed
-    if (!failed) { trace(`DEFECT: ${where} says nowhere to go when its work fails, and stays as it is`); return MADE }
-    try { return apply(active, failed(error, eventScopeOf(active))) } catch (thrown) { trace(`DEFECT: ${where}'s failed threw: ${said(thrown)}`); return NOT_MADE }
+    if (!failed) { defect(`${where} says nowhere to go when its work fails, and stays as it is`, active.top.ref, error); return MADE }
+    try { return apply(active, failed(error, eventScopeOf(active))) } catch (thrown) { defect(`${where}'s failed threw: ${said(thrown)}`, active.top.ref, thrown); return NOT_MADE }
   }
 
   /**
@@ -1123,7 +1158,7 @@ export function system(host: {
       if (!followed || item.of.following.get(item.id) !== item.live) return MADE
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
       try { return apply(item.of, followed.updated(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
-        trace(`DEFECT: ${item.of.top.ref} threw in ${item.id} updated, and nothing changed: ${said(error)}`)
+        defect(`${item.of.top.ref} threw in ${item.id} updated, and nothing changed: ${said(error)}`, item.of.top.ref, error)
         return NOT_MADE
       }
     }
@@ -1135,21 +1170,42 @@ export function system(host: {
       if (!of || of.controller.signal.aborted) return MADE
       const at = of
       const top = at.top
-      const id = key === undefined ? name : `${name}/${key}`
-      const now = at.pending.get(id)
+      const declared = declaredBy(at.def).calls[name]!
       if (item.kind === 'cancel') {
+        if (declared.kind === 'many') {
+          const prefix = `${name}/`
+          let any = false
+          for (const [entryId, live] of [...at.pending]) {
+            if (!entryId.startsWith(prefix)) continue
+            live.stop()
+            at.pending.delete(entryId)
+            any = true
+          }
+          if (any) pendingChanged(top)
+          return MADE
+        }
+        const id = key === undefined ? name : `${name}/${key}`
+        const now = at.pending.get(id)
         if (!now) return MADE
         now.stop()
         at.pending.delete(id)
         pendingChanged(top)
         return MADE
       }
-      // One that is already in flight is the same one: a second push while one is pending is that push.
-      if (now) return MADE
-      const declared = declaredBy(at.def).calls[name]!
+      const id = declared.kind === 'many' ? `${name}/${++manySeq}` : key === undefined ? name : `${name}/${key}`
+      // For `one` and `each`, one already in flight is the same one: a second push while one is pending is that push.
+      if (at.pending.has(id)) return MADE
       let asked: object
-      try { asked = (key === undefined ? declared.args(top.data) : declared.args(key, top.data)) as object } catch (error) {
-        trace(`DEFECT: ${top.ref} could not say what to ask ${id} for: ${said(error)}`)
+      try {
+        if (declared.args) {
+          asked = (declared.kind === 'each'
+            ? (item.hasInput ? declared.args(key, item.input, top.data) : declared.args(key, top.data))
+            : (item.hasInput ? declared.args(item.input, top.data) : declared.args(top.data))) as object
+        } else {
+          asked = (item.hasInput ? item.input : {}) as object
+        }
+      } catch (error) {
+        defect(`${top.ref} could not say what to ask ${id} for: ${said(error)}`, top.ref, error)
         return NOT_MADE
       }
       const given = new AbortController()
@@ -1158,10 +1214,11 @@ export function system(host: {
       const mine = (): boolean => at.pending.get(id) === live && !signal.aborted
       at.pending.set(id, live)
       pendingChanged(top)
-      const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, live, updates }) })
+      const { hasInput, input } = item
+      const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates }) })
       const made = ask(declared.of, declared.ask, asked, signal, hears) as unknown as Promise<AnyOutcome>
       // Cancelled, it ends with `Cancelled`, which is that and nothing to hear of.
-      made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, live, outcome }) }, () => {})
+      made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {})
       return MADE
     }
     if (item.kind === 'done' || item.kind === 'progress') {
@@ -1170,11 +1227,12 @@ export function system(host: {
       const declared = table[item.name]
       if (!declared || live.get(item.id) !== item.live) return MADE
       const top = item.of.top
-      const given = eventScopeOf(item.of, item.key)
+      const baseScope = eventScopeOf(item.of, item.key)
+      const given = item.hasInput ? Object.assign(baseScope, { input: item.input }) : baseScope
       // What a read delivers may not lead round to itself. An imperative call has nothing to come round to.
       hearing = item.made ? undefined : { id: `${top.ref}#${item.id}`, because: item.live.because }
       if (item.kind === 'progress') {
-        try { return apply(item.of, declared.progress!(item.updates, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw in ${item.id} progress, and nothing changed: ${said(error)}`); return NOT_MADE }
+        try { return apply(item.of, declared.progress!(item.updates, given)) } catch (error) { defect(`${top.ref} threw in ${item.id} progress, and nothing changed: ${said(error)}`, top.ref, error); return NOT_MADE }
       }
       // One that was called has finished, so it is no longer pending. That is the kernel's to say, and it is said before
       // the handler, which may call it again.
@@ -1182,7 +1240,7 @@ export function system(host: {
       // A read that has ended stays as what was asked, so that it is not asked again until its fields change. There
       // is nothing left of it to give up: stopping it later tells nobody.
       else item.live.stop = () => {}
-      try { return apply(item.of, declared.done(item.outcome, given)) } catch (error) { trace(`DEFECT: ${top.ref} threw in ${item.id} done, and nothing changed: ${said(error)}`); return NOT_MADE }
+      try { return apply(item.of, declared.done(item.outcome, given)) } catch (error) { defect(`${top.ref} threw in ${item.id} done, and nothing changed: ${said(error)}`, top.ref, error); return NOT_MADE }
     }
     if (item.kind === 'answer') {
       answeringOf.get(item.question)?.questions.delete(item.question)
@@ -1209,7 +1267,7 @@ export function system(host: {
       }
       // A handler that throws changes nothing: the state is as it was before the event, which it could handle.
       try { return apply(found.of, found.handler(item.event, eventScopeOf(found.of))) } catch (error) {
-        trace(`DEFECT: ${item.ref} threw handling ${item.event.type}, and nothing changed: ${said(error)}`)
+        defect(`${item.ref} threw handling ${item.event.type}, and nothing changed: ${said(error)}`, item.ref, error)
         return NOT_MADE
       }
     }
@@ -1275,7 +1333,7 @@ export function system(host: {
    */
   const lost = (error: unknown, told: typeof logging): (() => void) => {
     broken = true
-    trace(`DEFECT: ${called} could not keep what a step wrote, and has stopped: its states were ahead of its rows. ${said(error)}`)
+    defect(`${called} could not keep what a step wrote, and has stopped: its states were ahead of its rows. ${said(error)}`, undefined, error)
     changed.clear(); fields.clear(); places.clear(); stale.clear(); restarted.clear()
     // Whoever asked in this step is told it failed. Nothing else the step would have sent leaves.
     if (told) told.status = 'lost'
@@ -1349,7 +1407,7 @@ export function system(host: {
   let spent = false
   const step = (first: () => void, stopping = false): void => {
     if (!stopping && host.limit !== undefined && steps >= host.limit) {
-      if (!spent) { spent = true; trace(`DEFECT: ${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
+      if (!spent) { spent = true; defect(`${called} took ${host.limit} steps and takes no more: something leads to something else without end`) }
       // Nothing more is taken: an ask that was waiting to be is answered, or it would wait for good.
       turnAway(inside.drain(), LIMIT_REACHED); turnAway(outside.drain(), LIMIT_REACHED)
       return
@@ -1371,7 +1429,7 @@ export function system(host: {
           if (count < RUNAWAY) { handle(item); continue }
           // What it had done is committed, so that the states can be read and the report says where they got to.
           halted = true
-          trace(`DEFECT: a step was halted after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`)
+          defect(`a step was halted after ${RUNAWAY} things, at ${'ref' in item ? item.ref : item.kind}: something tells something else without end`, 'ref' in item ? item.ref : undefined)
           if (told) told.status = 'halted'
           if (item.kind === 'ask') safely('answering an ask that will not be taken', () => item.question.end(refusal('unavailable', HALTED)))
           turnAway(inside.drain(), HALTED)
@@ -1518,6 +1576,7 @@ export function system(host: {
     }) as System['attach'],
     idle: () => pending === 0 && !due && !stepping && !flushing && !outside.any,
     stop: () => run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
+    [Symbol.dispose]: () => { self.stop() },
   }
   return self
 }

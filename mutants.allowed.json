@@ -60,7 +60,7 @@
     "why": "Two mutants. useState is called in a component's setup, where there is always a scope; with none, Vue's onScopeDispose only warns in development, which is all calling it anyway would change. And Vue runs a scope's dispose callbacks once, while held is still set, so the guard inside is never false"
   },
   {
-    "key": "src/mirror.ts | ConditionalExpression | if (typeof now === 'boolean') { if (into[name] !== now) into[name] = now; continue } | true",
+    "key": "src/mirror.ts | ConditionalExpression | if (typeof now !== 'object') { if (into[name] !== now) into[name] = now; continue } | true",
     "original": "into[name] !== now",
     "why": "A reactive write of the value already there triggers nothing in Vue, so writing it when it is unchanged is seen by no reader"
   },
@@ -230,7 +230,12 @@
     "why": "A question is ended by resolving a promise, here or across a link to one; a second end resolves it again, which a promise ignores, so whether the guard holds is seen by nothing"
   },
   {
-    "key": "src/kernel.ts | EqualityOperator | if (cut < 0) pending[id] = true; else (pending[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true | cut <= 0",
+    "key": "src/kernel.ts | ConditionalExpression | if (!host.onDefect) return | false",
+    "original": "!host.onDefect",
+    "why": "The very next line calls host.onDefect!(entry) inside try/catch, so skipping the early return throws TypeError inside the catch and is unobservable"
+  },
+  {
+    "key": "src/kernel.ts | EqualityOperator | if (cut < 0) pending[id] = true | cut <= 0",
     "original": "cut < 0",
     "why": "An id that a pending call is kept under starts with the ask's declared name, which is never empty, so a slash is never its first character"
   },
@@ -335,11 +340,6 @@
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | if (!what) return () => {} | false",
-    "original": "!what",
-    "why": "settle is told there is nothing to ask for whenever the args are falsy, and then never calls this, so the guard inside is never reached with nothing"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
     "original": "at.awaiting.get(id) === live && !signal.aborted",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
@@ -380,12 +380,17 @@
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, live, updates }) }) | true",
+    "key": "src/kernel.ts | UpdateOperator | const id = declared.kind === 'many' ? `${name}/${++manySeq}` : key === undefined ? name : `${name}/${key}` | --manySeq",
+    "original": "++manySeq",
+    "why": "manySeq is a strictly internal uniqueness counter for unkeyed many calls and is never exposed in pending, scope.key, or StepLog, so counting up or down produces unique ids alike"
+  },
+  {
+    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates }) }) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, live, outcome }) }, () => {}) | true",
+    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {}) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
