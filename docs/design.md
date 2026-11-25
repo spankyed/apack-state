@@ -238,9 +238,11 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   is answered. Nothing outside the database is part of it: git, files and models are
   done first, and the row that records one is written in the step its result arrives in.
 - **Work has one owner and stops when its owner does.** A state's `run` is the state's. An ask is the asker's. What a
-  state starts, follows, awaits or makes is that state's. A work scope's `signal` aborts when that work finishes for
-  any reason (return, throw, asker left, or state left), cancelling any `sleep`, `ask`, or external operation bound to
-  it whether or not it was awaited.
+  state starts, follows, awaits or makes is that state's. When `run` or an ask's handler finishes (returns or throws),
+  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`send`, `tell`,
+  `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
+  stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
+  when `run` or an ask returns.
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
 - **An ask or `sleep` whose owner has gone throws `Left` where it is awaited**, so `finally` runs and what was held is let go.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.

@@ -146,7 +146,7 @@ export function thread(inference: Inference) {
           // tell another backend system, by name
           tell('brain', { type: 'TRIGGER_BRAIN_EVENT', eventType: 'threads.user_msg', payload: { threadId } })
 
-          // to that surface in every window. `signal` aborts if this thread stops being written to, or when this work ends.
+          // to that surface in every window. `signal` aborts only if this thread stops being written to.
           let reply = ''
           for await (const piece of inference.streamText(data.text + data.attached, signal)) {
             reply += piece

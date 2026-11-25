@@ -30,28 +30,18 @@ const worker = (did: string[]) => {
     asks: {
       RUN: async ({ id }, { progress, refuse, signal }) => {
         did.push(`run ${id}`)
-        const gaveUp = (): void => { did.push(`gave up ${id}`) }
-        signal.addEventListener('abort', gaveUp)
-        try {
-          progress(`${id} began`)
-          await turns(3)
-          if (id === 'flaky' && !tried.has(id)) { tried.add(id); throw refuse('busy', 'Not this time') }
-          progress(`${id} ended`)
-          return `${id} done`
-        } finally {
-          signal.removeEventListener('abort', gaveUp)
-        }
+        signal.addEventListener('abort', () => { did.push(`gave up ${id}`) })
+        progress(`${id} began`)
+        await turns(3)
+        if (id === 'flaky' && !tried.has(id)) { tried.add(id); throw refuse('busy', 'Not this time') }
+        progress(`${id} ended`)
+        return `${id} done`
       },
       SAVE: async ({ text }, { signal }) => {
         did.push(`save ${text}`)
-        const gaveUp = (): void => { did.push(`gave up saving ${text}`) }
-        signal.addEventListener('abort', gaveUp)
-        try {
-          await turns(3)
-          return text
-        } finally {
-          signal.removeEventListener('abort', gaveUp)
-        }
+        signal.addEventListener('abort', () => { did.push(`gave up saving ${text}`) })
+        await turns(3)
+        return text
       },
     },
   })

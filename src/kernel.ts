@@ -508,16 +508,16 @@ export function system(host: {
     }
     return key === undefined ? scope : Object.assign(scope, { key })
   }
-  const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
+  const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
-      const asked = ask(to, name, args, signal, hears)
+      const asked = ask(to, name, args, workSignal, hears)
       // An ask that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
       asked.catch(() => {})
       return asked
     },
     sleep: (ms: number) => {
-      const waiting = sleep(ms, signal)
+      const waiting = sleep(ms, workSignal)
       // A sleep that was started and never awaited ends with `Left` like any other, and that is not a failure of the process.
       waiting.catch(() => {})
       return waiting
@@ -545,7 +545,7 @@ export function system(host: {
       let made: unknown
       // What `run` throws at once is a failure like any later one, taken up when the entering it is part of is done.
       // And what it wrote and said before it threw is taken back: work that fails at once has done nothing.
-      const begin = (): void => { made = def.run!(workScopeOf(active, workSignal, own.signal)) }
+      const begin = (): void => { made = def.run!(workScopeOf(active, active.controller.signal, own.signal, workSignal)) }
       const before = sayings()
       try { if (host.transact) host.transact(begin); else begin() } catch (error) { unsay(before); abortAfterUnsay(own); inside.push({ kind: 'failure', of: active, error }); return active }
       if (made instanceof Promise) {
@@ -1075,7 +1075,7 @@ export function system(host: {
       return refusal('failed', message)
     }
     try {
-      const made = found.handler(args, Object.assign(workScopeOf(found.of, workSignal, own.signal), {
+      const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, own.signal, workSignal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
         progress: (update: unknown) => { if (!workSignal.aborted) out(() => heard?.(update), { kind: 'progress', to: item.ref, name }) },
       }))

@@ -221,8 +221,8 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    */
   readonly now: number
   /**
-   * Aborted when this state stops being the case. For `run` and an ask's handler, also when the work finishes
-   * (returns or throws), and for an ask when whoever asked has gone.
+   * Aborted when this state stops being the case (or for an ask, when whoever asked has gone). It does not abort on
+   * normal completion: outside work handed `signal` and not awaited is not stopped when `run` or an ask returns.
    */
   readonly signal: AbortSignal
 
