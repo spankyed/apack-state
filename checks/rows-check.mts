@@ -159,9 +159,9 @@ const source = sourced<{}, never, SourceAsks>()({
   answers: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
 })
 type KeeperEvents = { type: 'SET'; query: string } | { type: 'SAVE' }
-type Keeper = { data: { query: string; got: string[] }; makes: { save: 'one' } }
+type Keeper = { data: { query: string; got: string[] }; calls: { save: 'one' } }
 /**
- * Awaits a read of what its query names and makes a write when told to, and writes a row each time it hears from
+ * Loads a read of what its query names and calls a write when told to, and writes a row each time it hears from
  * either and each time one ends. A query that says so has it throw after writing, in the one place it names.
  */
 const keeper = (store: Rows) => {
@@ -173,7 +173,7 @@ const keeper = (store: Rows) => {
     data: { query: '', got: [] },
     on: {
       SET: ({ query }) => ({ data: { query } }),
-      SAVE: (_, { make }) => { make('save') },
+      SAVE: (_, { call }) => { call('save') },
     },
     loads: (load) => ({
       lookup: load('source', 'FIND', {
@@ -183,7 +183,7 @@ const keeper = (store: Rows) => {
         done: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
       }),
     }),
-    makes: ({ one }) => ({
+    calls: ({ one }) => ({
       save: one('source', 'FIND', {
         args: ({ query }) => ({ q: `save ${query}` }),
         progress: (_updates, { data }) => { note('write heard', data.query) },

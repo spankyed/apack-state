@@ -70,20 +70,20 @@ const worker = (letGo: (id: string) => Promise<void>) => kinds<{}, { type: 'PING
   on: { PING: () => {} },
   answers: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
 })
-/** Makes a run of the worker for each id it is given, and lets one go. */
-const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
+/** Calls a run of the worker for each id it is given, and cancels one. */
+const jobs = kinds<{ data: { done: string[] }; states: { on: { calls: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
   data: { done: [] },
   initial: 'on',
   states: {
     on: {
-      makes: ({ each }) => ({
+      calls: ({ each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
           progress: () => undefined,
           done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
         }),
       }),
-      on: { ADD: ({ id }, { make }) => { make('run', id) }, DROP: ({ id }, { drop }) => { drop('run', id) } },
+      on: { ADD: ({ id }, { call }) => { call('run', id) }, DROP: ({ id }, { cancel }) => { cancel('run', id) } },
     },
   },
 })
@@ -95,14 +95,14 @@ const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { op
     shut: {},
   },
 })
-/** Makes one save at a time, of the id it was told. */
-const saver = kinds<{ data: { id: string }; states: { on: { makes: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
+/** Calls one save at a time, of the id it was told. */
+const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
   data: { id: '' },
   initial: 'on',
   states: {
     on: {
-      makes: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
-      on: { SAVE: ({ id }, { make }) => { make('save'); return { data: { id } } } },
+      calls: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
+      on: { SAVE: ({ id }, { call }) => { call('save'); return { data: { id } } } },
     },
   },
 })
@@ -167,7 +167,7 @@ await run([
     const { window, handle, logs } = wired()
     window.send(handle, { type: 'TYPE', text: 'hello' })
     await rest()
-    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, making: false, at: 'idle' } })
+    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, at: 'idle' } })
     window.send(handle, { type: 'SEND' })
     await rest()
     const sent = logs.window.find((step) => step.handled[0]?.name === 'SEND')!
@@ -258,7 +258,7 @@ await run([
     const made = backend.start('saver', saver)
     backend.send(made, { type: 'SAVE', id: 'a' })
     await rest()
-    has(handledIn(logs), { kind: 'make', ref: 'saver', name: 'save' })
+    has(handledIn(logs), { kind: 'call', ref: 'saver', name: 'save' })
   }],
   ['nothing any of it carried is in a log', async () => {
     const { window, handle, logs } = wired()
@@ -292,17 +292,17 @@ await run([
     backend.send(made, { type: 'DROP', id: 'later' })
     await turns()
     const handled = handledIn(logs)
-    has(handled, { kind: 'make', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'call', ref: 'jobs', name: 'run', key: 'now' })
     has(handled, { kind: 'progress', ref: 'jobs', name: 'run', key: 'now' })
     has(handled, { kind: 'answer', ref: 'worker', name: 'RUN' })
     has(handled, { kind: 'done', ref: 'jobs', name: 'run', key: 'now' })
-    has(handled, { kind: 'drop', ref: 'jobs', name: 'run', key: 'later' })
+    has(handled, { kind: 'cancel', ref: 'jobs', name: 'run', key: 'later' })
     has(handled, { kind: 'result', ref: 'ends', name: 'busy' })
     has(handled, { kind: 'failure', ref: 'breaks', name: 'busy' })
     has(handled, { kind: 'view', ref: 'watcher', name: 'count' })
     // A state that moved and changed none of its fields says so, and where it is.
     const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
-    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, making: false, at: 'idle' })
+    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, at: 'idle' })
     for (const resolve of held.values()) resolve()
     await rest()
     // Every run was answered: nothing is abandoned when the system stops.

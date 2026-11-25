@@ -98,7 +98,7 @@ const helper = state<{ data: { title: string } }, never>()({ data: { title: give
 type Odd = {
   data: { count: number; id: string | null; waited: string | null }
   starts: { helper: typeof helper }
-  makes: { save: 'one' }
+  calls: { save: 'one' }
 }
 type OddEvent = { type: 'THROWS_A_STRING' } | { type: 'SET'; id: string } | { type: 'SAVE' }
 type OddAsks = { THROWS: { args: {}; answer: string } }
@@ -108,11 +108,11 @@ const oddState = state<Odd, OddEvent, OddAsks>()({
   starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), update: () => {} }) }),
   loads: (load) => ({ wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), done: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
-  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
+  calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
   on: {
     THROWS_A_STRING: () => ({ data: (d) => { d.count++; throw 'not an error' } }),
     SET: ({ id }) => ({ data: { id } }),
-    SAVE: (_, { make }) => { make('save') },
+    SAVE: (_, { call }) => { call('save') },
   },
   answers: { THROWS: () => { throw 'not an error' } },
 })
@@ -388,7 +388,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(it.defects.some((line) => line.includes('could not say what to ask wait for: no id yet')), it.defects.join(' / '))
     it.send({ type: 'SAVE' })
     ok(it.defects.some((line) => line.includes('could not say what to ask save for: no id yet')), it.defects.join(' / '))
-    strictEqual(it.now().making.save, false)
+    strictEqual(it.now().pending.save, false)
     it.send({ type: 'SET', id: 'a' })
     deepStrictEqual(it.followed, [{ id: 'a' }])
     await rest()

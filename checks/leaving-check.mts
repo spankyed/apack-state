@@ -112,7 +112,7 @@ const wired = (connected = true, frame?: (run: () => void) => void) => {
 
 type Lingering = {
   data: { heard: string[] }
-  makes: { save: 'one' }
+  calls: { save: 'one' }
   reports: { type: 'REPORTED' }
   states: { working: {}; idle: {} }
 }
@@ -124,23 +124,23 @@ const lingers = forNet<Lingered>()
 const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, LingerAsks>()({
   data: { heard: [] },
   initial: 'working',
-  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), done: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
+  calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), done: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
   on: {
     STOP_WORKING: () => ({ at: 'idle' }),
     SELF: () => ({ data: (d) => { d.heard.push('SELF') } }),
   },
   states: {
     working: {
-      on: { SAVE: (_, { make }) => { make('save') } },
+      on: { SAVE: (_, { call }) => { call('save') } },
       answers: { TALK_LATER: async (_, { progress }) => { await gate; progress('late'); return 'talked' } },
-      async run({ send, tell, report, broadcast, make, drop }) {
+      async run({ send, tell, report, broadcast, call, cancel }) {
         await gate
         send({ type: 'SELF' })
         tell('slow', { type: 'NOTE' } as never)
         report({ type: 'REPORTED' })
         broadcast('listener', { type: 'NOTE' })
-        make('save')
-        drop('save')
+        call('save')
+        cancel('save')
       },
       failed: () => {},
     },
@@ -181,13 +181,13 @@ const lingeringChecks: Array<[string, () => Promise<void>]> = [
     const talked = await talking
     await rest()
     strictEqual(!talked.ok && talked.failure.kind, 'abandoned')
-    deepStrictEqual({ heard: it.read().data.heard, making: it.read().making.save, reported: it.backend.read(it.parent).data.reported, ignored: it.ignored, notes: it.notes, progress: heard },
-      { heard: [], making: false, reported: 0, ignored: [], notes: [], progress: [] })
+    deepStrictEqual({ heard: it.read().data.heard, pending: it.read().pending.save, reported: it.backend.read(it.parent).data.reported, ignored: it.ignored, notes: it.notes, progress: heard },
+      { heard: [], pending: false, reported: 0, ignored: [], notes: [], progress: [] })
   }],
   ['and it gives up nothing either: what was being made goes on to its end', async () => {
     const it = lingered()
     it.send({ type: 'SAVE' })
-    strictEqual(it.read().making.save, true)
+    strictEqual(it.read().pending.save, true)
     it.send({ type: 'STOP_WORKING' })
     it.open()
     await rest()

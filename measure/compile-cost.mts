@@ -26,7 +26,7 @@ type Shape${at} = {
     idle: {}
     editing: { data: { draft: string }; states: { typing: {}; saving: { data: { since: number } } } }
   }
-  makes: { save: 'one'; tag: 'each' }
+  calls: { save: 'one'; tag: 'each' }
 }
 type Event${at} =
   | { type: 'SELECT'; id: string }
@@ -44,22 +44,22 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
   data: { title: 'list ${at}', items: {}, selected: null, revision: 0, problem: null },
   initial: 'idle',
   follows: (follow) => ({
-    rows: follow('store', 'rows', { from: ['revision'], args: () => ({ list: ${at} }), heard: (update) => (update.ok ? { data: { title: \`\${update.value.length} rows\` } } : { data: { problem: update.error } }) }),
+    rows: follow('store', 'rows', { from: ['revision'], args: () => ({ list: ${at} }), update: (update) => (update.ok ? { data: { title: \`\${update.value.length} rows\` } } : { data: { problem: update.error } }) }),
   }),
-  awaits: (asking) => ({
-    detail: asking('store', 'DETAIL', { from: ['selected'], args: ({ selected }) => (selected ? { id: selected } : null), ended: (outcome: Outcome<{ label: string }, { kind: string; message: string }>) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
+  loads: (load) => ({
+    detail: load('store', 'DETAIL', { from: ['selected'], args: ({ selected }) => (selected ? { id: selected } : null), done: (outcome: Outcome<{ label: string }, { kind: string; message: string }>) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
   }),
-  makes: ({ one, each }) => ({
-    save: one('store', 'SAVE', { args: () => ({ list: ${at} }), ended: (outcome) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
-    tag: each('store', 'TAG', { args: (id) => ({ id }), ended: () => undefined }),
+  calls: ({ one, each }) => ({
+    save: one('store', 'SAVE', { args: () => ({ list: ${at} }), done: (outcome) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
+    tag: each('store', 'TAG', { args: (id) => ({ id }), done: () => undefined }),
   }),
   on: {
     SELECT: ({ id }) => ({ data: { selected: id } }),
     EDIT: ({ draft }) => ({ at: 'editing', data: { draft } }),
-    TAG: ({ id }, { make }) => { make('tag', id) },
+    TAG: ({ id }, { call }) => { call('tag', id) },
     CHANGED: (_, { data }) => ({ data: { revision: data.revision + 1 } }),
   },
-  asks: {
+  answers: {
     RENAME: ({ id, label }, { data, refuse }) => {
       if (!data.items[id]) throw refuse('missing', 'There is no such item', { id })
       return answered(true, { data: (d) => { d.items[id]!.label = label } })
@@ -72,7 +72,7 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
       data: { draft: given },
       initial: 'typing',
       states: {
-        typing: { on: { TYPE: ({ text }, { data }) => ({ data: { draft: data.draft + text } }), SAVE: (_, { make }) => { make('save'); return { at: 'editing.saving', data: { since: 0 } } } } },
+        typing: { on: { TYPE: ({ text }, { data }) => ({ data: { draft: data.draft + text } }), SAVE: (_, { call }) => { call('save'); return { at: 'editing.saving', data: { since: 0 } } } } },
         saving: { data: { since: given } },
       },
     },

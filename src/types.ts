@@ -28,8 +28,8 @@ export type Shape = {
    * `internal` handlers. What others may send it is the events it is declared with.
    */
   internal?: AnyEvent
-  /** The asks it makes when told to, by name: `each` for one made for each of many keys, `one` for one at a time. */
-  makes?: Record<string, 'each' | 'one'>
+  /** The imperative asks it can call on demand, by name: `each` for one per key, `one` for one at a time. */
+  calls?: Record<string, 'each' | 'one'>
 }
 
 /** Any state, as something another can start. */
@@ -98,14 +98,14 @@ type Sub<S, K> = K extends keyof StatesOf<S> ? StatesOf<S>[K] : never
 type StartsOf<S> = S extends { starts: infer C extends object } ? C : {}
 type StartsBelow<S, P> = P extends `${infer H}.${infer T}` ? StartsOf<Sub<S, H>> & StartsBelow<Sub<S, H>, T> : StartsOf<Sub<S, P>>
 /** Everything started where a handler sits: by its own state and by every state around it. */
-type MakesOf<S> = S extends { makes: infer M extends object } ? M : {}
-type MakesBelow<S, P> = P extends `${infer H}.${infer T}` ? MakesOf<Sub<S, H>> & MakesBelow<Sub<S, H>, T> : MakesOf<Sub<S, P>>
-/** The asks that can be made where a handler sits: its own state's and those of every state around it. */
-type MakesAt<S, P extends string> = P extends '' ? MakesOf<S> : MakesOf<S> & MakesBelow<S, P>
-/** Every ask a state makes, whichever of its states declares it: what is read from outside it. */
-type AllMakes<S> = MakesOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllMakes<StatesOf<S>[K]> }[Names<S>]>)
-/** Which of them are under way: by key, for one made for each of many, and whether, for one at a time. */
-type MakingOf<M> = { readonly [K in keyof M]: M[K] extends 'each' ? Readonly<Record<string, true>> : boolean }
+type CallsOf<S> = S extends { calls: infer M extends object } ? M : {}
+type CallsBelow<S, P> = P extends `${infer H}.${infer T}` ? CallsOf<Sub<S, H>> & CallsBelow<Sub<S, H>, T> : CallsOf<Sub<S, P>>
+/** The asks that can be called where a handler sits: its own state's and those of every state around it. */
+type CallsAt<S, P extends string> = P extends '' ? CallsOf<S> : CallsOf<S> & CallsBelow<S, P>
+/** Every imperative ask a state declares, whichever of its states declares it: what is read from outside it. */
+type AllCalls<S> = CallsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllCalls<StatesOf<S>[K]> }[Names<S>]>)
+/** Which of them are in flight: by key, for one per key, and whether, for one at a time. */
+type PendingOf<M> = { readonly [K in keyof M]: M[K] extends 'each' ? Readonly<Record<string, true>> : boolean }
 type StartsAt<S, P extends string> = P extends '' ? StartsOf<S> : StartsOf<S> & StartsBelow<S, P>
 type ReportsOf<S> = S extends { reports: infer P extends AnyEvent } ? P : never
 type InternalOf<S> = S extends { internal: infer P extends AnyEvent } ? P : never
@@ -168,8 +168,8 @@ type Givable<D> = { [K in keyof D]: D[K] | Read<D[K]> }
 export type Value<S> = ([Names<S>] extends [never]
   ? { readonly data: Read<DataOf<S>> }
   : { [L in Leaves<S>]: { readonly at: L; readonly data: Read<DataAt<S, L>> } }[Leaves<S>])
-  // What it has been told to make and has not yet ended. The kernel keeps this, and nothing else writes it.
-  & ([keyof AllMakes<S>] extends [never] ? {} : { readonly making: MakingOf<AllMakes<S>> })
+  // What it has called and has not yet finished. The kernel keeps this, and nothing else writes it.
+  & ([keyof AllCalls<S>] extends [never] ? {} : { readonly pending: PendingOf<AllCalls<S>> })
 
 /** Every state a path passes through: `thread` and `thread.idle` for `thread.idle`. */
 type Through<A> = A extends `${infer H}.${infer T}` ? H | `${H}.${Through<T>}` : A
@@ -273,13 +273,13 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   report(event: Read<ReportsOf<R>>): void
 
   /**
-   * Has an ask this state declares under `makes` made, once. It is made when the step commits, with the data as the
-   * handler left it. One that is already under way, or under way for that key, is the same one and is not made
-   * twice. How it ends goes to the handler it was declared with.
+   * Fires an ask this state declares under `calls`, once. It runs when the step commits, with the data as the
+   * handler left it. One that is already in flight, or in flight for that key, is the same one and is not started
+   * twice. How it finishes goes to the `done` handler it was declared with.
    */
-  make<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void
-  /** Gives one up: the one answering is told, and how it ended is not heard. */
-  drop<K extends keyof MakesAt<R, H> & string>(name: K, ...key: MakesAt<R, H>[K] extends 'each' ? [key: string] : []): void
+  call<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CallsAt<R, H>[K] extends 'each' ? [key: string] : []): void
+  /** Cancels an in-flight call: the responder is aborted, and `done` is not called. */
+  cancel<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CallsAt<R, H>[K] extends 'each' ? [key: string] : []): void
 
   /** A state this one started, as it is now: nothing while it is not running. */
   read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined
@@ -403,12 +403,12 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
    * for each key of an `each` field. How each finishes goes to `done`.
    */
   loads?: (load: Load<R, H, E, N>) => Record<string, Loaded<R, H, E, N>>
-} & ([keyof MakesOf<S>] extends [never] ? { makes?: never } : {
+} & ([keyof CallsOf<S>] extends [never] ? { calls?: never } : {
   /**
-   * The asks it makes when a handler says `make`. A read is awaited because the data says so, for as long as it
-   * does. A write is not like that: it is made once, by saying so, and nothing in the data stands for it.
+   * The imperative asks fired when a handler calls `call(name)`. A read is loaded because the data says so, for as
+   * long as it does. A write is not like that: it is fired once on demand, and its in-flight state lives on `pending`.
    */
-  makes: (asking: { one: MakeOne<R, H, E, N>; each: MakeEach<R, H, E, N> }) => { [K in keyof MakesOf<S>]: MakesOf<S>[K] extends 'each' ? MadeEach<R, H, E, N> : MadeOne<R, H, E, N> }
+  calls: (calls: { one: CallOne<R, H, E, N>; each: CallEach<R, H, E, N> }) => { [K in keyof CallsOf<S>]: CallsOf<S>[K] extends 'each' ? CalledEach<R, H, E, N> : CalledOne<R, H, E, N> }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /** The state inside it that it enters first when whoever enters it does not say. */
   initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
@@ -430,11 +430,11 @@ export interface EachOf<D, X> { readonly each: KeysField<D>; readonly state: X; 
 /** One state, given its data from the starter's data. */
 export interface OneOf<D, X> { readonly state: X; readonly given: (data: Read<D>) => RootGiven<X> }
 
-// ── one grammar for what a state starts, follows and awaits ─────────────────────────────────────────────────────────
+// ── one grammar for what a state starts, follows and loads ──────────────────────────────────────────────────────────
 //
 //   starts:  (start)  => ({ thread: start(thread, { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-//   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), heard }) }),
-//   awaits:  (asking) => ({ diff:   asking('code', 'GET_GIT_DIFF', { from: ['selected'], args: ({ selected }) => selected, ended }) }),
+//   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), update }) }),
+//   loads:   (load)   => ({ diff:   load('code', 'GET_GIT_DIFF', { from: ['selected'], args: ({ selected }) => selected, done }) }),
 //
 // Each says which fields of the data it depends on: `each`, a field with one of them for each of its keys, or
 // `from`, the fields a single one reads. The kernel looks again only when one of those fields changes. There is
@@ -480,22 +480,22 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   update: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
-/** An ask to make once, one at a time, as `one` makes it. */
-export interface MadeOne<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
-/** An ask to make once for each of many keys, as `each` makes it. */
-export interface MadeEach<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
-/** Makes an ask to make one at a time. What it is asked for is worked out from the data when it is made. */
-export type MakeOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
+/** An imperative ask called one at a time, as `one` builds it. */
+export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
+/** An imperative ask called per key, as `each` builds it. */
+export interface CalledEach<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
+/** Declares an imperative ask called one at a time. Its args are computed from the data when `call` runs. */
+export type CallOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
   args: (data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
-}) => MadeOne<R, H, E, N>
-/** Makes an ask to make for each of many keys. What each is asked for is worked out from its key when it is made. */
-export type MakeEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
+}) => CalledOne<R, H, E, N>
+/** Declares an imperative ask called per key. Its args are computed from its key and the data when `call` runs. */
+export type CallEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
   args: (key: string, data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
-}) => MadeEach<R, H, E, N>
+}) => CalledEach<R, H, E, N>
 
 /** A standing ask a state loads, as `load` makes it. */
 export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> {

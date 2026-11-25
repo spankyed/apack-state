@@ -15,18 +15,18 @@
 // own. And `computed(() => state.data.messages[id])` gives the same object for as long as that message list is not
 // replaced, which a computed does not pass on as a change.
 //
-// What a state is making is the kernel's own record and holds nothing but whether each is under way, so that is kept
+// What a state has pending is the kernel's own record and holds nothing but whether each call is in flight, so that is kept
 // to the key: a spinner on one file runs again for that file.
 import { reactive, readonly, shallowReactive, shallowReadonly } from '@vue/reactivity'
 import type { System } from './kernel.ts'
 import type { Asks, Handle, Started } from './types.ts'
 
-type Making = Record<string, boolean | Record<string, boolean>>
-type Held = { at?: string; data: Record<string, unknown>; making?: Making }
-/** What a reader is handed: where the state is, its fields, and what it is making. None of it can be written. */
-type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<string, unknown>>; readonly making?: Readonly<Making> }
+type Pending = Record<string, boolean | Record<string, boolean>>
+type Held = { at?: string; data: Record<string, unknown>; pending?: Pending }
+/** What a reader is handed: where the state is, its fields, and what calls are pending. None of it can be written. */
+type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<string, unknown>>; readonly pending?: Readonly<Pending> }
 /** The same, as the mirror writes it. */
-interface Written { readonly whole: { at: string | undefined }; readonly data: Record<string, unknown>; readonly making: Making | undefined }
+interface Written { readonly whole: { at: string | undefined }; readonly data: Record<string, unknown>; readonly pending: Pending | undefined }
 
 /** One running state, mirrored once for everything that reads it. @internal */
 export interface Shared { readonly ref: string; readonly box: { now: Shown | undefined }; readers: number }
@@ -58,8 +58,8 @@ export function mirrors(sys: System): Mirrors {
   let unsubscribe: (() => void) | undefined
   const read = (ref: string): Held | undefined => sys.read({ ref } as never) as Held | undefined
 
-  /** What the kernel says is under way, written into a record of its own a key at a time. */
-  const follow = (into: Making, from: Making): void => {
+  /** What the kernel says is in flight, written into a record of its own a key at a time. */
+  const follow = (into: Pending, from: Pending): void => {
     for (const [name, now] of Object.entries(from)) {
       if (typeof now === 'boolean') { if (into[name] !== now) into[name] = now; continue }
       const keys = (into[name] ??= {}) as Record<string, boolean>
@@ -74,14 +74,14 @@ export function mirrors(sys: System): Mirrors {
     // Shallow on purpose: a field's value is the state's own object, which is never written to, so there is nothing
     // inside it to track.
     const data = shallowReactive<Record<string, unknown>>({ ...now.data })
-    const making = now.making === undefined ? undefined : reactive<Making>({})
-    if (making) follow(making, now.making!)
-    const whole = shallowReactive({ at: now.at, data: shallowReadonly(data), ...(making ? { making: readonly(making) } : {}) })
-    written.set(shared, { whole, data, making })
+    const pending = now.pending === undefined ? undefined : reactive<Pending>({})
+    if (pending) follow(pending, now.pending!)
+    const whole = shallowReactive({ at: now.at, data: shallowReadonly(data), ...(pending ? { pending: readonly(pending) } : {}) })
+    written.set(shared, { whole, data, pending })
     shared.box.now = shallowReadonly(whole) as Shown
   }
 
-  const onStep = (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, { moved: boolean; making: boolean }>>): void => {
+  const onStep = (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, { moved: boolean; pending: boolean }>>): void => {
     for (const ref of changed) {
       const shared = byRef.get(ref)
       if (!shared) continue
@@ -90,7 +90,7 @@ export function mirrors(sys: System): Mirrors {
       // It stopped, or it has only now started: there is nothing to write into, or nothing written yet.
       if (!latest || !into) { show(shared, latest); continue }
       if (changes[ref]?.moved) into.whole.at = latest.at
-      if (changes[ref]?.making && into.making && latest.making) follow(into.making, latest.making)
+      if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending)
       // A field the state replaced is written, and one it no longer has, having left the state that held it, goes.
       for (const field of fields[ref] ?? []) {
         if (Object.hasOwn(latest.data, field)) into.data[field] = latest.data[field]; else delete into.data[field]

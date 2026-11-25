@@ -12,22 +12,22 @@ state<Jobs, JobsEvent>()({
   data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null },
   initial: 'on',
   on: {
-    // @ts-expect-error a save is made by a state inside, so only a handler there can say to make one
-    SAVE: (_, { make }) => { make('save') },
+    // @ts-expect-error a save is declared by a state inside, so only a handler there can call it
+    SAVE: (_, { call }) => { call('save') },
   },
   states: {
     on: {
-      makes: ({ one, each }) => ({
+      calls: ({ one, each }) => ({
         run: each('worker', 'RUN', { args: (id) => ({ id }), done: () => {} }),
         save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: () => {} }),
       }),
       on: {
-        // @ts-expect-error a job is one of many, so making one takes its key
-        ADD: (_, { make }) => { make('run') },
+        // @ts-expect-error a job is one of many, so calling one takes its key
+        ADD: (_, { call }) => { call('run') },
         // @ts-expect-error there is one save at a time, so it takes no key
-        STOP_SAVING: (_, { drop }) => { drop('save', 'a') },
-        // @ts-expect-error it makes no such thing
-        DROP: (_, { make }) => { make('print') },
+        STOP_SAVING: (_, { cancel }) => { cancel('save', 'a') },
+        // @ts-expect-error it declares no such call
+        DROP: (_, { call }) => { call('print') },
       },
     },
     off: {},
@@ -38,8 +38,8 @@ state<Jobs, JobsEvent>()({
   initial: 'on',
   states: {
     on: {
-      makes: ({ one }) => ({
-        // @ts-expect-error a job is one for each of many, so it is made with `each`
+      calls: ({ one }) => ({
+        // @ts-expect-error a job is one for each of many, so it is declared with `each`
         run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),
         // @ts-expect-error what a save answers is a string, so it cannot be put where the list goes
         save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
@@ -48,5 +48,5 @@ state<Jobs, JobsEvent>()({
     off: {},
   },
 })
-// @ts-expect-error a state whose shape says it makes these has to say how
+// @ts-expect-error a state whose shape says it declares calls has to define them
 state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null }, initial: 'on', states: { on: {}, off: {} } })

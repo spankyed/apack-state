@@ -298,12 +298,12 @@ await run([
   ['a handler that drops what is being made and then throws has dropped nothing', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const maker = state<{ data: { done: string[] }; makes: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
+    const maker = state<{ data: { done: string[] }; calls: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
       data: { done: [] },
-      makes: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
+      calls: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
       on: {
-        START: (_, { make }) => { make('work') },
-        FAIL_DROP: (_, { drop }) => { drop('work'); throw new Error('drop broke') },
+        START: (_, { call }) => { call('work') },
+        FAIL_DROP: (_, { cancel }) => { cancel('work'); throw new Error('drop broke') },
       },
     })
     const backend = system({ side: 'backend' })
@@ -311,15 +311,15 @@ await run([
     const theMaker = backend.start('maker', maker)
     backend.send(theMaker, { type: 'START' })
     backend.send(theMaker, { type: 'FAIL_DROP' })
-    strictEqual(backend.read(theMaker).making.work, true)
+    strictEqual(backend.read(theMaker).pending.work, true)
     release()
     await rest()
     deepStrictEqual(backend.read(theMaker).data.done, ['kept'])
     deepStrictEqual(backend.read(theEar).data.heard, ['slow kept'])
   }],
-  ['a view, awaited read, or made ask handler that throws has said nothing', async () => {
+  ['a view, loaded read, or called ask handler that throws has said nothing', async () => {
     let deliverView!: (update: { ok: true; value: string }) => void
-    const reactor = state<{ data: { ready: boolean }; makes: { job: 'one' } }, { type: 'GO' }>()({
+    const reactor = state<{ data: { ready: boolean }; calls: { job: 'one' } }, { type: 'GO' }>()({
       data: { ready: true },
       follows: (follow) => ({
         list: follow('notes', 'list', {
@@ -334,13 +334,13 @@ await run([
           done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
         }),
       }),
-      makes: ({ one }) => ({
+      calls: ({ one }) => ({
         job: one('ear', 'ECHO', {
           args: () => ({ text: 'job' }),
           done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
         }),
       }),
-      on: { GO: (_, { make }) => { make('job') } },
+      on: { GO: (_, { call }) => { call('job') } },
     })
     const backend = system({
       side: 'backend',

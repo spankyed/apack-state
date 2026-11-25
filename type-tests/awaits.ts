@@ -30,15 +30,15 @@ state<Reader, ReaderEvent>()({
   states: { on: {}, off: {} },
 })
 
-// `args` in `awaits` and `makes` accepts read-only values straight from `data`.
+// `args` in `loads` and `calls` accepts read-only values straight from `data`.
 import { forNet } from '../src/index.ts'
 type BatchNet = { systems: { svc: { events: never; asks: { BATCH: { args: { ids: string[] }; answer: number } } } }; surfaces: {}; views: {} }
-forNet<BatchNet>()<{ data: { ids: string[] }; makes: { run: 'one'; each: 'each' } }, never>()({
+forNet<BatchNet>()<{ data: { ids: string[] }; calls: { run: 'one'; each: 'each' } }, never>()({
   data: { ids: [] },
   loads: (load) => ({
     batch: load('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
   }),
-  makes: ({ one, each }) => ({
+  calls: ({ one, each }) => ({
     run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
     each: each('svc', 'BATCH', { args: (_key, data) => ({ ids: data.ids }), done: () => {} }),
   }),

@@ -323,7 +323,7 @@ const checks: Array<[string, () => void]> = [
         closed: {},
       },
     })
-    const logs: Array<{ changed: Record<string, { fields: readonly string[]; moved: boolean; making: boolean }> }> = []
+    const logs: Array<{ changed: Record<string, { fields: readonly string[]; moved: boolean; pending: boolean }> }> = []
     const sys = system({ side: 'window', log: (step) => logs.push(step) })
     const h = sys.start('host', host)
     const kidHandle = sys.child(h, 'kid')
@@ -339,25 +339,25 @@ const checks: Array<[string, () => void]> = [
     strictEqual(Object.hasOwn(held.value!.data, 'opt'), false)
     const step1 = logs.at(-1)!.changed['host/kid']!
     strictEqual(step1.moved, true)
-    strictEqual(step1.making, false)
+    strictEqual(step1.pending, false)
     deepStrictEqual([...step1.fields].sort(), ['label', 'opt'])
     // Restarting again while `kid` is ALREADY at `a`: `moved` is false and `fixed` is still omitted from fields.
     sys.send(h, { type: 'REOPEN', label: 'third' })
     const step2 = logs.at(-1)!.changed['host/kid']!
     strictEqual(step2.moved, false)
-    strictEqual(step2.making, false)
+    strictEqual(step2.pending, false)
     deepStrictEqual([...step2.fields], ['label'])
     // Restarting and then closing in the same step leaves `kid` absent (no crash in diff).
     sys.send(h, { type: 'REOPEN_AND_CLOSE', label: 'fourth' })
     strictEqual(held.value, undefined)
     held.stop()
 
-    // Also verify a restarted child that declares `makes` updates `making` in both mirror and StepLog.
+    // Also verify a restarted child that declares `calls` updates `pending` in both mirror and StepLog.
     const svc = forNet<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
-    const maker = svc<{ data: { label: string }; makes: { save: 'one' } }, { type: 'GO' }>()({
+    const maker = svc<{ data: { label: string }; calls: { save: 'one' } }, { type: 'GO' }>()({
       data: { label: given },
-      makes: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), done: () => undefined }) }),
-      on: { GO: (_, { make }) => { make('save') } },
+      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), done: () => undefined }) }),
+      on: { GO: (_, { call }) => { call('save') } },
     })
     const makerHost = svc<{ states: { open: { data: { label?: string }; starts: { kid: typeof maker } } } }, { type: 'GO' } | { type: 'REOPEN'; label: string }>()({
       initial: 'open',
@@ -372,16 +372,16 @@ const checks: Array<[string, () => void]> = [
         },
       },
     })
-    const mLogs: Array<{ changed: Record<string, { making: boolean }> }> = []
+    const mLogs: Array<{ changed: Record<string, { pending: boolean }> }> = []
     const mSys = system({ side: 'window', log: (step) => mLogs.push(step) })
     mSys.attach({ tell: () => {}, ask: () => () => {}, follow: () => ({ stop: () => {} }) })
     const mh = mSys.start('mh', makerHost)
     const mk = mirror(mSys, mSys.child(mh, 'kid'))
     mSys.send(mh, { type: 'GO' })
-    strictEqual(mk.value?.making.save, true)
+    strictEqual(mk.value?.pending.save, true)
     mSys.send(mh, { type: 'REOPEN', label: 'two' })
-    strictEqual(mk.value?.making.save, false)
-    strictEqual(mLogs.at(-1)!.changed['mh/kid']?.making, true)
+    strictEqual(mk.value?.pending.save, false)
+    strictEqual(mLogs.at(-1)!.changed['mh/kid']?.pending, true)
     mk.stop()
     mSys.stop()
   }],
