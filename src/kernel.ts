@@ -944,7 +944,7 @@ export function system(host: {
     return undefined
   }
 
-  const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): { ref: string } => {
+  const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): void => {
     const makes = new Map<string, 'one' | 'each'>()
     const survey = (of: LooseDef): void => {
       for (const [name, made] of Object.entries(declaredBy(of).makes)) makes.set(name, made.kind)
@@ -957,7 +957,6 @@ export function system(host: {
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
     top.data = frozen(top.data)
-    return { ref }
   }
 
   const end = (ref: string): void => {
