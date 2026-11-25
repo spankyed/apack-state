@@ -291,8 +291,9 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   /** Released, last first, when this state stops being the case. */
   use(release: () => void): void
   /**
-   * Waits `ms` milliseconds on the clock's monotonic timer. Cancels and throws `Left` when this state stops being
-   * the case, when whoever asked has gone, or when the work that started it finishes.
+   * Waits `ms` milliseconds on the clock's monotonic timer. Rejects with `RangeError` if `ms` is non-finite (or
+   * `Error` if no clock was given), and cancels with `Left` when this state stops being the case, when whoever asked
+   * has gone, or when the work that started it finishes.
    */
   sleep(ms: number): Promise<void>
 }

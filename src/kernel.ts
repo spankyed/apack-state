@@ -230,7 +230,7 @@ export function system(host: {
   log?(step: StepLog): void
   /**
    * The clock this system takes `now` and `sleep` from (`new ClockController().clock` from `@apackdev/clock`, or
-   * `schedule.clock` via `onSchedule(schedule)`). Without one, reading `now` or calling `sleep` throws.
+   * `schedule.clock` via `onSchedule(schedule)`). Without one, reading `now` throws and calling `sleep` rejects.
    */
   clock?: Clock
   /**

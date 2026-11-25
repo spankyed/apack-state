@@ -178,12 +178,13 @@ await run([
     deepStrictEqual(times, [5_000, 6_500])
     deepStrictEqual(logs.map((step) => step.now), [5_000, 5_000, 6_500])
 
-    // Non-finite clock time throws RangeError and does not jam stepping.
+    // Non-finite clock time throws RangeError before dequeuing the item, so recovery retries it without jamming or dropping asks.
     manual.setTime(Number.NaN)
     throws(() => sys.send(h, { type: 'PING' }), /non-finite/)
+    strictEqual(sys.idle(), false)
     manual.setTime(7_000)
     sys.send(h, { type: 'PING' })
-    strictEqual(times.at(-1), 7_000)
+    deepStrictEqual(times, [5_000, 6_500, 7_000, 7_000])
     strictEqual(sys.idle(), true)
   }],
 
