@@ -117,6 +117,17 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), ended: (outcome) =…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
 | `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { makes: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it makes these has to say how |
 
+## Telling a named peer is checked against the peers and events declared on Net.
+
+`type-tests/peers.ts`
+
+| What was written | What TypeScript says | Why |
+|---|---|---|
+| `tell({ peer: 'unknown' }, { type: 'STEP_RECORDED', id: '1', detail: 'x' })` | TS2769: No overload matches this call. | no peer with this name is declared on Net |
+| `tell({ peer: 'runHistory' }, { type: 'NOTE', text: 'wrong peer' })` | TS2769: No overload matches this call. | the peer does not declare this event |
+| `tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '1' })` | TS2769: No overload matches this call. | missing required field on the peer's event |
+| `tell({ peer: 'runHistory' }, { type: 'ANY' })` | TS2769: No overload matches this call. | this Net declares no peers at all |
+
 ## A refusal's data is part of the ask's declaration.
 
 `type-tests/refusals.ts`

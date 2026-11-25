@@ -26,6 +26,8 @@ export interface Port {
   /** Follows a view. `shown` takes its result and each changed result after it, `over` that it has ended and why. */
   follow(feature: string, view: string, args: unknown, shown: (update: unknown) => void, over: (failure: Failure) => void): Following
 }
+/** A tell-only port for a named non-window peer: matches a full `@apackdev/link` `Port` or a one-method sink. */
+export type PeerPort = Pick<Port, 'tell'>
 /**
  * Things that happen one after another: what crosses a link in one direction, or a system's frames. What is in one
  * lane keeps its order, as messages on one socket do. What is in two lanes can come in either order, and that is the

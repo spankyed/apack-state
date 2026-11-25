@@ -185,6 +185,7 @@ follows: (follow) => ({
 | `send(event)` | A state | Itself: an event only it sends, or one others may send it |
 | `tell(name, event)` | A state | A backend system. Nobody waits |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
+| `tell({ peer }, event)` | A state | A named non-window peer attached via `attach(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
@@ -192,6 +193,11 @@ follows: (follow) => ({
 | `make(name, key?)`, `drop(name, key?)` | A state | The kernel: have a write it declares made, or given up |
 
 A component reads and sends. It does not ask.
+
+`tell({ peer: name }, event)` calls `port.tell(name, event)`, passing the peer name as the target `to`. To reach several
+systems behind one `@apackdev/link` connection, attach that same port under each peer name (and detach each on `link.onEnd`);
+if a remote system uses a different name than the local peer, wrap `tell` at the wiring site
+(`{ tell: (_, event) => port.tell('remoteName', event) }`).
 
 A write is told when losing it does not matter, and asked when it does. There is no third way to make one.
 
@@ -214,8 +220,9 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   what it is making changed.
-- **What left at the commit**, in order: answers, with `ok` or the failure's kind; progress; tells, asks, broadcasts,
-  follows and unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
+- **What left at the commit**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
+  `dropped` when no peer is attached under that name), asks, broadcasts, follows and unfollows across a link; asks
+  abandoned when their state ended. Each by kind, to whom, and name.
 - **How it ended**: `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it
   ran away.
 - **Never what any of it carried.** An event's fields, an ask's arguments, an answer, progress, a refusal's message and
