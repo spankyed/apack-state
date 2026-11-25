@@ -221,8 +221,8 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   what it is making changed.
 - **What left at the commit**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
-  `dropped` when no peer is attached under that name), asks, broadcasts, follows and unfollows across a link; asks
-  abandoned when their state ended. Each by kind, to whom, and name.
+  `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
+  unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
 - **How it ended**: `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it
   ran away.
 - **Never what any of it carried.** An event's fields, an ask's arguments, an answer, progress, a refusal's message and
