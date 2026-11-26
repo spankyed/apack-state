@@ -552,6 +552,24 @@ const checks: Array<[string, () => Promise<void>]> = [
       strictEqual(result.failure, undefined, String(result.failure?.error))
     })
   }],
+  ['a child handle addresses by logical ref: destroying and recreating the same key routes the earlier handle to the new incarnation', async () => {
+    const it = wired()
+    it.send({ type: 'ADD', id: 'a', label: 'first' })
+    const handle = it.sys.child(it.it, 'card', 'a')
+    strictEqual(it.sys.read(handle)?.data.label, 'first')
+    strictEqual(it.sys.read(handle)?.data.bumps, 0)
+
+    it.send({ type: 'REMOVE', id: 'a' })
+    strictEqual(it.sys.read(handle), undefined)
+
+    it.send({ type: 'ADD', id: 'a', label: 'second' })
+    strictEqual(it.sys.read(handle)?.data.label, 'second')
+    strictEqual(it.sys.read(handle)?.data.bumps, 0)
+
+    it.sys.send(handle, { type: 'BUMP' })
+    strictEqual(it.sys.read(handle)?.data.bumps, 1)
+    deepStrictEqual(await it.sys.ask(handle, 'LABEL', {}), { ok: true, value: 'second' })
+  }],
 ]
 
 /** Two asks that each add the same item after work of their own. Checking and starting are one step: one card. */

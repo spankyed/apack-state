@@ -464,6 +464,62 @@ await run([
     unlogged.send(h2, { type: 'TRIGGER' })
     await rest()
   }],
+  ['a peer synchronously calling send or ask during commit flush runs as a separate step after the first flush finishes', async () => {
+    const order: string[] = []
+    const logs: StepLog[] = []
+    let askOutcome: unknown
+    type ReentrantNet = {
+      systems: { svc: { events: { type: 'FIRST' } | { type: 'FOLLOW_UP' }; asks: { STATUS: { args: {}; answer: number } } } }
+      surfaces: {}
+      views: {}
+      peers: { primary: { events: { type: 'NOTIFIED' } }; secondary: { events: { type: 'ALSO' } } }
+    }
+    const netState = forNet<ReentrantNet>()
+    const svc = netState<{ data: { n: number } }, { type: 'FIRST' } | { type: 'FOLLOW_UP' }, { STATUS: { args: {}; answer: number } }>()({
+      data: { n: 0 },
+      on: {
+        FIRST: (_, { data, tell }) => {
+          order.push('handle:FIRST')
+          tell({ peer: 'primary' }, { type: 'NOTIFIED' })
+          tell({ peer: 'secondary' }, { type: 'ALSO' })
+          return { data: { n: data.n + 1 } }
+        },
+        FOLLOW_UP: (_, { data }) => {
+          order.push('handle:FOLLOW_UP')
+          return { data: { n: data.n + 10 } }
+        },
+      },
+      answers: {
+        STATUS: (_, { data }) => {
+          order.push(`answer:STATUS:${data.n}`)
+          return data.n
+        },
+      },
+    })
+    const backend = system({ side: 'backend', log: (step) => { order.push(`log:${step.number}`); logs.push(step) } })
+    const h = backend.start('svc', svc)
+    backend.attach('primary', {
+      tell: () => {
+        order.push('peer:primary')
+        backend.send(h, { type: 'FOLLOW_UP' })
+        void backend.ask(h, 'STATUS', {}).then((outcome) => { askOutcome = outcome })
+      },
+    })
+    backend.attach('secondary', {
+      tell: () => { order.push('peer:secondary') },
+    })
+
+    order.length = 0
+    logs.length = 0
+    backend.send(h, { type: 'FIRST' })
+    await rest()
+
+    strictEqual(backend.read(h).data.n, 11)
+    deepStrictEqual(askOutcome, { ok: true, value: 11 })
+    // The entire first flush (primary peer, secondary peer, and first step log) completes before FOLLOW_UP or STATUS runs.
+    deepStrictEqual(order, ['handle:FIRST', 'peer:primary', 'peer:secondary', 'log:2', 'handle:FOLLOW_UP', 'log:3', 'answer:STATUS:11', 'log:4'])
+    strictEqual(logs.length, 3)
+  }],
 ], async (tally) => {
   await tally.every('under every ordering over @apackdev/link, a peer receives tells with no view hold while a window waits for its view', () => {
     let sawPeerBeforeWindow = false

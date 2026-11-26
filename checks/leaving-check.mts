@@ -582,6 +582,67 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(childFailed, 0)
     ok(traces.includes('s in a failed after it was left: child boom'), traces.join('\n'))
   }],
+  ['when the winning branch of Promise.race exits the state, the losing ask cancels and a detached loser cannot mutate or register stray cleanup', async () => {
+    const events: string[] = []
+    let releaseLoser!: () => void
+    let loserAskOutcome: string | undefined
+    let winnerLeftSignal = false
+    const raceNet = forNet<{ systems: { slow: { events: { type: 'PING' }; asks: { HANG: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
+    const slowSvc = raceNet<{}, { type: 'PING' }, { HANG: { args: {}; answer: string } }>()({
+      on: { PING: () => { events.push('slow:PING') } },
+      answers: {
+        HANG: async (_, { signal }) => {
+          await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { events.push('HANG:aborted'); resolve() }, { once: true }) })
+          return 'never'
+        },
+      },
+    })
+    const racer = raceNet<{ states: { idle: {}; racing: {} } }, { type: 'GO' } | { type: 'STRAY' }>()({
+      initial: 'idle',
+      on: {
+        GO: () => ({ at: 'racing' }),
+        STRAY: () => { events.push('racer:STRAY') },
+      },
+      states: {
+        idle: {},
+        racing: {
+          async run({ ask, send, tell, onExit, signal }) {
+            const fast = Promise.resolve('won' as const)
+            const kernelLoser = ask('slow', 'HANG', {}).then(
+              () => { loserAskOutcome = 'resolved' },
+              (error) => { loserAskOutcome = error instanceof Cancelled ? 'Cancelled' : String(error) },
+            )
+            const detachedLoser = new Promise<void>((resolve) => { releaseLoser = resolve }).then(() => {
+              winnerLeftSignal = signal.aborted
+              send({ type: 'STRAY' })
+              tell('slow', { type: 'PING' })
+              onExit(() => { events.push('detached:onExit') })
+            })
+            void kernelLoser
+            void detachedLoser
+            await Promise.race([fast, kernelLoser, detachedLoser])
+            return { at: 'idle' }
+          },
+          failed: () => ({ at: 'idle' }),
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    sys.start('slow', slowSvc)
+    const h = sys.start('racer', racer)
+    sys.send(h, { type: 'GO' })
+    await rest()
+    strictEqual(sys.read(h).at, 'idle')
+    strictEqual(loserAskOutcome, 'Cancelled')
+    ok(events.includes('HANG:aborted'))
+
+    // Now the detached non-kernel loser settles after run() returned and the state left:
+    // signal.aborted is true so cooperative external code can bail out, and stray scope calls are ignored.
+    releaseLoser()
+    await rest()
+    strictEqual(winnerLeftSignal, true)
+    deepStrictEqual(events, ['HANG:aborted'])
+  }],
 ]
 
 await run([...checks, ...lingeringChecks])

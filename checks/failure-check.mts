@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, forNet, type Defect, type Each } from '../src/index.ts'
+import { given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
@@ -471,6 +471,61 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(defects[5]!.message.includes('a release of withExits') && defects[5]!.message.includes('late release boom'))
     // All defects were also traced with DEFECT: prefix, and the throw inside onDefect did not recurse or crash.
     strictEqual(traced.filter((l) => l.startsWith('DEFECT:')).length, 6)
+  }],
+  ['a throwing trace callback does not abort step execution, commit flush, onDefect, or later subscribers and peers', async () => {
+    const defects: Defect[] = []
+    const logs: StepLog[] = []
+    const peerEvents: string[] = []
+    const subSeen: number[] = []
+    type Net = {
+      systems: { svc: { events: { type: 'FAIL' } | { type: 'OK' }; asks: { PING: { args: {}; answer: string } } } }
+      surfaces: {}
+      views: {}
+      peers: { first: { events: { type: 'A' } }; second: { events: { type: 'B' } } }
+    }
+    const netState = forNet<Net>()
+    const svc = netState<{ data: { n: number } }, { type: 'FAIL' } | { type: 'OK' }, { PING: { args: {}; answer: string } }>()({
+      data: { n: 0 },
+      on: {
+        FAIL: () => { throw new Error('handler broke') },
+        OK: (_, { data, tell }) => {
+          tell({ peer: 'first' }, { type: 'A' })
+          tell({ peer: 'second' }, { type: 'B' })
+          return { data: { n: data.n + 1 } }
+        },
+      },
+      answers: {
+        PING: () => 'pong',
+      },
+    })
+    const sys = system({
+      side: 'backend',
+      trace: () => { throw new Error('trace sink broke') },
+      onDefect: (d) => { defects.push(d) },
+      log: (step) => { logs.push(step) },
+    })
+    sys.attach('first', { tell: () => { peerEvents.push('first'); throw new Error('first peer broke') } })
+    sys.attach('second', { tell: () => { peerEvents.push('second') } })
+    const h = sys.start('svc', svc)
+    sys.subscribe(() => { throw new Error('first sub broke') })
+    sys.subscribe(() => { subSeen.push(sys.read(h).data.n) })
+
+    // A mid-step defect triggers trace() before onDefect(); throwing in trace() must not prevent onDefect() or break the system.
+    sys.send(h, { type: 'FAIL' })
+    strictEqual(sys.read(h).data.n, 0)
+    ok(defects.some((d) => d.message.includes('handler broke')))
+
+    // During commit flush, first peer and first subscriber throw (triggering defect() -> trace()); second peer, second subscriber, and log still run.
+    sys.send(h, { type: 'OK' })
+    strictEqual(sys.read(h).data.n, 1)
+    deepStrictEqual(peerEvents, ['first', 'second'])
+    deepStrictEqual(subSeen, [1])
+    ok(defects.some((d) => d.message.includes('first peer broke')))
+    ok(defects.some((d) => d.message.includes('first sub broke')))
+    strictEqual(logs.at(-1)?.status, 'committed')
+
+    // Subsequent asks still resolve normally.
+    deepStrictEqual(await sys.ask(h, 'PING', {}), { ok: true, value: 'pong' })
   }],
 ]
 
