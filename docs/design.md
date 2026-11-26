@@ -26,6 +26,7 @@ Its shape is a type. Its definition has the same keys at every depth.
 | `on` | The events others may send it. A handler is synchronous and returns what happens next: `{ at, data }` |
 | `internal` | The events it sends itself, which nothing else may send it |
 | `answers` | The asks it answers. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
+| `listen` | External push subscriptions held while it is the case, without blocking `idle()`. Returning a cleanup registers it with `onExit` |
 | `run`, `failed` | Work it does while it is the case, and where it goes if that work fails |
 | `starts` | Other states it runs |
 | `follows` | Views of the database it keeps up to date |
@@ -176,6 +177,7 @@ follows: (follow) => ({
 | A write to fire, one per key | `calls`, with `each`, and `call(name, key, input?)` (`pending.<name>: Record<string, true>`) |
 | A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
+| External push events (emitters, watchers, DOM listeners) | `listen` (state-lifetime scope, automatic cleanup, keeps `idle()` true) |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
 
@@ -253,8 +255,11 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   refused. A window hears of a step after its views show it. Rows that cannot be kept stop the system, and every ask
   is answered. Nothing outside the database is part of it: git, files and models are
   done first, and the row that records one is written in the step its result arrives in.
-- **Work has one owner and stops when its owner does.** A state's `run` is the state's. An ask is the asker's. What a
-  state starts, follows, loads or calls is that state's. When `run` or an ask's handler finishes (returns or throws),
+- **Work has one owner and stops when its owner does.** A state's `listen` and `run` are the state's. An ask is the asker's. What a
+  state starts, follows, loads or calls is that state's. Stopping a top-level state with `stop(handle)` ends that state
+  and everything it started without touching sibling top-level states; `stop()` ends them all. `listen` keeps a
+  state-lifetime scope until the state exits without blocking `idle()`, unsubscribes automatically on exit, and ignores
+  late callbacks after exit. When `run` or an ask's handler finishes (returns or throws),
   the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`send`, `tell`,
   `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
   stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
