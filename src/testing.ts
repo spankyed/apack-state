@@ -12,6 +12,7 @@ import type { AnyEvent, Asks, Handle, RootGiven, Shape, State, Value } from './t
 import { system as kernel, type Defect, type System } from './kernel.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
+export type { Defect } from './kernel.ts'
 
 /** A window and a backend joined across `@apackdev/link` over an in-memory transport. */
 export interface Connected {

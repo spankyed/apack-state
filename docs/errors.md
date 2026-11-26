@@ -95,6 +95,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (up…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
 | `both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ …` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | a view is followed from fields or for each key, not both at once |
 | `skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } :…` | TS2322: Type '{ id: string; } \| null' is not assignable to type '{ readonly id: string; }'. | an `each` view is keyed by a field, so `args` cannot return null to skip a key |
+| `missingArgs: follow('items', 'list', { from: ['ids'], updated: () => {} }),` | TS2345: Argument of type '{ from: "ids"[]; updated: () => void; }' is not assignable to parameter of type '{ args: (given: { readonly ids: readonly string[]; }) => false \| { readonly id… | `args` is required because `list` expects `{ ids: string[] }` |
 
 ## Who may send a state what: the events it sends itself, and the surfaces it tells.
 
@@ -130,6 +131,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: ti…` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
 | `misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
 | `both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ qu…` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is loaded from fields or for each key, not both at once |
+| `missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),` | TS2345: Argument of type '{ from: "ids"[]; done: () => void; }' is not assignable to parameter of type '{ args: (given: { readonly ids: readonly string[]; }) => false \| { readonly ids: … | `args` is required because BATCH expects `{ ids: string[] }` |
 
 ## Telling a named peer is checked against the peers and events declared on Net.
 

@@ -274,11 +274,12 @@ export interface Failure {
     readonly message: string;
 }
 
+// Warning: (ae-forgotten-export) The symbol "StandingArgsOpt" needs to be exported by the entry point index.d.ts
+//
 // @public
-export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: {
+export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
     from?: [Many] extends [string] ? never : readonly K[];
     each?: Many;
-    args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']> | ([Many] extends [string] ? never : null | undefined | false);
     updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Followed<R, H, E, N>;
 
@@ -292,7 +293,7 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
         n: N;
     };
     // (undocumented)
-    readonly args: Function;
+    readonly args?: Function;
     // (undocumented)
     readonly each?: string;
     // (undocumented)
@@ -357,10 +358,9 @@ export interface Lane {
 }
 
 // @public
-export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(of: S, ask: Q, options: {
+export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
     from?: [Many] extends [string] ? never : readonly K[];
     each?: Many;
-    args: (given: Given_<R, H, K, Many>) => Read<AskOf<N, S, Q>['args']> | ([Many] extends [string] ? never : null | undefined | false);
     done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
     progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Loaded<R, H, E, N>;
@@ -375,7 +375,7 @@ export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> 
         n: N;
     };
     // (undocumented)
-    readonly args: Function;
+    readonly args?: Function;
     // (undocumented)
     readonly ask: string;
     // (undocumented)
@@ -676,10 +676,9 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:512:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:512:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:528:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:610:5 - (ae-forgotten-export) The symbol "Given_" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:611:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:692:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:692:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:615:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:696:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:696:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

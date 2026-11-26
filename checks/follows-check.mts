@@ -589,6 +589,45 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
     win.stop()
     backend.stop()
   }],
+  ['follows may omit args when the view accepts {}, for both from and each', () => {
+    type ZeroNet = { systems: {}; surfaces: {}; views: { feed: { all: { args: {}; result: number } } } }
+    const zeroState = forNet<ZeroNet>()
+    const seenArgs: unknown[] = []
+    const callbacks: Array<(u: ViewUpdate<number>) => void> = []
+    const views: ViewHost = (_f, _v, args, updated) => {
+      seenArgs.push(args)
+      callbacks.push(updated)
+      return () => {}
+    }
+    const watcher = zeroState<{ data: { rev: number; keys: string[]; count: number; byKey: Record<string, number> } }, { type: 'BUMP' } | { type: 'KEYS'; keys: string[] }>()({
+      data: { rev: 0, keys: [], count: 0, byKey: {} },
+      follows: (follow) => ({
+        all: follow('feed', 'all', {
+          from: ['rev'],
+          updated: (u) => (u.ok ? { data: { count: u.value } } : undefined),
+        }),
+        perKey: follow('feed', 'all', {
+          each: 'keys',
+          updated: (u, { key }) => (u.ok ? { data: (d) => { d.byKey[key] = u.value } } : undefined),
+        }),
+      }),
+      on: {
+        BUMP: (_, { data }) => ({ data: { rev: data.rev + 1 } }),
+        KEYS: ({ keys }) => ({ data: { keys } }),
+      },
+    })
+    const sys = system({ side: 'window', views })
+    const h = sys.start('w', watcher)
+    deepStrictEqual(seenArgs, [{}])
+    callbacks[0]!({ ok: true, value: 7 })
+    strictEqual(sys.read(h).data.count, 7)
+    sys.send(h, { type: 'BUMP' })
+    sys.send(h, { type: 'KEYS', keys: ['x'] })
+    deepStrictEqual(seenArgs, [{}, {}, {}])
+    callbacks[2]!({ ok: true, value: 99 })
+    deepStrictEqual(sys.read(h).data.byKey, { x: 99 })
+    sys.stop()
+  }],
 ]
 
 await run([...checks, ...moreChecks])
