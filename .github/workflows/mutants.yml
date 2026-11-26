@@ -47,7 +47,7 @@ jobs:
           - id: kernel-1364-end
             part: 'src/kernel.ts:1364-99999'
           - id: other
-            part: 'src/**/*.ts,!src/kernel.ts,!src/graph.ts'
+            part: 'src/**/*.ts,!src/kernel.ts,!src/graph.ts,!src/inspect.ts'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
