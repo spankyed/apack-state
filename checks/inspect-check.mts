@@ -299,7 +299,10 @@ await run([
     deepStrictEqual(covRecord[0]!.unvisitedStates, [])
     strictEqual(covRecord[0]!.currentAt, 'done')
     ok(covRecord[0]!.declaredMoves.some((m) => m.on === 'SEND' && m.to === 'saving' && m.hit === true))
+    ok(covRecord[0]!.declaredMoves.some((m) => m.on === 'save (done)' && m.to === 'done' && m.hit === true))
+    ok(covRecord[0]!.declaredMoves.some((m) => m.on === 'save (done)' && m.to === 'idle' && m.hit === false))
     ok(covRecord[0]!.observedMoves.some((m) => m.from === 'idle' && m.on === 'SEND' && m.to === 'saving'))
+    ok(covRecord[0]!.observedMoves.some((m) => m.from === 'saving' && m.on === 'save (done)' && m.to === 'done'))
 
     const covFn = inspector.coverage((ref) => (ref === 'panel' ? samplePanelGraph : undefined))
     strictEqual(covFn.length, 1)

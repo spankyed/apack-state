@@ -4,6 +4,9 @@
 import type { StateGraph } from './graph.ts'
 import type { Defect, Handled, Sent, StepLog, System } from './kernel.ts'
 
+export type { StateGraph } from './graph.ts'
+export type { Defect, Handled, Sent, StepLog, System } from './kernel.ts'
+
 /** A structured defect captured by the inspector (serializable, with error reduced to text). */
 export interface InspectedDefect {
   readonly seq: number
@@ -183,6 +186,20 @@ const stepTouchesRef = (step: InspectedStep, ref: string): boolean =>
   || step.log.sent.some((s) => s.to === ref)
   || step.defects.some((d) => d.ref === ref)
 
+const graphTriggerOf = (h: Handled | undefined): string => {
+  if (!h) return '(step)'
+  switch (h.kind) {
+    case 'event': return h.name ?? 'event'
+    case 'done': return `${h.name ?? 'done'} (done)`
+    case 'progress': return `${h.name ?? 'progress'} (progress)`
+    case 'view': return `${h.name ?? 'view'} (updated)`
+    case 'result': return '(its work ends)'
+    case 'failure': return '(its work fails)'
+    case 'ask': case 'answer': return `${h.name ?? 'ask'} (answering)`
+    default: return h.name ?? h.kind
+  }
+}
+
 const formatHandled = (h: Handled): string => {
   const parts = [`${h.kind}`, h.ref]
   if (h.name) parts.push(h.name)
@@ -280,8 +297,12 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
 
   const pushQueue = (map: Map<string, PendingLink[]>, key: string, item: PendingLink): void => {
     const list = map.get(key)
-    if (list) list.push(item)
-    else map.set(key, [item])
+    if (list) {
+      list.push(item)
+      if (list.length > limit) list.shift()
+    } else {
+      map.set(key, [item])
+    }
   }
 
   const shiftFromOther = (map: Map<string, PendingLink[]>, key: string, currentSystem: string): PendingLink | undefined => {
@@ -438,7 +459,6 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     }
 
     // 3. Track visited states and observed transitions for static-vs-runtime graph coverage.
-    const trigger = log.handled[0]
     for (const [ref, change] of Object.entries(log.changed)) {
       const stateKey = `${systemName}:${ref}`
       const prevAt = lastAt.get(stateKey) ?? ''
@@ -446,7 +466,8 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       if (change.moved && prevAt && change.at && prevAt !== change.at) {
         let list = observedMoves.get(ref)
         if (!list) { list = []; observedMoves.set(ref, list) }
-        const on = trigger?.name ?? trigger?.kind ?? '(step)'
+        const refTrigger = log.handled.find((h) => h.ref === ref) ?? log.handled[0]
+        const on = graphTriggerOf(refTrigger)
         if (!list.some((m) => m.from === prevAt && m.on === on && m.to === change.at)) {
           list.push({ from: prevAt, on, to: change.at })
         }
