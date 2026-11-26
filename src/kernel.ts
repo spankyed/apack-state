@@ -1,3 +1,4 @@
+/// <reference lib="esnext.disposable" preserve="true" />
 // The kernel: systems that run states, steps, asks, and the link between a backend and its windows. What a state's
 // code is checked against is `types.ts`; what one system offers another is `port.ts`.
 //

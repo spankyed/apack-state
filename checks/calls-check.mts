@@ -551,7 +551,7 @@ const staging = (schedule: Schedule): (() => void) => {
   schedule.does('the user', ['stages a', () => it.send({ type: 'commit.STAGE_FILE', path: 'a.ts' })], ['stages b', () => it.send({ type: 'commit.STAGE_FILE', path: 'b.ts' })])
   return () => {
     deepStrictEqual([...it.held().staged].sort(), ['a.ts', 'b.ts'])
-    deepStrictEqual({ pending: it.pending(), error: it.now().gitError }, { pending: { stage: {}, unstage: {}, push: false }, error: null })
+    deepStrictEqual({ pending: it.pending(), error: it.now().gitError }, { pending: { stage: {}, unstage: {}, revert: 0, push: false }, error: null })
     // What is shown is what the repository holds: the last read was made after the last write.
     deepStrictEqual({ ...it.now().gitStatus, staged: [...it.now().gitStatus!.staged].sort() }, { staged: ['a.ts', 'b.ts'], unstaged: ['c.ts'], ahead: 2 })
   }

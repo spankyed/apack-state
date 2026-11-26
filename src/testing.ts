@@ -1,3 +1,4 @@
+/// <reference lib="esnext.disposable" preserve="true" />
 // What a pack's checks are written with: the schedule of `@apackdev/orderings`, which runs a scenario under every
 // order, a system on it, and scenarios made from the events a state declares. `@apackdev/state/testing`.
 //
@@ -248,7 +249,10 @@ export function defectGuard(forward?: (defect: Defect) => void): DefectGuard {
   }
   const assertNone = (): void => {
     const unexpected = defects.filter((defect) => !matches(defect))
-    if (unexpected.length) throw new Error(`Unexpected kernel defect(s):\n${unexpected.map((d) => `DEFECT: ${d.message}`).join('\n')}`)
+    if (!unexpected.length) return
+    const cause = unexpected.find((d) => d.error !== undefined)?.error
+    const message = `Unexpected kernel defect(s):\n${unexpected.map((d) => `DEFECT: ${d.message}`).join('\n')}`
+    throw cause === undefined ? new Error(message) : new Error(message, { cause })
   }
   return {
     onDefect: (defect) => {

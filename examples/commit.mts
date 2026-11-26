@@ -20,7 +20,7 @@
 
 import { deepStrictEqual } from 'node:assert'
 import { answered, forNet, system } from '../src/index.ts'
-import { connect } from '../src/testing.ts'
+import { connect, defectGuard } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -34,6 +34,7 @@ export type CodeAsks = {
   'commit.GET_GIT_DIFF': { args: { path: string; staged: boolean }; answer: { path: string; text: string }; refuses: 'not-found' }
   'commit.STAGE_FILES': { args: { paths: string[] }; answer: null; refuses: 'not-found' }
   'commit.UNSTAGE_FILES': { args: { paths: string[] }; answer: null; refuses: 'not-found' }
+  'commit.REVERT_FILES': { args: { paths: string[] }; answer: null; refuses: 'not-found' }
   'commit.PUBLISH_BRANCH': { args: {}; progress: { phase: string }; answer: { pushed: number }; refuses: 'rejected' }
 }
 
@@ -41,6 +42,7 @@ export type CommitEvent =
   // from the user
   | { type: 'commit.STAGE_FILE'; path: string }
   | { type: 'commit.UNSTAGE_FILE'; path: string }
+  | { type: 'commit.REVERT_FILES'; paths: string[] }
   | { type: 'commit.VIEW_DIFF'; path: string; staged: boolean }
   | { type: 'commit.PUSH_BRANCH' }
   | { type: 'commit.STOP_PUSH' }
@@ -69,8 +71,8 @@ export type Commit = {
     pushPhase: string | null
     gitError: string | null
   }
-  /** The writes it calls: staging and unstaging for each of many paths, and one push at a time. */
-  calls: { stage: 'each'; unstage: 'each'; push: 'one' }
+  /** The writes it calls: staging/unstaging per path, unkeyed concurrent reverts, and one push at a time. */
+  calls: { stage: 'each'; unstage: 'each'; revert: { many: { paths: string[] } }; push: 'one' }
 }
 
 export const commit = state<Commit, CommitEvent>()({
@@ -92,7 +94,7 @@ export const commit = state<Commit, CommitEvent>()({
     }),
   }),
 
-  calls: ({ one, each }) => ({
+  calls: ({ one, each, many }) => ({
     // Called for a path when a handler says so, and pending for that path until it finishes.
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
@@ -103,9 +105,13 @@ export const commit = state<Commit, CommitEvent>()({
       done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not unstage ${key}: ${outcome.failure.message}` } }),
     }),
 
-    // One at a time: a second while one is pending is the same push.
+    // Unkeyed concurrent write: input passes directly as ask args (no `args` mapper needed) and arrives frozen on `done`.
+    revert: many('code', 'commit.REVERT_FILES', {
+      done: (outcome, { input }) => (outcome.ok ? undefined : { data: { gitError: `Could not revert ${input.paths.join(', ')}: ${outcome.failure.message}` } }),
+    }),
+
+    // One at a time: a second while one is pending is the same push (`args` omitted because ask takes `{}`).
     push: one('code', 'commit.PUBLISH_BRANCH', {
-      args: () => ({}),
       progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
       done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
     }),
@@ -114,6 +120,7 @@ export const commit = state<Commit, CommitEvent>()({
   on: {
     'commit.STAGE_FILE':   ({ path }, { call }) => { call('stage', path) },
     'commit.UNSTAGE_FILE': ({ path }, { call }) => { call('unstage', path) },
+    'commit.REVERT_FILES': ({ paths }, { call }) => { call('revert', { paths }) },
     'commit.VIEW_DIFF':    ({ path, staged }) => ({ data: { selectedGitFile: { path, staged }, gitDiff: null } }),
     'commit.PUSH_BRANCH':  (_, { call }) => { call('push') },
     // Cancelling the push is what stopping it is: the backend is told, and `done` is not called.
@@ -173,6 +180,18 @@ export const git = (work: (what: string) => Promise<unknown>, said: string[] = [
       })
     },
 
+    'commit.REVERT_FILES': async ({ paths }, { broadcast, refuse }) => {
+      await work(`reverting ${paths.join(', ')}`)
+      broadcast('commit', { type: 'REPOSITORY_CHANGED' })
+      return answered(null, {
+        data: (d) => {
+          const gone = paths.find((path) => !d.unstaged.includes(path))
+          if (gone) throw refuse('not-found', `${gone} has no unstaged changes`)
+          d.unstaged = d.unstaged.filter((path) => !paths.includes(path))
+        },
+      })
+    },
+
     'commit.PUBLISH_BRANCH': async (_, { data, progress, broadcast, signal }) => {
       const ahead = data.ahead
       signal.addEventListener('abort', () => { said.push('gave up the push') })
@@ -203,15 +222,19 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
   }
 
   const said: string[] = []
-  const backend = system({ side: 'backend' })
+  using guard = defectGuard()
+  using backend = system({ side: 'backend', onDefect: guard.onDefect })
   backend.start('code', git(() => turns(3), said))
-  const window = system({ side: 'window' })
-  connect(window, backend)
+  using window = system({ side: 'window', onDefect: guard.onDefect })
+  using _link = connect(window, backend)
+  void _link
   const surface = window.start('commit', commit)
   window.subscribe(() => {
-    const { data: d, pending } = window.read(surface)
+    const shown = window.read(surface)
+    if (!shown) return
+    const { data: d, pending } = shown
     say(`    ${[d.gitStatus && `staged ${d.gitStatus.staged.join(',') || '-'} | unstaged ${d.gitStatus.unstaged.join(',') || '-'} | ahead ${d.gitStatus.ahead}`,
-      Object.keys(pending.stage).length && `staging ${Object.keys(pending.stage).join(',')}`, pending.push && `pushing${d.pushPhase ? `: ${d.pushPhase}` : ''}`,
+      Object.keys(pending.stage).length && `staging ${Object.keys(pending.stage).join(',')}`, pending.revert && `reverting (${pending.revert})`, pending.push && `pushing${d.pushPhase ? `: ${d.pushPhase}` : ''}`,
       d.selectedGitFile && `showing ${d.selectedGitFile.path}: ${d.gitDiff ?? '…'}`, d.gitError && `error "${d.gitError}"`].filter(Boolean).join(' | ')}`)
   })
   const send = (event: CommitEvent): void => window.send(surface, event)
@@ -236,6 +259,15 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
   holds('the diff shown is of the file selected last', now().gitDiff, 'diff of c.ts')
   holds('and the backend was told to give up the first', said, ['gave up the diff of a.ts'])
 
+  say('an unkeyed concurrent revert runs with typed input, and its refusal names the paths')
+  send({ type: 'commit.REVERT_FILES', paths: ['c.ts'] })
+  send({ type: 'commit.REVERT_FILES', paths: ['missing.ts'] })
+  holds('two concurrent reverts are in flight', pending().revert, 2)
+  await turns(30)
+  holds('both reverts finished', pending().revert, 0)
+  holds('the refusal named the missing path from scope.input', now().gitError, 'Could not revert missing.ts: missing.ts has no unstaged changes')
+  send({ type: 'commit.DISMISS_ERROR' })
+
   say('a file that is not there is staged: the refusal is shown, and names the file')
   send({ type: 'commit.STAGE_FILE', path: 'z.ts' });                               await turns(20)
   holds('the error names it', now().gitError, 'Could not stage z.ts: z.ts has no unstaged changes')
@@ -257,5 +289,4 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
 
   console.log(lines.join('\n'))
   console.log(`\n${held} things held`)
-  window.stop(); backend.stop()
 }

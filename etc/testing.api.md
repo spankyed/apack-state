@@ -4,6 +4,8 @@
 
 ```ts
 
+/// <reference lib="esnext.disposable" />
+
 import { Clock } from '@apackdev/orderings';
 import { everyOrder } from '@apackdev/orderings';
 import { explore } from '@apackdev/orderings';
@@ -119,10 +121,10 @@ export interface WaitForOptions {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:26:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:45:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:50:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:58:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:27:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:46:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:51:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:59:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

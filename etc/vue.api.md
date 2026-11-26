@@ -4,6 +4,8 @@
 
 ```ts
 
+/// <reference lib="esnext.disposable" />
+
 import { App } from '@vue/runtime-core';
 import { ComputedRef } from '@vue/runtime-core';
 import { MaybeRefOrGetter } from '@vue/runtime-core';
