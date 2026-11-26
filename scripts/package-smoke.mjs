@@ -55,7 +55,7 @@ try {
     "const vue = await import('@apackdev/state/vue')",
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
-    "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents', 'waitFor', 'defectGuard']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents', 'inspectOrder', 'waitFor', 'defectGuard']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
     "const graph = await import('@apackdev/state/graph')",
     "for (const name of ['analyseGraphs', 'formatGraphs', 'runGraphCli']) if (typeof graph[name] !== 'function') throw new Error(`@apackdev/state/graph has no ${name}`)",
     "const inspect = await import('@apackdev/state/inspect')",

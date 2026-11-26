@@ -6,7 +6,7 @@ import { given, forNet } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
-import { connect, defectGuard, everyOrder, explore, fromEvents, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
+import { connect, defectGuard, everyOrder, explore, fromEvents, inspectOrder, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
 import { system, type Defect } from '../src/kernel.ts'
 
 const state = forNet()
@@ -197,7 +197,7 @@ await run([
       always: () => { throw new Error(`not held, time ${++told}`) },
       steps: 3, runs: 1, seed: 1,
     }).then(() => undefined, (thrown: unknown) => thrown as Error)
-    ok(error?.message.endsWith('not held, time 1'), error?.message)
+    ok(error?.message.includes('not held, time 1\n') && !error.message.includes('time 2'), error?.message)
   }],
   ['a run that fails as it is set up, before anything is sent, says it sent nothing', async () => {
     await rejects(fromEvents({
@@ -268,7 +268,7 @@ await run([
       always: () => { throw new Error(`not held, time ${++told}`) },
       steps: 1, runs: 1, seed: 1,
     }).then(() => undefined, (thrown: unknown) => thrown as Error)
-    ok(error?.message.endsWith('not held, time 1'), error?.message)
+    ok(error?.message.includes('not held, time 1\n') && !error.message.includes('time 2'), error?.message)
   }],
   ['a maker that picks from nothing is told so', async () => {
     await rejects(fromEvents({ state: counter, events: { ADD: (random) => ({ type: 'ADD', by: random.pick<number>([]) }), RESET: () => ({ type: 'RESET' }) }, always: () => {}, steps: 5, runs: 1, seed: 1 }), /There is nothing to pick from/)
@@ -628,5 +628,62 @@ await run([
       using sys = system({ side: 'backend', onDefect: guard.onDefect })
       sys.start('bad', badExit)
     }, /release exploded/)
+  }],
+  ['fromEvents and inspectOrder include formatted causal traces on failure and inspectOrder passes clean orderings', async () => {
+    // 1. fromEvents failure includes the formatted causal trace capped to the last 20 steps.
+    const stepper = state<{ data: { n: number } }, { type: 'INC' }>()({
+      data: { n: 0 },
+      on: { INC: (_, { data }) => ({ data: { n: data.n + 1 } }) },
+    })
+    const fromErr = await fromEvents({
+      state: stepper,
+      events: { INC: () => ({ type: 'INC' }) },
+      always: (value) => { if (value.data.n >= 25) throw new Error('too high') },
+      steps: 30, runs: 1, seed: 1,
+    }).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(fromErr instanceof Error)
+    ok(fromErr.message.includes('Causal trace:') && fromErr.message.includes('the window#'), fromErr.message)
+    strictEqual(fromErr.message.split('\n').filter((line) => line.startsWith('the window#')).length, 20, fromErr.message)
+
+    // 2. inspectOrder succeeds on a clean multi-ordering scenario and respects `limit`.
+    const clean = await inspectOrder((schedule, inspector) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+      const h = sys.start('counter', counter)
+      schedule.does('a', ['add1', () => { sys.send(h, { type: 'ADD', by: 1 }) }])
+      schedule.does('b', ['add2', () => { sys.send(h, { type: 'ADD', by: 2 }) }])
+      return () => {
+        strictEqual(sys.read(h).data.count, 3)
+        sys.stop()
+      }
+    }, { limit: 1 })
+    strictEqual(clean.orderings, 1)
+    strictEqual(clean.complete, false)
+
+    // 3. inspectOrder failure throws with cause, ordering count, and causal trace capped by `last` (including non-Error throws).
+    const boom = new Error('invariant broken')
+    const failErr = await inspectOrder((schedule, inspector) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+      const h = sys.start('counter', counter)
+      schedule.does('u', ['a', () => { sys.send(h, { type: 'ADD', by: 1 }) }], ['b', () => { sys.send(h, { type: 'ADD', by: 2 }) }])
+      return () => {
+        sys.stop()
+        throw boom
+      }
+    }, { last: 1 }).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(failErr instanceof Error)
+    strictEqual(failErr.cause, boom)
+    ok(failErr.message.includes('Ordering failed (1 explored): invariant broken'), failErr.message)
+    ok(failErr.message.includes('Causal trace:'), failErr.message)
+    const stepHeaders = failErr.message.split('\n').filter((line) => line.startsWith('w#'))
+    strictEqual(stepHeaders.length, 1, failErr.message)
+
+    // 4. Default `last` (30) and non-Error throw formatting.
+    const strErr = await inspectOrder((schedule, inspector) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+      sys.start('counter', counter)
+      return () => { sys.stop(); throw 'string-boom' }
+    }).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(strErr instanceof Error && strErr.message.includes('string-boom') && strErr.message.includes('w#1'), strErr?.message)
+    strictEqual(strErr.cause, 'string-boom')
   }],
 ])

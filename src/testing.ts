@@ -7,11 +7,12 @@
 // the schedule chooses the order between them; `everyOrder` runs every one, and `sample` a seed's worth.
 import type { Lane } from './port.ts'
 import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
-import { sample, type Clock, type Schedule } from '@apackdev/orderings'
+import { explore, sample, type Clock, type Explored, type ExploreOptions, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Handle, RootGiven, Shape, State, Value } from './types.ts'
 import { system as kernel, type Defect, type System } from './kernel.ts'
+import { createInspector, type Inspector } from './inspect.ts'
 
-export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
+export { everyOrder, explore, replay, sample, type Clock, type Explored, type ExploreOptions, type Scenario, type Schedule } from '@apackdev/orderings'
 export type { Defect } from './kernel.ts'
 
 /** A window and a backend joined across `@apackdev/link` over an in-memory transport. */
@@ -122,9 +123,11 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
     const ordering = random.int(0x100000000)
     let sys: System | undefined
     let explored
+    const inspector = createInspector()
     try {
       explored = await sample((schedule) => {
-        sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') })
+        const hooks = inspector.hooks('the window')
+        sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window'), ...hooks })
         const running = sys
         options.around?.(running, schedule)
         const handle = (running.start as (ref: string, state: State<S, E, A, G>, entering: unknown) => Handle<Value<S>, E, A>)('under test', options.state, options.given)
@@ -151,9 +154,37 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
     }
     if (explored.failure) {
       const error = explored.failure.error
-      throw new Error(`Run ${run + 1}, from seed ${seed}, failed after sending ${sent.map((event) => event.type).join(', ') || 'nothing'}:\n${error instanceof Error ? error.message : String(error)}`, { cause: error })
+      throw new Error(`Run ${run + 1}, from seed ${seed}, failed after sending ${sent.map((event) => event.type).join(', ') || 'nothing'}:\n${error instanceof Error ? error.message : String(error)}\n\nCausal trace:\n${inspector.format({ last: 20 })}`, { cause: error })
     }
   }
+}
+
+/** Options for `inspectOrder`: `explore()` options plus max steps printed in a failure causal trace. */
+export interface InspectOrderOptions extends ExploreOptions {
+  /** Maximum number of recent steps included in a failure's causal trace (defaults to 30). */
+  readonly last?: number
+}
+
+/**
+ * Runs a scenario under `explore()` with a fresh `Inspector` per ordering. If any ordering fails, throws an `Error`
+ * containing the failure message, `cause`, and the formatted multi-system causal trace for that failing ordering.
+ */
+export async function inspectOrder(
+  scenario: (schedule: Schedule, inspector: Inspector) => () => void | Promise<void>,
+  options: InspectOrderOptions = {},
+): Promise<Explored> {
+  const { last = 30, ...exploreOpts } = options
+  let latest!: Inspector
+  const explored = await explore((schedule) => {
+    latest = createInspector()
+    return scenario(schedule, latest)
+  }, exploreOpts)
+  if (explored.failure) {
+    const error = explored.failure.error
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Ordering failed (${explored.orderings} explored): ${detail}\n\nCausal trace:\n${latest.format({ last })}`, { cause: error })
+  }
+  return explored
 }
 
 /** Options for `waitFor`: a timeout (in ms, using `clock.after` when given) and/or an `AbortSignal`. */
