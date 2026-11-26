@@ -225,6 +225,11 @@
     "why": "A question is ended by resolving a promise, here or across a link to one; a second end resolves it again, which a promise ignores, so whether the guard holds is seen by nothing"
   },
   {
+    "key": "src/kernel.ts | OptionalChaining | const trace = (line: string): void => { try { host.trace?.(line) } catch {} } | host.trace(line)",
+    "original": "host.trace?.(line)",
+    "why": "Inside try/catch, calling undefined host.trace(line) throws TypeError which is caught and ignored, so omitting ?. is unobservable"
+  },
+  {
     "key": "src/kernel.ts | ConditionalExpression | if (!host.onDefect) return | false",
     "original": "!host.onDefect",
     "why": "The very next line calls host.onDefect!(entry) inside try/catch, so skipping the early return throws TypeError inside the catch and is unobservable"

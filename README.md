@@ -13,6 +13,7 @@ switched over yet; releases are installed by GitHub tarball URL (`pkg-<commit>`)
 ## Where to start
 
 - [docs/design.md](docs/design.md): the design on one page, with a complete example.
+- [docs/guarantees.md](docs/guarantees.md): the four lifetimes, atomicity, cancellation, handle semantics, and the trusted-host boundary.
 - [docs/plan.md](docs/plan.md): the longer record. Why, every rule, rows and the database, each decision and what
   it replaced, what is proven, what is not built, and the order of work.
 - [docs/files.md](docs/files.md): what each file is.

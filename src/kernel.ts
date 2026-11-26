@@ -271,6 +271,7 @@ export function system(host: {
   later?(lane: Lane, run: () => void): void
   /** Runs something once per frame. A window gives `requestAnimationFrame`; the default is the next turn of the event loop. */
   frame?(run: () => void): void
+  /** Called for diagnostic lines and kernel defects. Exceptions thrown by `trace` itself are ignored. */
   trace?(line: string): void
   /**
    * Called for every kernel defect (a throwing handler/callback, refused data/move, cycle, runaway step, or lost
@@ -290,7 +291,7 @@ export function system(host: {
    */
   limit?: number
 }): System {
-  const trace = (line: string): void => { host.trace?.(line) }
+  const trace = (line: string): void => { try { host.trace?.(line) } catch {} }
   const defect = (message: string, ref?: string, error?: unknown): void => {
     trace(`DEFECT: ${message}`)
     if (!host.onDefect) return
