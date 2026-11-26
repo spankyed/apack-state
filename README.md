@@ -6,7 +6,7 @@ package, `@apackdev/state`.
 **A system is states that reach each other by name. Each runs in steps, and a step is kept whole or not at all:
 its data, the rows it wrote, and what it said.**
 
-Status: packaged as `@apackdev/state` (`.`, `./vue`, `./testing`), with zero runtime dependencies, Node and Chromium
+Status: packaged as `@apackdev/state` (`.`, `./vue`, `./testing`, `./graph`, and `apack-state-graph` CLI), with zero runtime dependencies, Node and Chromium
 browser specs, TypeScript 5.7+ floor checking, API Extractor reports, and mutation testing. Nothing in apack has
 switched over yet; releases are installed by GitHub tarball URL (`pkg-<commit>`).
 

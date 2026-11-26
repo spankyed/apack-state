@@ -87,7 +87,7 @@ export type ProgressOf<A extends AskShape> = A extends { progress: infer P } ? P
 export type OutcomeOf<A extends AskShape> = Outcome<A['answer'], AskFailure<A>>
 
 /** In a state's `data`, marks a field that whoever enters the state has to give. */
-export const given: unique symbol = Symbol('given')
+export const given: unique symbol = Symbol.for('@apackdev/state/given')
 type Given = typeof given
 
 // ── what a state's code is checked against ──────────────────────────────────────────────────────────────────────────
@@ -338,7 +338,7 @@ export interface AskScope<R, H extends string, E extends AnyEvent, N extends Net
 type On<R, H extends string, Taken extends AnyEvent, E extends AnyEvent, N extends Net> =
   { [T in Taken['type']]?: (event: Extract<Taken, { type: T }>, scope: EventScope<R, H, E, N>) => Next<R, H> | void }
 /** What marks an answer that also changes something, for the kernel to tell it from an answer alone. */
-export const ANSWERED = Symbol('answered')
+export const ANSWERED = Symbol.for('@apackdev/state/answered')
 /** An answer together with what happens next: what an ask's handler returns when answering also changes something. */
 export interface Answered<V, X> { readonly [ANSWERED]: true; readonly answer: V; readonly next: X }
 /**

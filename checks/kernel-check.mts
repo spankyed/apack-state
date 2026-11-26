@@ -5,7 +5,7 @@
 import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { run as runChecks, system } from './checks.mts'
-import { given, forNet } from '../src/index.ts'
+import { answered, given, forNet } from '../src/index.ts'
 import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
 
 class Repository { constructor(public directory: string) {} }
@@ -796,6 +796,10 @@ const moves: Array<[string, () => void]> = [
     deepStrictEqual(sys.read(sh), { at: 'a', data: { id: 'ok', note: 'hi' } })
     sys.send(sh, { type: 'TO_B' })
     deepStrictEqual(sys.read(sh), { at: 'b', data: { id: 'ok', note: 7 } })
+  }],
+  ['given and answered markers use Symbol.for keys so cross-bundle copies agree', () => {
+    strictEqual(given, Symbol.for('@apackdev/state/given'))
+    strictEqual(Object.hasOwn(answered(1, {}), Symbol.for('@apackdev/state/answered')), true)
   }],
 ]
 

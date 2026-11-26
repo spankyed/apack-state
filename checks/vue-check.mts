@@ -364,6 +364,14 @@ const either: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(handle).data.title, 'updated after unmount')
     strictEqual(renders, rendersAtUnmount)
   }],
+  ['provide registers the system under Symbol.for so cross-bundle vue copies share the injection key', async () => {
+    const sys = system({ side: 'window' })
+    const provided = new Map<unknown, unknown>()
+    const fakeApp = { provide(key: unknown, value: unknown) { provided.set(key, value); return fakeApp } }
+    vueBinding<{}>().provide(fakeApp as never, sys)
+    strictEqual(provided.get(Symbol.for('@apackdev/state/vue/system')), sys)
+    sys.stop()
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>

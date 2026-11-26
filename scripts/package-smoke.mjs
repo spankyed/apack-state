@@ -56,6 +56,8 @@ try {
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
     "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents', 'waitFor', 'defectGuard']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "const graph = await import('@apackdev/state/graph')",
+    "for (const name of ['analyseGraphs', 'formatGraphs', 'runGraphCli']) if (typeof graph[name] !== 'function') throw new Error(`@apackdev/state/graph has no ${name}`)",
     "const sys = index.system({ side: 'window' })",
     "const counter = index.state()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
     "const handle = sys.start('counter', counter)",
@@ -75,6 +77,7 @@ try {
     "import { answered, forNet, given, state, system } from '@apackdev/state'",
     "import { vueBinding } from '@apackdev/state/vue'",
     "import { connect, defectGuard, everyOrder, onSchedule, type Defect } from '@apackdev/state/testing'",
+    "import { analyseGraphs, formatGraphs, runGraphCli, type GraphOptions, type StateGraph } from '@apackdev/state/graph'",
     "const counter = state<{ data: { id: string; count: number } }, { type: 'ADD' }, { GET: { args: {}; answer: number } }>()({",
     "  data: { id: given, count: 0 },",
     "  on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) },",
@@ -115,12 +118,18 @@ try {
     "const _pendingCount: number = win.read(panelHandle).pending.save",
     "backend.send(handle, { type: 'ADD' })",
     "const binding = vueBinding<{ counter: typeof counter }>()",
-    "void binding; void everyOrder; void onSchedule; void link; void _pendingCount",
+    "const _g: (files: readonly string[], options?: GraphOptions) => ReadonlyMap<string, readonly StateGraph[]> = analyseGraphs",
+    "void binding; void everyOrder; void onSchedule; void link; void _pendingCount; void _g; void formatGraphs; void runGraphCli",
   ].join('\n')
   fs.writeFileSync(path.join(full, 'check.ts'), consumerTypes)
   execFileSync(process.execPath, [tscBin, '-p', 'tsconfig.json'], { cwd: full, stdio: 'inherit' })
 
-  console.log('bare zero-peer install, all entries, state run, and consumer types ok')
+  // Verify the packed CLI bin runs end-to-end against a real state file using `--tsconfig`.
+  const binScript = path.join(full, 'node_modules', '@apackdev', 'state', 'bin', 'apack-state-graph.mjs')
+  const graphOut = execFileSync(process.execPath, [binScript, '--tsconfig', path.join(repoRoot, 'tsconfig.json'), path.join(repoRoot, 'checks', 'graphs', 'custom-alias.mts')], { cwd: full, encoding: 'utf8' })
+  if (!graphOut.includes('SettingsShape') || !graphOut.includes('findings: none')) throw new Error(`packed apack-state-graph bin returned unexpected output:\n${graphOut}`)
+
+  console.log('bare zero-peer install, all entries, state run, graph bin, and consumer types ok')
 } finally {
   fs.rmSync(work, { recursive: true, force: true })
 }

@@ -25,7 +25,7 @@ import { mirrors, type Shared } from './mirror.ts'
 import type { System } from './kernel.ts'
 import type { AllStarts, AnyEvent, AnyState, Asks, Each, HandleOf, Read, Started, State, Value } from './types.ts'
 
-const SYSTEM: InjectionKey<System> = Symbol('the system this app reads')
+const SYSTEM: InjectionKey<System> = Symbol.for('@apackdev/state/vue/system')
 
 /** Reaching a state that this one starts: by the name it is declared under, and by key where there is one for each. */
 export type Child<C> = <K extends keyof C & string>(name: K, ...key: C[K] extends Each<any> ? [key: string] : []) => HandleOf<C[K]>
