@@ -492,6 +492,7 @@ await run([
     strictEqual(winAsks.length, 2)
     ok(typeof winAsks[0]!.id === 'number' && typeof winAsks[1]!.id === 'number' && winAsks[0]!.id !== winAsks[1]!.id)
     for (const askSent of winAsks) {
+      ok(handledIn(logs.window).some((h) => h.kind === 'progress' && h.id === askSent.id))
       ok(handledIn(logs.window).some((h) => h.kind === 'answer' && h.id === askSent.id))
       ok(handledIn(logs.window).some((h) => h.kind === 'done' && h.id === askSent.id))
     }
@@ -503,6 +504,36 @@ await run([
       ok(sentIn(logs.backend).some((s) => s.kind === 'progress' && s.id === askHandled.id))
       ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.id === askHandled.id && s.outcome === 'ok'))
     }
+
+    // Same-system load preserves one opId across ask, progress, answer, and done.
+    const localLoader = net<{ data: { out: string } }, never>()({
+      data: { out: '' },
+      loads: (load) => ({
+        w: load('svc', 'WORK', {
+          args: () => ({ tag: 'local' }),
+          progress: () => undefined,
+          done: (o) => (o.ok ? { data: { out: o.value } } : undefined),
+        }),
+      }),
+    })
+    backend.start('localLoader', localLoader)
+    await rest()
+    const localDone = handledIn(logs.backend).find((h) => h.kind === 'done' && h.ref === 'localLoader' && h.name === 'w')!
+    ok(typeof localDone.id === 'number')
+    ok(handledIn(logs.backend).some((h) => h.kind === 'ask' && h.ref === 'svc' && h.id === localDone.id))
+    ok(handledIn(logs.backend).some((h) => h.kind === 'progress' && h.ref === 'localLoader' && h.id === localDone.id))
+    ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.to === 'svc' && s.id === localDone.id))
+
+    // Failed start declaration (!handled throw) clears activeStep cleanly without shifting subsequent Defect.step.
+    let threwStart = false
+    try { backend.start('badDecl', { def: { starts: () => { throw new Error('bad-decl') } } } as never) } catch { threwStart = true }
+    strictEqual(threwStart, true)
+    const unsub = backend.subscribe(() => { throw new Error('flush-sub-boom') })
+    backend.send(svcH, { type: 'THROW' })
+    const secondThrowStep = logs.backend.at(-1)!
+    const secondThrowDefect = defects.filter((d) => d.message.includes('boom-in-step')).at(-1)!
+    strictEqual(secondThrowDefect.step, secondThrowStep.number)
+    unsub()
 
     // Stop unfollows with the exact same follow id, and a late async onExit outside any step has no `step` field.
     win.start('late', lateExit)
