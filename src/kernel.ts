@@ -603,7 +603,7 @@ export function system(host: {
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
       onExit: (release: () => void) => {
         if (alive()) mine.releases.push(release)
-        else if (mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release)
+        else if (mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release, ref)
       },
     }
     return key === undefined ? scope : Object.assign(scope, { key })
@@ -717,7 +717,7 @@ export function system(host: {
         said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent,
       }))
     }
-    for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release)
+    for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
     active.top.data = rest
