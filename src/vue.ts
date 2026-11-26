@@ -43,6 +43,8 @@ export type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Val
  * `Top` is what the window runs at its outermost, by the name each is started under. In the app a pack's generated
  * facade would give it, so a name that is not running does not compile. Pass `resolve` to map bare own-pack surface
  * names to qualified runtime refs (applied to string `useState(name)` calls, never to `Started` child handles).
+ *
+ * `resolve` must be a pure, deterministic function returning a non-empty string (never dynamic runtime lookups).
  */
 export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name: string) => string) {
   /** Reads a state the window runs, by name. */

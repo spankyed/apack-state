@@ -51,9 +51,9 @@ export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/vue.d.ts:21:5 - (ae-forgotten-export) The symbol "System" needs to be exported by the entry point vue.d.ts
-// .temp/api-types/vue.d.ts:24:9 - (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point vue.d.ts
-// .temp/api-types/vue.d.ts:24:9 - (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:23:5 - (ae-forgotten-export) The symbol "System" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:26:9 - (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:26:9 - (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point vue.d.ts
 
 // (No @packageDocumentation comment for this package)
 

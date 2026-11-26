@@ -623,6 +623,10 @@ type NoShadowedData<S, Above extends string = never> =
  * `state`, bound to the network `N` it can reach by name. In the app this is what a pack's generated facade exports.
  * Pass `resolve` to map bare own-pack names to qualified runtime refs (applied to string `tell`, `{ surface }`,
  * `broadcast`, string `ask`, `loads`, `calls`, and `follows`; never to handles or `{ peer }`).
+ *
+ * `resolve` must be a pure, deterministic function returning a non-empty string. At runtime the kernel memoizes each
+ * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
+ * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
 export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })

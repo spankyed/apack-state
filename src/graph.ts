@@ -71,7 +71,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
   const literalsOf = (type: Type): string[] => members(type).filter((m: Type) => m.isStringLiteral()).map((m: Type) => m.value as string)
   const join = (within: string, name: string): string => (within ? `${within}.${name}` : name)
 
-  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any): StateGraph => {
+  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[]): StateGraph => {
     const moves: Array<{ from: string; on: string; to: string[] }> = []
     const stays: string[] = []
     const answers: string[] = []
@@ -81,13 +81,24 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const follows: string[] = []
     const loads: string[] = []
     const calls: string[] = []
+    const uncertain = new Set<string>(initialUncertain)
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
 
     const read = (returned: Type[], path: string, on: string): void => {
       const to = new Set<string>()
-      for (const value of returned) { const at = value.getProperty?.('at'); if (at) for (const target of literalsOf(typeOf(at))) to.add(target) }
+      let dynamicAt: string | undefined
+      for (const value of returned) {
+        const at = value.getProperty?.('at')
+        if (!at) continue
+        const atType = typeOf(at)
+        for (const member of real(atType)) {
+          if (member.isStringLiteral()) to.add(member.value as string)
+          else dynamicAt = checker.typeToString(atType)
+        }
+      }
+      if (dynamicAt !== undefined) uncertain.add(`dynamic move target in ${where(path, on)} (at is ${dynamicAt})`)
       if (to.size) moves.push({ from: path || 'anywhere', on, to: [...to] })
-      else stays.push(where(path, on))
+      else if (dynamicAt === undefined) stays.push(where(path, on))
     }
 
     const walk = (level: Type, path: string): void => {
@@ -126,20 +137,53 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const text = (node: any): string => (ts.isStringLiteralLike(node) ? node.text : node.getText())
     const declarations = (object: any, path: string): void => {
       for (const property of object.properties) {
+        if (ts.isSpreadAssignment(property)) {
+          uncertain.add(`spread in ${path || 'definition'} could not be statically read`)
+          continue
+        }
         if (!ts.isPropertyAssignment(property) && !ts.isMethodDeclaration(property)) continue
         const name = property.name.getText()
         const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
-        if (name === 'states' && made && ts.isObjectLiteralExpression(made)) {
-          for (const inner of made.properties) if (ts.isPropertyAssignment(inner) && ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, inner.name.getText()))
+        if (name === 'states') {
+          if (!made || !ts.isObjectLiteralExpression(made)) {
+            uncertain.add(`could not statically read ${where(path, 'states')}`)
+            continue
+          }
+          for (const inner of made.properties) {
+            if (ts.isSpreadAssignment(inner)) {
+              uncertain.add(`spread in ${where(path, 'states')} could not be statically read`)
+            } else if (ts.isPropertyAssignment(inner)) {
+              if (ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, inner.name.getText()))
+              else uncertain.add(`could not statically read ${join(path, inner.name.getText())}`)
+            }
+          }
+          continue
         }
-        if ((name !== 'follows' && name !== 'loads' && name !== 'calls') || !made || !ts.isArrowFunction(made)) continue
+        if (name !== 'follows' && name !== 'loads' && name !== 'calls') continue
+        if (!made || !ts.isArrowFunction(made)) {
+          uncertain.add(`could not statically read ${where(path, name)}`)
+          continue
+        }
         let body = made.body
         while (ts.isParenthesizedExpression(body)) body = body.expression
-        if (!ts.isObjectLiteralExpression(body)) continue
+        if (!ts.isObjectLiteralExpression(body)) {
+          uncertain.add(`could not statically read ${where(path, name)}`)
+          continue
+        }
         for (const entry of body.properties) {
-          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) continue
+          if (ts.isSpreadAssignment(entry)) {
+            uncertain.add(`spread in ${where(path, name)} could not be statically read`)
+            continue
+          }
+          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) {
+            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name?.getText() ?? '?'}`)}`)
+            continue
+          }
           const [first, second, opts] = entry.initializer.arguments
-          if (!first || !second || !opts || !ts.isObjectLiteralExpression(opts)) continue
+          if (!first || !second || !opts || !ts.isObjectLiteralExpression(opts)) {
+            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name.getText()}`)}`)
+            continue
+          }
           const option = (key: string): any => opts.properties.find((each: any) => each.name?.getText() === key)
           const valueOf = (prop: any): any => prop && (prop.initializer ?? prop.name)
           const each = valueOf(option('each'))
@@ -158,7 +202,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         }
       }
     }
-    declarations(literal, '')
+    if (literal && ts.isObjectLiteralExpression(literal)) declarations(literal, '')
 
     const gone = new Set<string>()
     const enter = (path: string): void => {
@@ -188,6 +232,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
+    for (const note of uncertain) findings.push(note)
 
     const lines: string[] = [title]
     if (declared.length) lines.push(`  states: ${declared.join(', ')}`)
@@ -207,12 +252,40 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
   }
 
+  const isScopeReceiver = (expr: any): boolean => {
+    const t = checker.getTypeAtLocation(expr)
+    return Boolean(t?.getProperty?.('tell') && t?.getProperty?.('broadcast') && t?.getProperty?.('onExit'))
+  }
+  const verbOf = (expr: any): string | undefined => {
+    if (ts.isIdentifier(expr) && VERBS.has(expr.text)) return expr.text
+    if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
+    return undefined
+  }
+  const isChildCall = (expr: any): boolean =>
+    ts.isCallExpression(expr) && expr.arguments.length > 0 && (
+      (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
+      || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeReceiver(expr.expression.expression))
+    )
+  const hasStaticTarget = (target: any): boolean => {
+    if (ts.isStringLiteralLike(target)) return true
+    if (isChildCall(target)) return hasStaticTarget(target.arguments[0])
+    if (ts.isObjectLiteralExpression(target)) {
+      const prop = target.properties.find((p: any) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
+        && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
+      if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
+    }
+    const targetType = checker.getTypeAtLocation(target)
+    const nonEmpty = real(targetType)
+    return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
+  }
+
   const results = new Map<string, readonly StateGraph[]>()
   for (const file of resolved) {
     const graphs: StateGraph[] = []
     const visit = (node: any): void => {
       if (ts.isCallExpression(node) && ts.isCallExpression(node.expression)
-        && node.arguments.length === 1 && ts.isObjectLiteralExpression(node.arguments[0])
+        && node.arguments.length === 1
         && !node.getFullText().includes('@ts-expect-error')) {
         const returned = checker.getTypeAtLocation(node)
         if (returned.symbol?.name === 'State' && returned.getProperty('def') && returned.getProperty('_')) {
@@ -223,15 +296,25 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const events = eventType ? members(eventType).flatMap((m: Type) => { const t = m.getProperty?.('type'); return t ? literalsOf(typeOf(t)) : [] }) : []
             const asks = askType ? askType.getProperties().map((p: any) => p.name as string) : []
             const reaches = new Set<string>()
-            const scan = (inner: any): void => {
-              if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && VERBS.has(inner.expression.text) && inner.arguments[0]) {
-                const target = inner.arguments[0]
-                reaches.add(`${inner.expression.text} ${ts.isCallExpression(target) && target.arguments[0] ? `its ${target.arguments[0].getText()}` : target.getText()}`)
+            const scanUncertain: string[] = []
+            const arg = node.arguments[0]
+            if (ts.isObjectLiteralExpression(arg)) {
+              const scan = (inner: any): void => {
+                if (ts.isCallExpression(inner) && inner.arguments[0]) {
+                  const verb = verbOf(inner.expression)
+                  if (verb) {
+                    const target = inner.arguments[0]
+                    reaches.add(`${verb} ${isChildCall(target) ? `its ${target.arguments[0].getText()}` : target.getText()}`)
+                    if (!hasStaticTarget(target)) scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
+                  }
+                }
+                ts.forEachChild(inner, scan)
               }
-              ts.forEachChild(inner, scan)
+              scan(arg)
+            } else {
+              scanUncertain.push('definition is not an inline object literal; reaches, follows, loads, and calls could not be scanned')
             }
-            scan(node.arguments[0])
-            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(node.arguments[0]), [...reaches], node.arguments[0]))
+            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain))
           }
         }
       }
