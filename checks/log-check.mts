@@ -4,7 +4,7 @@
 //   npx vitest run log
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { given, forNet, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
+import { given, forNet, type Defect, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -138,7 +138,11 @@ const handledIn = (logs: readonly StepLog[]): Handled[] => logs.flatMap((step) =
 const sentIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.sent)
 /** While an ask is held unanswered nothing comes to rest, so a few turns are let pass instead. */
 const turns = async (): Promise<void> => { for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => { nextTurn(resolve) }) }
-const has = <T,>(all: readonly T[], one: T): void => { ok(all.some((each) => { try { deepStrictEqual(each, one); return true } catch { return false } }), `${JSON.stringify(one)} is not among ${JSON.stringify(all)}`) }
+const has = <T extends object>(all: readonly T[], one: Partial<T>): void => {
+  ok(all.some((each) => Object.entries(one).every(([k, v]) => {
+    try { deepStrictEqual((each as Record<string, unknown>)[k], v); return true } catch { return false }
+  })), `${JSON.stringify(one)} is not among ${JSON.stringify(all)}`)
+}
 
 /** A backend and a window, each logging its steps. */
 const wired = (host: { failNext?: string } = {}) => {
@@ -182,11 +186,12 @@ await run([
     const left = (of: StepLog[]) => of.flatMap((step) => step.sent)
     ok(left(logs.window).some((sent) => sent.kind === 'ask' && sent.to === 'notes' && sent.name === 'WRITE'), JSON.stringify(left(logs.window)))
     const answered = logs.backend.find((step) => step.handled[0]?.kind === 'ask')!
-    deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE' })
+    deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE', id: 1 })
     // Taken once, and logged once.
     strictEqual(answered.handled.filter((one) => one.kind === 'ask').length, 1)
     deepStrictEqual(answered.sent.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
-    deepStrictEqual(answered.sent.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
+    deepStrictEqual(answered.sent.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', id: 1, outcome: 'ok' })
+    deepStrictEqual(answered.sent.find((sent) => sent.kind === 'progress'), { kind: 'progress', to: 'notes', name: 'WRITE', id: 1 })
     deepStrictEqual(answered.sent.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
     // The window's state sent itself what its work found: an event of its own.
     ok(logs.window.some((step) => step.handled.some((one) => one.kind === 'event' && one.name === 'SENT' && one.own === true)))
@@ -383,5 +388,162 @@ await run([
     await rest()
     strictEqual(window.read(handle).data.draft, 'two')
     ok(traced.some((line) => line.startsWith('DEFECT: the step log threw')), JSON.stringify(traced))
+  }],
+  ['causal hooks: Defect.step matches StepLog.number, Handled.ignored marks ignored events, and async ids correlate asks/progress/answers/done/follows', async () => {
+    const store = memory()
+    const defects: Defect[] = []
+    const logs = { backend: [] as StepLog[], window: [] as StepLog[] }
+    let releaseLate!: () => void
+    const latePromise = new Promise<void>((resolve) => { releaseLate = resolve })
+
+    type Net = {
+      systems: { svc: { events: { type: 'THROW' } | { type: 'PING' }; asks: { WORK: { args: { tag: string }; progress: string; answer: string } } } }
+      surfaces: {}
+      views: { threads: { count: { args: {}; result: number } } }
+    }
+    const net = forNet<Net>()
+    const svc = net<{
+      states: { idle: {}; busy: {} }
+      internal: { type: 'SECRET' }
+    }, { type: 'THROW' } | { type: 'PING' }, Net['systems']['svc']['asks']>()({
+      initial: 'idle',
+      internal: { SECRET: () => {} },
+      on: { THROW: () => { throw new Error('boom-in-step') } },
+      states: {
+        idle: {},
+        busy: { on: { PING: () => {} } },
+      },
+      answers: {
+        WORK: async ({ tag }, { progress }) => {
+          progress(`p:${tag}`)
+          await Promise.resolve()
+          return `done:${tag}`
+        },
+      },
+    })
+    const caller = net<{
+      data: { count: number; results: string[] }
+      calls: { run: { many: { tag: string } } }
+    }, { type: 'GO'; tag: string }>()({
+      data: { count: 0, results: [] },
+      follows: (follow) => ({
+        count: follow('threads', 'count', { updated: (u) => (u.ok ? { data: { count: u.value } } : undefined) }),
+      }),
+      calls: ({ many }) => ({
+        run: many('svc', 'WORK', {
+          args: ({ tag }) => ({ tag }),
+          progress: () => undefined,
+          done: (o, { data }) => (o.ok ? { data: { results: [...data.results, o.value] } } : undefined),
+        }),
+      }),
+      on: { GO: ({ tag }, { call }) => { call('run', { tag }) } },
+    })
+    const lateExit = net<{}, never>()({
+      run: async ({ onExit }) => {
+        await latePromise
+        onExit(() => { throw new Error('outside-step-exit') })
+      },
+      failed: () => {},
+    })
+
+    const backend = system({
+      side: 'backend',
+      transact: store.transact,
+      views: countOf(store),
+      onDefect: (d) => defects.push(d),
+      log: (step) => logs.backend.push(step),
+    })
+    const win = system({
+      side: 'window',
+      onDefect: (d) => defects.push(d),
+      log: (step) => logs.window.push(step),
+    })
+    connect(win, backend)
+    const svcH = backend.start('svc', svc)
+    const callerH = win.start('caller', caller)
+    await rest()
+
+    // Ignored events: wrong substate (PING only in busy), internal-from-outside (SECRET), and non-running state.
+    backend.send(svcH, { type: 'PING' })
+    backend.send(svcH, { type: 'SECRET' } as never)
+    backend.send({ ref: 'ghost' } as never, { type: 'PING' } as never)
+    // Handled event throwing inside step carries Defect.step matching StepLog.number.
+    backend.send(svcH, { type: 'THROW' })
+    // Two concurrent `many` calls get distinct monotonic ids that match across ask, progress, answer, and done.
+    win.send(callerH, { type: 'GO', tag: 'a' })
+    win.send(callerH, { type: 'GO', tag: 'b' })
+    await rest()
+
+    const ignoredEvents = handledIn(logs.backend).filter((h) => h.kind === 'event' && h.ignored === true)
+    deepStrictEqual(ignoredEvents.map((h) => `${h.ref}:${h.name}`), ['svc:PING', 'svc:SECRET', 'ghost:PING'])
+    const throwStep = logs.backend.find((s) => s.handled.some((h) => h.kind === 'event' && h.name === 'THROW'))!
+    strictEqual(throwStep.handled[0]?.ignored, undefined)
+    const throwDefect = defects.find((d) => d.message.includes('boom-in-step'))!
+    strictEqual(throwDefect.step, throwStep.number)
+
+    // Follow -> view -> unfollow share one id on the window.
+    const followSent = sentIn(logs.window).find((s) => s.kind === 'follow')!
+    ok(typeof followSent.id === 'number')
+    const viewHandled = handledIn(logs.window).find((h) => h.kind === 'view' && h.name === 'count')!
+    strictEqual(viewHandled.id, followSent.id)
+
+    // Concurrent `many` asks get distinct ids correlated across window sent(ask) -> handled(progress/answer/done).
+    const winAsks = sentIn(logs.window).filter((s) => s.kind === 'ask' && s.name === 'WORK')
+    strictEqual(winAsks.length, 2)
+    ok(typeof winAsks[0]!.id === 'number' && typeof winAsks[1]!.id === 'number' && winAsks[0]!.id !== winAsks[1]!.id)
+    for (const askSent of winAsks) {
+      ok(handledIn(logs.window).some((h) => h.kind === 'progress' && h.id === askSent.id))
+      ok(handledIn(logs.window).some((h) => h.kind === 'answer' && h.id === askSent.id))
+      ok(handledIn(logs.window).some((h) => h.kind === 'done' && h.id === askSent.id))
+    }
+
+    // Backend ask -> progress -> answer share the same backend-local id.
+    const backendAsks = handledIn(logs.backend).filter((h) => h.kind === 'ask' && h.name === 'WORK')
+    strictEqual(backendAsks.length, 2)
+    for (const askHandled of backendAsks) {
+      ok(sentIn(logs.backend).some((s) => s.kind === 'progress' && s.id === askHandled.id))
+      ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.id === askHandled.id && s.outcome === 'ok'))
+    }
+
+    // Same-system load preserves one opId across ask, progress, answer, and done.
+    const localLoader = net<{ data: { out: string } }, never>()({
+      data: { out: '' },
+      loads: (load) => ({
+        w: load('svc', 'WORK', {
+          args: () => ({ tag: 'local' }),
+          progress: () => undefined,
+          done: (o) => (o.ok ? { data: { out: o.value } } : undefined),
+        }),
+      }),
+    })
+    backend.start('localLoader', localLoader)
+    await rest()
+    const localDone = handledIn(logs.backend).find((h) => h.kind === 'done' && h.ref === 'localLoader' && h.name === 'w')!
+    ok(typeof localDone.id === 'number')
+    ok(handledIn(logs.backend).some((h) => h.kind === 'ask' && h.ref === 'svc' && h.id === localDone.id))
+    ok(handledIn(logs.backend).some((h) => h.kind === 'progress' && h.ref === 'localLoader' && h.id === localDone.id))
+    ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.to === 'svc' && s.id === localDone.id))
+
+    // Failed start declaration (!handled throw) clears activeStep cleanly without shifting subsequent Defect.step.
+    let threwStart = false
+    try { backend.start('badDecl', { def: { starts: () => { throw new Error('bad-decl') } } } as never) } catch { threwStart = true }
+    strictEqual(threwStart, true)
+    const unsub = backend.subscribe(() => { throw new Error('flush-sub-boom') })
+    backend.send(svcH, { type: 'THROW' })
+    const secondThrowStep = logs.backend.at(-1)!
+    const secondThrowDefect = defects.filter((d) => d.message.includes('boom-in-step')).at(-1)!
+    strictEqual(secondThrowDefect.step, secondThrowStep.number)
+    unsub()
+
+    // Stop unfollows with the exact same follow id, and a late async onExit outside any step has no `step` field.
+    win.start('late', lateExit)
+    win.stop()
+    const unfollowSent = sentIn(logs.window).find((s) => s.kind === 'unfollow')!
+    strictEqual(unfollowSent.id, followSent.id)
+    releaseLate()
+    await rest()
+    const lateDefect = defects.find((d) => d.message.includes('outside-step-exit'))!
+    strictEqual('step' in lateDefect, false)
+    backend.stop()
   }],
 ])

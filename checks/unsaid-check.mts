@@ -213,8 +213,8 @@ await run([
     await it.doIt('throws')
     await rest()
     const step = it.steps.find((each) => each.handled[0]?.name === 'DO')!
-    deepStrictEqual(step.handled, [{ kind: 'ask', ref: 'desk', name: 'DO' }])
-    deepStrictEqual(step.sent, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
+    deepStrictEqual(step.handled, [{ kind: 'ask', ref: 'desk', name: 'DO', id: 1 }])
+    deepStrictEqual(step.sent, [{ kind: 'answer', to: 'desk', name: 'DO', id: 1, outcome: 'failed' }])
   }],
   ['work that fails at once has said nothing, and goes where the state says', async () => {
     const it = wired()
@@ -549,6 +549,6 @@ await run([
     if (!outcome.ok) strictEqual(outcome.failure.kind, 'abandoned')
     const lostLog = logs.at(-1)!
     strictEqual(lostLog.status, 'lost')
-    deepStrictEqual(lostLog.sent.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
+    deepStrictEqual(lostLog.sent.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW', id: 1 }])
   }],
 ])

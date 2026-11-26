@@ -244,6 +244,7 @@ export interface Defect {
     readonly error?: unknown;
     readonly message: string;
     readonly ref?: string;
+    readonly step?: number;
 }
 
 // @public
@@ -345,6 +346,8 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
 
 // @public
 export interface Handled {
+    readonly id?: number;
+    readonly ignored?: true;
     readonly key?: string;
     // (undocumented)
     readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'answer';
@@ -506,6 +509,7 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
 
 // @public
 export interface Sent {
+    readonly id?: number;
     // (undocumented)
     readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
     // (undocumented)

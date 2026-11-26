@@ -39,6 +39,7 @@ export interface Defect {
     readonly error?: unknown;
     readonly message: string;
     readonly ref?: string;
+    readonly step?: number;
 }
 
 // @public

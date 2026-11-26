@@ -1079,7 +1079,7 @@ const moves: Array<[string, () => void]> = [
       { kind: 'broadcast', to: 'pack/goodSurf', name: 'HI' },
     ])
     deepStrictEqual(winSteps.flatMap((s) => s.sent).filter((s) => s.kind === 'follow'), [
-      { kind: 'follow', to: 'pack/goodView', name: 'all' },
+      { kind: 'follow', to: 'pack/goodView', name: 'all', id: 1 },
     ])
     const allHandled = [...backendSteps, ...winSteps].flatMap((s) => s.handled)
     deepStrictEqual(allHandled.filter((h) => 'ref' in h && h.ref === undefined), [])
