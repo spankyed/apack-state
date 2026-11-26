@@ -275,12 +275,12 @@
     "why": "A state that is left is always followed by another entered in its place, which sets inside again (go enters at least the last name of its path), and a top's root has nothing around it"
   },
   {
-    "key": "src/kernel.ts | OptionalChaining | for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering) | active.def.states[name]",
+    "key": "src/kernel.ts | OptionalChaining | active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering) | active.def.states[name]",
     "original": "active.def.states?.[name]",
     "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },
   {
-    "key": "src/kernel.ts | OptionalChaining | while (active.def.initial !== undefined) active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering) | active.def.states[active.def.initial]",
+    "key": "src/kernel.ts | OptionalChaining | active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering) | active.def.states[active.def.initial]",
     "original": "active.def.states?.[active.def.initial]",
     "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },

@@ -47,9 +47,12 @@ network) that already ran.
   exception isolation so acquired resources are not leaked.
 - **`listen` vs. `run()`.** `listen` runs synchronously on entry (before `run()`) with a state-lifetime `EventScope` (no
   `ask` or `sleep`) and does not block `sys.idle()`. If it returns a cleanup function, that function is registered with
-  `onExit` and runs LIFO on exit; any late callback firing after the state exits is silently ignored. Throwing synchronously
-  inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it registered before throwing, and
-  reports a `Defect`.
+  `onExit` and runs LIFO on exit (returning a non-function non-`undefined` value reports a `Defect`). Any late callback
+  firing after the state exits ignores `send`, `tell`, `broadcast`, `call`, `cancel`, and `report`, while a late
+  `onExit(release)` runs `release()` immediately under exception isolation so resources never leak (consistent with
+  `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
+  registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
+  absent, matching synchronous `run()`).
 
 ## Handle semantics
 
@@ -65,7 +68,8 @@ incarnation token:
   sibling top-level states untouched so a ref can be unloaded or hot-reloaded immediately with `sys.start(ref, nextState)`.
   Passing a handle that is not currently running is a safe no-op; passing a child handle started via `starts` is refused
   at compile time, and at runtime throws synchronously (or reports a `Defect` if deferred behind a queued start) without
-  disturbing the starter or later queued work.
+  disturbing the starter or later queued work. `System` lifecycle methods (`start`, `stop`) are host-level imperatives
+  outside handler transaction rollback (not `Scope` operations).
 
 ## Name resolution (`forNet(resolve)` / `vueBinding(resolve)`)
 

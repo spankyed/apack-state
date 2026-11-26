@@ -1,4 +1,4 @@
-// `listen` takes a state-lifetime `EventScope` (no `ask` or `sleep`) and returns cleanup or nothing; `stop(handle)` accepts any handle.
+// `listen` takes a state-lifetime `EventScope` (no `ask` or `sleep`) and returns cleanup or nothing; `stop(handle)` accepts any top-level handle and refuses child handles.
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
@@ -88,5 +88,13 @@ netState<Shape, Event>()({
   initial: 'a',
   // @ts-expect-error `listen` returns a cleanup function or nothing, never a transition
   listen: () => ({ at: 'b' }),
+  states: { a: {}, b: {} },
+})
+
+netState<Shape, Event>()({
+  data: { count: 0 },
+  initial: 'a',
+  // @ts-expect-error `listen` must be synchronous (a Promise is not a cleanup function)
+  async listen() {},
   states: { a: {}, b: {} },
 })

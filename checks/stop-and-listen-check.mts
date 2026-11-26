@@ -614,10 +614,11 @@ await run([
     strictEqual(emitter.size, 0)
   }],
 
-  ['late listen callback after state exit is silently ignored for send, tell, broadcast, call, cancel, report, and onExit', async () => {
+  ['late listen callback after state exit ignores sends/calls while late onExit runs immediately under exception isolation', async () => {
     const defects: Defect[] = []
     let strayFire!: () => void
     let strayReleaseRan = false
+    const lateReleaseBoom = new Error('late release boom')
 
     type Net = {
       systems: { svc: { events: { type: 'PING' }; asks: { SAVE: { args: {}; answer: string } } } }
@@ -657,6 +658,7 @@ await run([
               scope.cancel('save')
               scope.report({ type: 'PINGED' })
               scope.onExit(() => { strayReleaseRan = true })
+              scope.onExit(() => { throw lateReleaseBoom })
             }
           },
         },
@@ -687,7 +689,7 @@ await run([
     backend.send(hChild, { type: 'QUIET' })
     strictEqual(backend.read(hChild)?.at, 'quiet')
 
-    // Fire the stale callback from 'listening' after exit.
+    // Fire the stale callback from 'listening' after exit: sends/calls are ignored, late onExit runs immediately.
     strayFire()
     await rest()
 
@@ -695,15 +697,37 @@ await run([
     strictEqual(backend.read(hSvc).data.pings, 0)
     strictEqual(backend.read(hParent).data.reports, 0)
     strictEqual(win.read(hPanel).data.flashes, 0)
-    strictEqual(strayReleaseRan, false)
-    deepStrictEqual(defects, [])
+    strictEqual(strayReleaseRan, true)
+    strictEqual(defects.length, 1)
+    strictEqual(defects[0]!.ref, 'parent/child')
+    strictEqual(defects[0]!.error, lateReleaseBoom)
+    ok(defects[0]!.message.includes('a release of parent/child threw: late release boom'), defects[0]!.message)
+
+    // Late onExit registered synchronously mid-listen after self-stop also runs immediately under exception isolation.
+    let midListenReleaseRan = false
+    const midListenBoom = new Error('mid-listen late release boom')
+    const midListenLate = state<{}>()({
+      listen({ onExit }) {
+        backend.stop({ ref: 'midListenLate' } as never)
+        onExit(() => { midListenReleaseRan = true })
+        onExit(() => { throw midListenBoom })
+      },
+    })
+    backend.start('midListenLate', midListenLate)
+    strictEqual(midListenReleaseRan, true)
+    strictEqual(defects.length, 2)
+    strictEqual(defects[1]!.ref, 'midListenLate')
+    strictEqual(defects[1]!.error, midListenBoom)
+    ok(defects[1]!.message.includes('a release of midListenLate threw: mid-listen late release boom'), defects[1]!.message)
   }],
 
-  ['throwing synchronously inside listen rolls back transact, unsay, and partial onExit releases and reports a Defect', async () => {
+  ['throwing synchronously inside listen rolls back transact, unsay, and partial onExit releases, skips run, and routes to failed', async () => {
     const defects: Defect[] = []
     const unwound: string[] = []
     const peerHeard: string[] = []
     const boom = new Error('subscribe exploded')
+    const partialBoom = new Error('partial release boom')
+    let flakyRunExecuted = false
 
     // Simple in-memory transactional store with savepoint rollback.
     let committedRows: string[] = []
@@ -730,6 +754,7 @@ await run([
       on: { PING: (_, { data }) => ({ data: { pings: data.pings + 1 } }) },
     })
 
+    // Without `failed`: rolls back DB/sayings/partial releases, skips run(), reports Defect.
     const flaky = netState<{ data: { count: number } }, { type: 'INC' }>()({
       data: { count: 0 },
       listen({ send, tell, onExit }) {
@@ -738,9 +763,11 @@ await run([
         tell('other', { type: 'PING' })
         tell({ peer: 'audit' }, { type: 'NOTE' })
         onExit(() => { unwound.push('partial-1') })
+        onExit(() => { throw partialBoom })
         onExit(() => { unwound.push('partial-2') })
         throw boom
       },
+      run() { flakyRunExecuted = true },
       on: { INC: (_, { data }) => ({ data: { count: data.count + 1 } }) },
     })
 
@@ -750,16 +777,21 @@ await run([
     const hFlaky = sys.start('flaky', flaky)
     await rest()
 
-    // Everything listen wrote/said before throwing was undone, partial onExit cleanups unwound LIFO, and Defect reported.
+    // Everything listen wrote/said before throwing was undone, partial onExit cleanups unwound LIFO with isolation,
+    // run() was skipped, and both defects (throwing partial release + unhandled failure) were reported.
     deepStrictEqual(committedRows, [])
     strictEqual(sys.read(hFlaky).data.count, 0)
     strictEqual(sys.read(hOther).data.pings, 0)
     deepStrictEqual(peerHeard, [])
     deepStrictEqual(unwound, ['partial-2', 'partial-1'])
-    strictEqual(defects.length, 1)
+    strictEqual(flakyRunExecuted, false)
+    strictEqual(defects.length, 2)
     strictEqual(defects[0]!.ref, 'flaky')
-    strictEqual(defects[0]!.error, boom)
-    ok(defects[0]!.message.includes("flaky's listen threw: subscribe exploded"), defects[0]!.message)
+    strictEqual(defects[0]!.error, partialBoom)
+    ok(defects[0]!.message.includes('a release of flaky threw: partial release boom'), defects[0]!.message)
+    strictEqual(defects[1]!.ref, 'flaky')
+    strictEqual(defects[1]!.error, boom)
+    ok(defects[1]!.message.includes('flaky says nowhere to go when its work fails, and stays as it is'), defects[1]!.message)
 
     // System and state remain healthy after isolated throw.
     sys.send(hFlaky, { type: 'INC' })
@@ -768,19 +800,100 @@ await run([
     sys.stop(hFlaky)
     deepStrictEqual(unwound, ['partial-2', 'partial-1'])
 
-    // Throwing inside a substate's listen includes the substate path in the defect message.
+    // Throwing inside a substate's listen without `failed` skips run() and includes the substate path in the defect.
     const subBoom = new Error('sub listen boom')
+    let subRunExecuted = false
     const subFlaky = state<{ states: { inner: {} } }>()({
       initial: 'inner',
-      states: { inner: { listen() { throw subBoom } } },
+      states: {
+        inner: {
+          listen() { throw subBoom },
+          run() { subRunExecuted = true },
+        },
+      },
     })
     sys.start('subFlaky', subFlaky)
-    strictEqual(defects.length, 2)
-    ok(defects[1]!.message.includes("subFlaky in inner's listen threw: sub listen boom"), defects[1]!.message)
+    strictEqual(subRunExecuted, false)
+    strictEqual(defects.length, 3)
+    strictEqual(defects[2]!.ref, 'subFlaky')
+    strictEqual(defects[2]!.error, subBoom)
+    ok(defects[2]!.message.includes('subFlaky in inner says nowhere to go when its work fails, and stays as it is'), defects[2]!.message)
+
+    // With `failed`: rolls back DB/sayings/partial releases, skips run(), invokes failed(error, scope), and transitions cleanly.
+    const handledUnwound: string[] = []
+    let handledRunExecuted = false
+    let failedSawError: unknown
+    const handledBoom = new Error('subscribe needs fallback')
+    const recoverable = netState<{
+      data: { reason: string; bumps: number }
+      states: { watching: {}; recovered: {} }
+    }, { type: 'BUMP' }>()({
+      data: { reason: '', bumps: 0 },
+      initial: 'watching',
+      on: { BUMP: (_, { data }) => ({ data: { bumps: data.bumps + 1 } }) },
+      states: {
+        watching: {
+          listen({ send, tell, onExit }) {
+            committedRows.push('watching-uncommitted')
+            send({ type: 'BUMP' })
+            tell('other', { type: 'PING' })
+            tell({ peer: 'audit' }, { type: 'NOTE' })
+            onExit(() => { handledUnwound.push('h-1') })
+            onExit(() => { handledUnwound.push('h-2') })
+            throw handledBoom
+          },
+          run() { handledRunExecuted = true },
+          failed(error) {
+            failedSawError = error
+            return { at: 'recovered', data: { reason: (error as Error).message } }
+          },
+        },
+        recovered: {},
+      },
+    })
+    const hRec = sys.start('recoverable', recoverable)
+    await rest()
+    deepStrictEqual(committedRows, [])
+    strictEqual(sys.read(hOther).data.pings, 0)
+    deepStrictEqual(peerHeard, [])
+    deepStrictEqual(handledUnwound, ['h-2', 'h-1'])
+    strictEqual(handledRunExecuted, false)
+    strictEqual(failedSawError, handledBoom)
+    strictEqual(sys.read(hRec).at, 'recovered')
+    strictEqual(sys.read(hRec).data.reason, 'subscribe needs fallback')
+    strictEqual(sys.read(hRec).data.bumps, 0)
+    strictEqual(defects.length, 3)
   }],
 
-  ['listen cleanup throwing on exit is isolated as a Defect, and stopping self inside listen still runs returned cleanup', () => {
+  ['listen non-function return reports exact Defect for root and substate', () => {
     const defects: Defect[] = []
+    const sys = system({ side: 'backend', onDefect: (d) => defects.push(d) })
+
+    const badRoot = state<{}>()({
+      listen: (() => Promise.resolve()) as unknown as () => void,
+    })
+    const badSub = state<{ states: { inner: {} } }>()({
+      initial: 'inner',
+      states: {
+        inner: {
+          listen: (() => ({ notAFunction: true })) as unknown as () => void,
+        },
+      },
+    })
+
+    sys.start('badRoot', badRoot)
+    sys.start('badSub', badSub)
+
+    strictEqual(defects.length, 2)
+    strictEqual(defects[0]!.ref, 'badRoot')
+    strictEqual(defects[0]!.message, "badRoot's listen returned a non-function value")
+    strictEqual(defects[1]!.ref, 'badSub')
+    strictEqual(defects[1]!.message, "badSub in inner's listen returned a non-function value")
+  }],
+
+  ['listen cleanup throwing on exit is isolated as a Defect, and stopping self inside listen handles cleanup, throw, and descend', () => {
+    const defects: Defect[] = []
+    const traced: string[] = []
     const ran: string[] = []
     const cleanupBoom = new Error('unsubscribe failed')
 
@@ -791,7 +904,7 @@ await run([
       },
     })
 
-    const sys = system({ side: 'backend', onDefect: (d) => defects.push(d) })
+    const sys = system({ side: 'backend', onDefect: (d) => defects.push(d), trace: (line) => traced.push(line) })
     const h = sys.start('brokenUnsub', brokenUnsub)
     sys.stop(h)
     deepStrictEqual(ran, ['before'])
@@ -825,19 +938,65 @@ await run([
     strictEqual(initialListenExecuted, false)
     strictEqual(initialRunExecuted, false)
 
-    // Stopping self inside listen and then throwing must NOT execute registered onExit releases twice.
+    // Returned cleanup throwing after synchronous self-stop inside listen is isolated with exact defect wording.
+    const selfStopCleanupBoom = new Error('cleanup after self-stop')
+    const selfStopThrowCleanup = state<{}>()({
+      listen() {
+        sys.stop({ ref: 'selfStopThrowCleanup' } as never)
+        return () => { throw selfStopCleanupBoom }
+      },
+    })
+    sys.start('selfStopThrowCleanup', selfStopThrowCleanup)
+    strictEqual(defects.length, 2)
+    strictEqual(defects[1]!.ref, 'selfStopThrowCleanup')
+    strictEqual(defects[1]!.error, selfStopCleanupBoom)
+    ok(defects[1]!.message.includes('a release of selfStopThrowCleanup threw: cleanup after self-stop'), defects[1]!.message)
+
+    // Multi-segment transition `at: 'outer.inner'` where `outer.listen` calls `sys.stop(self)` must NOT enter `inner`.
+    let innerListenRan = false
+    let innerRunRan = false
+    const multiSeg = state<{
+      states: { idle: {}; outer: { states: { inner: {} } } }
+    }, { type: 'GO' }>()({
+      initial: 'idle',
+      on: { GO: () => ({ at: 'outer.inner' }) },
+      states: {
+        idle: {},
+        outer: {
+          initial: 'inner',
+          listen() { sys.stop({ ref: 'multiSeg' } as never) },
+          states: {
+            inner: {
+              listen() { innerListenRan = true },
+              run() { innerRunRan = true },
+            },
+          },
+        },
+      },
+    })
+    const hMulti = sys.start('multiSeg', multiSeg)
+    sys.send(hMulti, { type: 'GO' })
+    strictEqual(sys.read(hMulti), undefined)
+    strictEqual(innerListenRan, false)
+    strictEqual(innerRunRan, false)
+
+    // Stopping self inside listen and then throwing must NOT execute registered onExit releases twice,
+    // and routes through leftFailed (no failed() invocation, no extra defect).
     let releaseCount = 0
+    let failedCalled = false
     const selfStopThenThrow = state<{}>()({
       listen({ onExit }) {
         onExit(() => { releaseCount++ })
         sys.stop({ ref: 'selfStopThenThrow' } as never)
         throw new Error('after self-stop')
       },
+      failed() { failedCalled = true },
     })
     sys.start('selfStopThenThrow', selfStopThenThrow)
     strictEqual(releaseCount, 1)
+    strictEqual(failedCalled, false)
     strictEqual(defects.length, 2)
-    ok(defects[1]!.message.includes("selfStopThenThrow's listen threw: after self-stop"), defects[1]!.message)
+    ok(traced.some((line) => line.includes('selfStopThenThrow failed after it was left: after self-stop')))
   }],
 ], async ({ every }) => {
   await every('concurrent stop(handle) and hot reload alongside a sibling produce zero defects under every ordering', () => explore((schedule) => {

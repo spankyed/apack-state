@@ -601,7 +601,7 @@ export function system(host: {
     return target
   }
 
-  const eventScopeOf = (mine: Active, key?: string, own?: AbortSignal, ignoreLateRelease = false) => {
+  const eventScopeOf = (mine: Active, key?: string, own?: AbortSignal) => {
     const alive = (): boolean => !mine.controller.signal.aborted && !own?.aborted
     const ref = mine.top.ref
     const scope = {
@@ -649,7 +649,7 @@ export function system(host: {
       child: (name: string, k?: string) => ({ ref: k === undefined ? `${ref}/${name}` : `${ref}/${name}/${k}` }),
       onExit: (release: () => void) => {
         if (alive()) mine.releases.push(release)
-        else if (!ignoreLateRelease && mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release, ref)
+        else if (mine.controller.signal.aborted && !own?.aborted) safely(`a release of ${ref}`, release, ref)
       },
     }
     return key === undefined ? scope : Object.assign(scope, { key })
@@ -692,19 +692,22 @@ export function system(host: {
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.listen) {
       let release: unknown
-      const listenNow = (): unknown => def.listen!(eventScopeOf(active, undefined, undefined, true))
+      const listenNow = (): unknown => def.listen!(eventScopeOf(active))
       const before = sayings()
       try {
         release = host.transact ? host.transact(listenNow) : listenNow()
       } catch (error) {
         unsay(before)
         for (const cleanup of active.releases.splice(0).reverse()) safely(`a release of ${top.ref}`, cleanup, top.ref)
-        defect(`${top.ref}${path ? ` in ${path}` : ''}'s listen threw: ${said(error)}`, top.ref, error)
+        inside.push({ kind: 'failure', of: active, error })
+        return active
       }
       if (typeof release === 'function') {
         const cleanup = release as () => void
         if (active.controller.signal.aborted) safely(`a release of ${top.ref}`, cleanup, top.ref)
         else active.releases.push(cleanup)
+      } else if (release !== undefined) {
+        defect(`${top.ref}${path ? ` in ${path}` : ''}'s listen returned a non-function value`, top.ref)
       }
     }
     if (def.run && !active.controller.signal.aborted) {
