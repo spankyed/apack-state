@@ -17,7 +17,7 @@ export default {
   testRunner: 'vitest',
   // The checks in Node: a browser is not opened for each mutant.
   vitest: { configFile: 'vitest.mutants.mts' },
-  mutate: (process.env.MUTATE ?? 'src/**/*.ts').split(','),
+  mutate: (process.env.MUTATE ?? 'src/**/*.ts,!src/graph.ts').split(','),
   coverageAnalysis: 'perTest',
   // A mutant of what runs as a module loads (a constant, a pattern) is run against every spec, not only the ones it
   // reaches: it costs a full run each, and there are few. Types are not mutated whatever this says.

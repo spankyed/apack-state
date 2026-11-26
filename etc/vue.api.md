@@ -39,7 +39,7 @@ export type Child<C> = <K extends keyof C & string>(name: K, ...key: C[K] extend
 // Warning: (ae-forgotten-export) The symbol "AnyState" needs to be exported by the entry point vue.d.ts
 //
 // @public
-export function vueBinding<Top extends Record<string, AnyState>>(): {
+export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name: string) => string): {
     provide: (app: App, system: System) => void;
     useState: {
         <K extends keyof Top & string>(name: K): BoundTo<Top[K]>;
@@ -51,9 +51,9 @@ export function vueBinding<Top extends Record<string, AnyState>>(): {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/vue.d.ts:20:5 - (ae-forgotten-export) The symbol "System" needs to be exported by the entry point vue.d.ts
-// .temp/api-types/vue.d.ts:23:9 - (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point vue.d.ts
-// .temp/api-types/vue.d.ts:23:9 - (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:21:5 - (ae-forgotten-export) The symbol "System" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:24:9 - (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point vue.d.ts
+// .temp/api-types/vue.d.ts:24:9 - (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point vue.d.ts
 
 // (No @packageDocumentation comment for this package)
 

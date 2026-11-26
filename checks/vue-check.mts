@@ -364,6 +364,44 @@ const either: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(handle).data.title, 'updated after unmount')
     strictEqual(renders, rendersAtUnmount)
   }],
+  ['provide registers the system under Symbol.for so cross-bundle vue copies share the injection key', async () => {
+    const sys = system({ side: 'window' })
+    const provided = new Map<unknown, unknown>()
+    const fakeApp = { provide(key: unknown, value: unknown) { provided.set(key, value); return fakeApp } }
+    vueBinding<{}>().provide(fakeApp as never, sys)
+    strictEqual(provided.get(Symbol.for('@apackdev/state/vue/system')), sys)
+    sys.stop()
+  }],
+  ['vueBinding(resolve) resolves string surface names while leaving Started child handles untouched', async () => {
+    const sys = system({ side: 'window' })
+    const item = state<{ data: { id: string } }, never>()({ data: { id: given } })
+    const board = state<{ data: { ids: string[]; count: number }; starts: { item: Each<typeof item> } }, { type: 'INC' }>()({
+      data: { ids: ['x'], count: 0 },
+      starts: (start) => ({ item: start(item, { each: 'ids', given: (id) => ({ id }) }) }),
+      on: { INC: (_, { data }) => ({ data: { count: data.count + 1 } }) },
+    })
+    sys.start('packA/board', board)
+    const { provide, useState } = vueBinding<{ board: typeof board }>((name) => (name.includes('/') ? name : `packA/${name}`))
+    let sendInc!: () => void
+    const View = defineComponent({
+      setup() {
+        const { state: b, send, child } = useState('board')
+        const { state: x } = useState(() => child('item', 'x'))
+        sendInc = () => send({ type: 'INC' })
+        return () => h('div', `${b.value.data.count}:${x.value?.data.id ?? ''}`)
+      },
+    })
+    const host = node('root')
+    const app = createApp(View)
+    provide(app, sys)
+    app.mount(host)
+    strictEqual(shown(host), '0:x')
+    sendInc()
+    await nextTick()
+    strictEqual(shown(host), '1:x')
+    app.unmount()
+    sys.stop()
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>

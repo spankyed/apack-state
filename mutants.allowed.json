@@ -140,7 +140,7 @@
     "why": "A lane's label is only what a schedule prints for it when a failure lists what was run. Nothing decides anything by it, so its words are wording"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) }, | \"\"",
+    "key": "src/kernel.ts | StringLiteral | out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(target, event)) }, { kind: 'broadcast', to: target, name: event.type }) | \"\"",
     "original": "'what is sent to a window'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
@@ -465,7 +465,7 @@
     "why": "Only a thrown object that is not an Error but has a stack, or an Error with none, is read differently; what a handler throws is an Error, which has one, or a value with no stack at all, which both read as having no frames"
   },
   {
-    "key": "src/kernel.ts | ArrowFunction | if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({})); continue } | () => undefined",
+    "key": "src/kernel.ts | ArrowFunction | if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({}), declared.resolve); continue } | () => undefined",
     "original": "() => ({})",
     "why": "What a state started as it is is given: nothing, as an empty object or as undefined, which begin takes as an empty object either way"
   },

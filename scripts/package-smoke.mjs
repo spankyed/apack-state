@@ -56,6 +56,8 @@ try {
     "if (typeof vue.vueBinding !== 'function') throw new Error('@apackdev/state/vue has no vueBinding')",
     "const testing = await import('@apackdev/state/testing')",
     "for (const name of ['explore', 'sample', 'replay', 'everyOrder', 'onSchedule', 'connect', 'fromEvents', 'waitFor', 'defectGuard']) if (typeof testing[name] !== 'function') throw new Error(`@apackdev/state/testing has no ${name}`)",
+    "const graph = await import('@apackdev/state/graph')",
+    "for (const name of ['analyseGraphs', 'formatGraphs', 'runGraphCli']) if (typeof graph[name] !== 'function') throw new Error(`@apackdev/state/graph has no ${name}`)",
     "const sys = index.system({ side: 'window' })",
     "const counter = index.state()({ data: { count: 0 }, on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) } })",
     "const handle = sys.start('counter', counter)",
@@ -72,20 +74,24 @@ try {
     include: ['check.ts'],
   }))
   const consumerTypes = [
-    "import { answered, forNet, given, state, system } from '@apackdev/state'",
+    "import { answered, forNet, given, state, system, type AsksOf, type EventsOf, type ShapeOf } from '@apackdev/state'",
     "import { vueBinding } from '@apackdev/state/vue'",
     "import { connect, defectGuard, everyOrder, onSchedule, type Defect } from '@apackdev/state/testing'",
+    "import { analyseGraphs, formatGraphs, runGraphCli, type GraphOptions, type StateGraph } from '@apackdev/state/graph'",
     "const counter = state<{ data: { id: string; count: number } }, { type: 'ADD' }, { GET: { args: {}; answer: number } }>()({",
     "  data: { id: given, count: 0 },",
     "  on: { ADD: (_, { data }) => ({ data: { count: data.count + 1 } }) },",
     "  answers: { GET: (_, { data }) => answered(data.count, { data: { count: data.count } }) },",
     "})",
+    "const _cs: ShapeOf<typeof counter> = { data: { id: '', count: 0 } }",
+    "const _ce: EventsOf<typeof counter> = { type: 'ADD' }",
+    "const _ca: AsksOf<typeof counter> = { GET: { args: {}, answer: 0 } }",
     "type AppNet = {",
     "  systems: { svc: { events: never; asks: { PING: { args: {}; answer: string }; SAVE: { args: { text: string }; answer: null } } } }",
     "  surfaces: {}",
     "  views: { docs: { detail: { args: { id: string }; result: string }; all: { args: {}; result: number } } }",
     "}",
-    "const appState = forNet<AppNet>()",
+    "const appState = forNet<AppNet>((name) => (name.includes('/') ? name : `app/${name}`))",
     "const panel = appState<{",
     "  data: { id: string | null; rev: number }",
     "  calls: { ping: 'one'; tag: 'each'; save: { many: { text: string } } }",
@@ -114,13 +120,19 @@ try {
     "const panelHandle = win.start('panel', panel)",
     "const _pendingCount: number = win.read(panelHandle).pending.save",
     "backend.send(handle, { type: 'ADD' })",
-    "const binding = vueBinding<{ counter: typeof counter }>()",
-    "void binding; void everyOrder; void onSchedule; void link; void _pendingCount",
+    "const binding = vueBinding<{ counter: typeof counter }>((name) => (name.includes('/') ? name : `app/${name}`))",
+    "const _g: (files: readonly string[], options?: GraphOptions) => ReadonlyMap<string, readonly StateGraph[]> = analyseGraphs",
+    "void binding; void everyOrder; void onSchedule; void link; void _pendingCount; void _g; void formatGraphs; void runGraphCli; void _cs; void _ce; void _ca",
   ].join('\n')
   fs.writeFileSync(path.join(full, 'check.ts'), consumerTypes)
   execFileSync(process.execPath, [tscBin, '-p', 'tsconfig.json'], { cwd: full, stdio: 'inherit' })
 
-  console.log('bare zero-peer install, all entries, state run, and consumer types ok')
+  // Verify the packed CLI bin runs end-to-end against a real state file using `--tsconfig`.
+  const binScript = path.join(full, 'node_modules', '@apackdev', 'state', 'bin', 'apack-state-graph.mjs')
+  const graphOut = execFileSync(process.execPath, [binScript, '--tsconfig', path.join(repoRoot, 'tsconfig.json'), path.join(repoRoot, 'checks', 'graphs', 'custom-alias.mts')], { cwd: full, encoding: 'utf8' })
+  if (!graphOut.includes('SettingsShape') || !graphOut.includes('findings: none')) throw new Error(`packed apack-state-graph bin returned unexpected output:\n${graphOut}`)
+
+  console.log('bare zero-peer install, all entries, state run, graph bin, and consumer types ok')
 } finally {
   fs.rmSync(work, { recursive: true, force: true })
 }

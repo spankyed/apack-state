@@ -4,9 +4,10 @@
 // This file's own source, as written: what a report's line is counted in. Read the same way in Node and in a window.
 import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
-import { run as runChecks, system } from './checks.mts'
-import { given, forNet } from '../src/index.ts'
+import { rest, run as runChecks, system } from './checks.mts'
+import { answered, given, forNet, type Each, type StepLog } from '../src/index.ts'
 import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
+import { connect } from '../src/testing.ts'
 
 class Repository { constructor(public directory: string) {} }
 
@@ -796,6 +797,147 @@ const moves: Array<[string, () => void]> = [
     deepStrictEqual(sys.read(sh), { at: 'a', data: { id: 'ok', note: 'hi' } })
     sys.send(sh, { type: 'TO_B' })
     deepStrictEqual(sys.read(sh), { at: 'b', data: { id: 'ok', note: 7 } })
+  }],
+  ['given and answered markers use Symbol.for keys so cross-bundle copies agree', () => {
+    strictEqual(given, Symbol.for('@apackdev/state/given'))
+    strictEqual(Object.hasOwn(answered(1, {}), Symbol.for('@apackdev/state/answered')), true)
+  }],
+  ['forNet(resolve) resolves bare targets per state across tell, surface, broadcast, ask, loads, calls, follows, and started children without altering handles or peers', async () => {
+    type SvcAsks = { PING: { args: {}; answer: string }; SAVE: { args: {}; answer: string } }
+    type NetA = {
+      systems: { svc: { events: { type: 'NOTE'; from: string }; asks: SvcAsks }; 'packB/svc': { events: { type: 'NOTE'; from: string }; asks: SvcAsks } }
+      surfaces: { panel: { events: { type: 'BCAST'; text: string } }; other: { events: { type: 'PINGED'; text: string } } }
+      views: { docs: { all: { args: {}; result: string } } }
+      peers: { 'role:brain': { events: { type: 'THINK'; prompt: string } } }
+    }
+    type NetB = {
+      systems: { svc: { events: { type: 'NOTE'; from: string }; asks: SvcAsks } }
+      surfaces: {}
+      views: {}
+    }
+    const resolveA = (name: string): string => (name.includes('/') ? name : `packA/${name}`)
+    const resolveB = (name: string): string => (name.includes('/') ? name : `packB/${name}`)
+    const stateA = forNet<NetA>(resolveA)
+    const stateB = forNet<NetB>(resolveB)
+
+    const notesA: string[] = []
+    const notesB: string[] = []
+    const peerEvents: Array<{ to: string; event: unknown }> = []
+    const followedFeatures: string[] = []
+
+    const svcA = stateA<{}, { type: 'NOTE'; from: string }, SvcAsks>()({
+      on: { NOTE: ({ from }, { broadcast }) => { notesA.push(from); broadcast('panel', { type: 'BCAST', text: `from-${from}` }) } },
+      answers: {
+        PING: () => 'pongA',
+        SAVE: () => 'savedA',
+      },
+    })
+    const svcB = stateB<{}, { type: 'NOTE'; from: string }, SvcAsks>()({
+      on: { NOTE: ({ from }) => { notesB.push(from) } },
+      answers: {
+        PING: () => 'pongB',
+        SAVE: () => 'savedB',
+      },
+    })
+
+    // Started children built with Pack B's resolver (bare, one-with-given, each-with-given) inside a Pack A parent.
+    const bareChildB = stateB<{}, { type: 'FIRE' }, { GET: { args: {}; answer: string } }>()({
+      on: { FIRE: (_, { tell }) => { tell('svc', { type: 'NOTE', from: 'bareB' }) } },
+      answers: { GET: () => 'childB-handle' },
+    })
+    const givenChildB = stateB<{ data: { tag: string } }, never>()({
+      data: { tag: given },
+      run: ({ data, tell }) => { tell('svc', { type: 'NOTE', from: data.tag }) },
+    })
+
+    const panel = stateA<{
+      data: { keys: string[]; loaded: string; called: string; asked: string; childAsked: string; viewVal: string; bcast: string[] }
+      starts: { bareB: typeof bareChildB; oneB: typeof givenChildB; eachB: Each<typeof givenChildB> }
+      calls: { save: 'one' }
+    }, { type: 'GO' } | { type: 'BCAST'; text: string }>()({
+      data: { keys: ['k1'], loaded: '', called: '', asked: '', childAsked: '', viewVal: '', bcast: [] },
+      starts: (start) => ({
+        bareB: bareChildB,
+        oneB: start(givenChildB, { given: () => ({ tag: 'oneB' }) }),
+        eachB: start(givenChildB, { each: 'keys', given: (k) => ({ tag: `eachB:${k}` }) }),
+      }),
+      follows: (follow) => ({
+        docs: follow('docs', 'all', {
+          updated: (u) => (u.ok ? { data: { viewVal: u.value } } : undefined),
+        }),
+      }),
+      loads: (load) => ({
+        ping: load('svc', 'PING', {
+          done: (o) => (o.ok ? { data: { loaded: o.value } } : undefined),
+        }),
+      }),
+      calls: ({ one }) => ({
+        save: one('svc', 'SAVE', {
+          done: (o) => (o.ok ? { data: { called: o.value } } : undefined),
+        }),
+      }),
+      run: async ({ ask, child }) => {
+        const [a, c] = await Promise.all([ask('svc', 'PING', {}), ask(child('bareB'), 'GET', {})])
+        return { data: { asked: a.ok ? a.value : '', childAsked: c.ok ? c.value : '' } }
+      },
+      failed: () => {},
+      on: {
+        GO: (_, { tell, call, child }) => {
+          tell('svc', { type: 'NOTE', from: 'panel' })
+          tell('packB/svc', { type: 'NOTE', from: 'qualified' })
+          tell(child('bareB'), { type: 'FIRE' })
+          tell({ surface: 'other' }, { type: 'PINGED', text: 'hi' })
+          tell({ peer: 'role:brain' }, { type: 'THINK', prompt: 'go' })
+          call('save')
+        },
+        BCAST: ({ text }, { data }) => ({ data: { bcast: [...data.bcast, text] } }),
+      },
+    })
+
+    const otherHeard: string[] = []
+    const other = stateA<{}, { type: 'PINGED'; text: string }>()({
+      on: { PINGED: ({ text }) => { otherHeard.push(text) } },
+    })
+
+    const backendLogs: StepLog[] = []
+    const backend = system({
+      side: 'backend',
+      log: (step) => backendLogs.push(step),
+      views: (feature, _view, _args, updated) => {
+        followedFeatures.push(feature)
+        updated({ ok: true, value: `view:${feature}` })
+        return () => {}
+      },
+    })
+    backend.start('packA/svc', svcA)
+    backend.start('packB/svc', svcB)
+
+    const win = system({ side: 'window' })
+    win.attach('role:brain', { tell: (to, event) => { peerEvents.push({ to, event }) } })
+    connect(win, backend)
+    const panelH = win.start('packA/panel', panel)
+    win.start('packA/other', other)
+    win.send(panelH, { type: 'GO' })
+    await rest()
+
+    deepStrictEqual(notesA, ['panel'])
+    deepStrictEqual([...notesB].sort(), ['bareB', 'eachB:k1', 'oneB', 'qualified'])
+    deepStrictEqual(otherHeard, ['hi'])
+    deepStrictEqual(peerEvents, [{ to: 'role:brain', event: { type: 'THINK', prompt: 'go' } }])
+    deepStrictEqual(followedFeatures, ['packA/docs'])
+    deepStrictEqual(win.read(panelH).data, {
+      keys: ['k1'],
+      loaded: 'pongA',
+      called: 'savedA',
+      asked: 'pongA',
+      childAsked: 'childB-handle',
+      viewVal: 'view:packA/docs',
+      bcast: ['from-panel'],
+    })
+    // StepLog records resolved broadcast target (`packA/panel`).
+    ok(backendLogs.some((s) => s.sent.some((e) => e.kind === 'broadcast' && e.to === 'packA/panel')))
+    win.stop()
+    backend.stop()
   }],
 ]
 

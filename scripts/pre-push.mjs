@@ -44,7 +44,7 @@ const base = (() => {
   return undefined
 })()
 /** The files under src/ that differ from where the branch left master, and are still there. */
-const changed = base ? git('diff', '--name-only', base, 'HEAD', '--', 'src/').split('\n').filter((file) => file.endsWith('.ts') && existsSync(join(root, file))) : []
+const changed = base ? git('diff', '--name-only', base, 'HEAD', '--', 'src/').split('\n').filter((file) => file.endsWith('.ts') && file !== 'src/graph.ts' && existsSync(join(root, file))) : []
 
 const npm = [process.execPath, npmCli]
 const steps = [

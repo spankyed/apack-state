@@ -15,6 +15,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `ADD_LATER: async (_, { data }) => answered('added' as const, { data: { count: data.coun…` | TS2322: Type '(_: { after: string; }, { data }: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: { after: string; }; answer: "added"; }>) => Promise&lt;Answered&lt;"added", { ...; }>>… | after a wait, data is changed by editing a draft, not by giving fields worked out before it |
 | `CLOSE: () => answered('closed' as const, { at: 'closed' }),` | TS2322: Type '() => Answered&lt;"closed", { at: "closed"; }>' is not assignable to type '(args: { reason: string; }, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: { reaso… | a move into `closed` has to give its reason |
 | `ADD: () => answered('one', { data: { count: 1 } }),` | TS2322: Type '() => Answered&lt;string, { data: { count: number; }; }>' is not assignable to type '(args: {}, scope: AskScope&lt;Counter, "open", CounterEvent, Nothing, { args: {}; answer: nu… | the answer is still checked: this ask answers with a number |
+| `const _wrongEvent: EventsOf<typeof listMachine> = { type: 'NOPE' }` | TS2322: Type '"NOPE"' is not assignable to type '"RESET"'. | `EventsOf` extracts only the declared event union, not arbitrary event types |
+| `const _wrongAsks: AsksOf<typeof listMachine> = { FINISH: { args: {}, answer: 42 } }` | TS2322: Type 'number' is not assignable to type '"done"'. | `AsksOf` preserves the exact ask answer type |
 
 ## The writes a state calls: where one may be called, and with which key.
 

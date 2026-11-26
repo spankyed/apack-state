@@ -29,9 +29,9 @@ state<Counter, CounterEvent, CounterAsks>()({
 })
 
 // After an await, a move's gained data accepts read-only values straight from `data`.
-import { forNet } from '../src/index.ts'
+import { forNet, type AsksOf, type EventsOf, type ShapeOf } from '../src/index.ts'
 type ListAsks = { FINISH: { args: {}; answer: 'done' } }
-forNet()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
+const listMachine = forNet()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, { type: 'RESET' }, ListAsks>()({
   data: { items: [] },
   initial: 'open',
   states: {
@@ -43,3 +43,13 @@ forNet()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapsh
     done: { data: { snapshot: given } },
   },
 })
+
+// `ShapeOf`, `EventsOf`, and `AsksOf` extract the declared type parameters from a `State`.
+const _shapeCheck: ShapeOf<typeof listMachine> = { data: { items: [] }, states: { open: {}, done: { data: { snapshot: [] } } } }
+const _eventCheck: EventsOf<typeof listMachine> = { type: 'RESET' }
+const _asksCheck: AsksOf<typeof listMachine> = { FINISH: { args: {}, answer: 'done' } }
+// @ts-expect-error `EventsOf` extracts only the declared event union, not arbitrary event types
+const _wrongEvent: EventsOf<typeof listMachine> = { type: 'NOPE' }
+// @ts-expect-error `AsksOf` preserves the exact ask answer type
+const _wrongAsks: AsksOf<typeof listMachine> = { FINISH: { args: {}, answer: 42 } }
+void _shapeCheck; void _eventCheck; void _asksCheck; void _wrongEvent; void _wrongAsks
