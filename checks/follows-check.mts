@@ -202,7 +202,7 @@ const checks: Array<[string, () => void]> = [
     deliver('price{"id":"a"}', { ok: true, value: -1 })
     deepStrictEqual(data().prices, {})
     strictEqual(defects.length, 1)
-    ok(defects[0]!.includes('threw hearing price/a'))
+    ok(defects[0]!.includes('threw in price/a updated'))
     deliver('price{"id":"a"}', { ok: true, value: 4 })
     deepStrictEqual(data().prices, { a: 4 })
     ok(following().includes('price{"id":"a"}'))

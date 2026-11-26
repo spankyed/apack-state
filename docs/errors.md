@@ -117,7 +117,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `titled: load('library', 'LOOKUP', { each: 'title', args: (id) => ({ query: id }), done:…` | TS2322: Type '"title"' is not assignable to type 'KeysField&lt;{ title: string; query: string; again: number; found: string \| null; heard: string[]; watched: string[]; labels: Record&lt;strin… | a title is neither a list nor keyed, so it cannot say which to look up |
 | `unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: ti…` | TS2339: Property 'title' does not exist on type '{ readonly query: string; }'. | it reads the title, which it did not name |
 | `misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }…` | TS2322: Type '{ data: { watched: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Reader, "">'. | what a lookup answers is a string, so it cannot be put where the list goes |
-| `both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ qu…` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is awaited from fields or for each key, not both at once |
+| `both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ qu…` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | an ask is loaded from fields or for each key, not both at once |
 
 ## Telling a named peer is checked against the peers and events declared on Net.
 

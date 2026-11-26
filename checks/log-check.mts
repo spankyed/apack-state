@@ -135,7 +135,7 @@ const teller = kinds<{ states: { telling: {}; told: {} } }, never>()({
 })
 const countOf = (store: Rows): ViewHost => (_feature, _view, _args, heard) => store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
 const handledIn = (logs: readonly StepLog[]): Handled[] => logs.flatMap((step) => step.handled)
-const leftIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.sent)
+const sentIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.sent)
 /** While an ask is held unanswered nothing comes to rest, so a few turns are let pass instead. */
 const turns = async (): Promise<void> => { for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => { nextTurn(resolve) }) }
 const has = <T,>(all: readonly T[], one: T): void => { ok(all.some((each) => { try { deepStrictEqual(each, one); return true } catch { return false } }), `${JSON.stringify(one)} is not among ${JSON.stringify(all)}`) }
@@ -247,9 +247,9 @@ await run([
     ok(!outcome.ok && outcome.failure.kind === 'abandoned')
     held.get('x')!()
     await rest()
-    has(leftIn(logs), { kind: 'abandoned', to: 'shuttable', name: 'RUN' })
+    has(sentIn(logs), { kind: 'abandoned', to: 'shuttable', name: 'RUN' })
     ok(!handledIn(logs).some((one) => one.kind === 'answer'), JSON.stringify(handledIn(logs)))
-    ok(!leftIn(logs).some((sent) => sent.kind === 'answer'), JSON.stringify(leftIn(logs)))
+    ok(!sentIn(logs).some((sent) => sent.kind === 'answer'), JSON.stringify(sentIn(logs)))
   }],
   ['one made of one at a time is logged without a key', async () => {
     const logs: StepLog[] = []
@@ -310,7 +310,7 @@ await run([
     backend.stop()
     await rest()
     strictEqual(logs.at(-1)!.changed.ends?.at, '')
-    ok(!leftIn(logs).some((sent) => sent.kind === 'abandoned'), JSON.stringify(leftIn(logs)))
+    ok(!sentIn(logs).some((sent) => sent.kind === 'abandoned'), JSON.stringify(sentIn(logs)))
   }],
   ['what left is said by kind, to whom and by name: a follow and an unfollow, a tell made outside a step, and an ask its state stopped before answering', async () => {
     const store = memory()
@@ -323,17 +323,17 @@ await run([
     window.start('watcher', watcher)
     window.start('teller', teller)
     await rest()
-    has(leftIn(logs.window), { kind: 'follow', to: 'threads', name: 'count' })
-    has(leftIn(logs.window), { kind: 'tell', to: 'worker', name: 'PING' })
+    has(sentIn(logs.window), { kind: 'follow', to: 'threads', name: 'count' })
+    has(sentIn(logs.window), { kind: 'tell', to: 'worker', name: 'PING' })
     window.stop()
     await rest()
-    has(leftIn(logs.window), { kind: 'unfollow', to: 'threads', name: 'count' })
+    has(sentIn(logs.window), { kind: 'unfollow', to: 'threads', name: 'count' })
     // The worker is asked, and never answers: it stops first.
     backend.send(made, { type: 'ADD', id: 'never' })
     await turns()
     backend.stop()
     await turns()
-    has(leftIn(logs.backend), { kind: 'abandoned', to: 'worker', name: 'RUN' })
+    has(sentIn(logs.backend), { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
   ['an ask across the link that the link ends is logged as answered: which ask it was, and that it ended', async () => {
     const store = memory()
@@ -370,8 +370,8 @@ await run([
     window.start('watcher', watcher)
     window.stop()
     await rest()
-    has(leftIn(logs), { kind: 'follow', to: 'threads', name: 'count' })
-    has(leftIn(logs), { kind: 'unfollow', to: 'threads', name: 'count' })
+    has(sentIn(logs), { kind: 'follow', to: 'threads', name: 'count' })
+    has(sentIn(logs), { kind: 'unfollow', to: 'threads', name: 'count' })
     strictEqual(stopped, 1)
   }],
   ['a log that throws is its own to answer for: the system goes on', async () => {

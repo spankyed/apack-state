@@ -24,7 +24,7 @@ state<Reader, ReaderEvent>()({
     unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: title }), done: () => {} }),
     // @ts-expect-error what a lookup answers is a string, so it cannot be put where the list goes
     misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), done: (outcome) => (outcome.ok ? { data: { watched: outcome.value } } : undefined) }),
-    // @ts-expect-error an ask is awaited from fields or for each key, not both at once
+    // @ts-expect-error an ask is loaded from fields or for each key, not both at once
     both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ query: id }), done: () => {} }),
   }),
   states: { on: {}, off: {} },
