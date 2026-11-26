@@ -21,6 +21,10 @@
     "./graph": {
       "types": "./dist/graph.d.ts",
       "import": "./dist/graph.js"
+    },
+    "./inspect": {
+      "types": "./dist/inspect.d.ts",
+      "import": "./dist/inspect.js"
     }
   },
   "bin": {
