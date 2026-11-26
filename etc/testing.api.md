@@ -35,13 +35,19 @@ export interface Connected {
 }
 
 // @public
+export interface Defect {
+    readonly error?: unknown;
+    readonly message: string;
+    readonly ref?: string;
+}
+
+// @public
 export interface DefectGuard {
     // (undocumented)
     [Symbol.dispose](): void;
     allow(pattern: string | RegExp | ((defect: Defect) => boolean)): void;
     assertNone(): void;
     readonly defects: readonly Defect[];
-    // Warning: (ae-forgotten-export) The symbol "Defect" needs to be exported by the entry point testing.d.ts
     readonly onDefect: (defect: Defect) => void;
 }
 
@@ -121,10 +127,10 @@ export interface WaitForOptions {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:27:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:46:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:51:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:59:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:28:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:47:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:52:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:60:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

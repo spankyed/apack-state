@@ -204,6 +204,45 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(looked.length, 1)
     await rest()
   }],
+  ['loads may omit args when the ask accepts {}, for both from and each', async () => {
+    type PingAsks = { PING: { args: {}; answer: string } }
+    type PingNet = { systems: { svc: { events: never; asks: PingAsks } }; surfaces: {}; views: {} }
+    const pingState = forNet<PingNet>()
+    const received: unknown[] = []
+    const svc = pingState<{}, never, PingAsks>()({
+      answers: { PING: (args) => { received.push(args); return `pong-${received.length}` } },
+    })
+    const reader = pingState<{ data: { rev: number; keys: string[]; latest: string | null; byKey: Record<string, string> } }, { type: 'BUMP' } | { type: 'KEYS'; keys: string[] }>()({
+      data: { rev: 0, keys: [], latest: null, byKey: {} },
+      loads: (load) => ({
+        status: load('svc', 'PING', {
+          from: ['rev'],
+          done: (o) => (o.ok ? { data: { latest: o.value } } : undefined),
+        }),
+        perKey: load('svc', 'PING', {
+          each: 'keys',
+          done: (o, { key }) => (o.ok ? { data: (d) => { d.byKey[key] = o.value } } : undefined),
+        }),
+      }),
+      on: {
+        BUMP: (_, { data }) => ({ data: { rev: data.rev + 1 } }),
+        KEYS: ({ keys }) => ({ data: { keys } }),
+      },
+    })
+    const sys = system({ side: 'backend' })
+    sys.start('svc', svc)
+    const h = sys.start('reader', reader)
+    await rest()
+    deepStrictEqual(received, [{}])
+    strictEqual(sys.read(h).data.latest, 'pong-1')
+    sys.send(h, { type: 'BUMP' })
+    sys.send(h, { type: 'KEYS', keys: ['a', 'b'] })
+    await rest()
+    deepStrictEqual(received, [{}, {}, {}, {}])
+    strictEqual(sys.read(h).data.latest, 'pong-2')
+    deepStrictEqual(Object.keys(sys.read(h).data.byKey).sort(), ['a', 'b'])
+    sys.stop()
+  }],
 ]
 
 /** The commit surface's reads, on a backend whose work a schedule decides. */

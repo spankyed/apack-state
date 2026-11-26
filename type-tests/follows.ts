@@ -49,12 +49,20 @@ state<Shop, ShopEvent>()({
   states: { browsing: {}, away: {} },
 })
 
-// `args` accepts read-only values straight from `data`.
+// `args` accepts read-only values straight from `data`, and `follows` may omit `args` for `{}` views.
 import { forNet } from '../src/index.ts'
-type ListNet = { systems: {}; surfaces: {}; views: { items: { list: { args: { ids: string[] }; result: number } } } }
-forNet<ListNet>()<{ data: { ids: string[] } }, never>()({
-  data: { ids: [] },
+type ListNet = {
+  systems: {}
+  surfaces: {}
+  views: { items: { list: { args: { ids: string[] }; result: number }; all: { args: {}; result: number } } }
+}
+forNet<ListNet>()<{ data: { ids: string[]; rev: number } }, never>()({
+  data: { ids: [], rev: 0 },
   follows: (follow) => ({
     list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), updated: () => {} }),
+    allFrom: follow('items', 'all', { from: ['rev'], updated: () => {} }),
+    allEach: follow('items', 'all', { each: 'ids', updated: () => {} }),
+    // @ts-expect-error `args` is required because `list` expects `{ ids: string[] }`
+    missingArgs: follow('items', 'list', { from: ['ids'], updated: () => {} }),
   }),
 })

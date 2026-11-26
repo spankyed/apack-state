@@ -90,8 +90,8 @@ const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({
 
 type Plain = Record<string, unknown>
 type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
-  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args: Function; updated: Function }>
-  loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args: Function; done: Function; progress?: Function }>
+  follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
+  loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
 }
 
@@ -892,11 +892,11 @@ export function system(host: {
           })
         }
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => declared.args(key))
+          for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
         } else {
           const from = declared.from ?? []
           if (!from.some(looks) && at.following.has(name)) continue
-          followed(name, undefined, from.map((field) => top.data[field]), () => declared.args(picked(from)))
+          followed(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
 
@@ -915,11 +915,11 @@ export function system(host: {
           })
         }
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => declared.args(key))
+          for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
         } else {
           const from = declared.from ?? []
           if (!from.some(looks) && at.awaiting.has(name)) continue
-          awaited(name, undefined, from.map((field) => top.data[field]), () => declared.args(picked(from)))
+          awaited(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
     }

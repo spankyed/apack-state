@@ -30,13 +30,21 @@ state<Reader, ReaderEvent>()({
   states: { on: {}, off: {} },
 })
 
-// `args` in `loads` and `calls` accepts read-only values straight from `data`.
+// `args` in `loads` and `calls` accepts read-only values straight from `data`, and `loads` may omit `args` for `{}` asks.
 import { forNet } from '../src/index.ts'
-type BatchNet = { systems: { svc: { events: never; asks: { BATCH: { args: { ids: string[] }; answer: number } } } }; surfaces: {}; views: {} }
-forNet<BatchNet>()<{ data: { ids: string[] }; calls: { run: 'one'; each: 'each' } }, never>()({
-  data: { ids: [] },
+type BatchNet = {
+  systems: { svc: { events: never; asks: { BATCH: { args: { ids: string[] }; answer: number }; PING: { args: {}; answer: string } } } }
+  surfaces: {}
+  views: {}
+}
+forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'one'; each: 'each' } }, never>()({
+  data: { ids: [], rev: 0 },
   loads: (load) => ({
     batch: load('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
+    pingFrom: load('svc', 'PING', { from: ['rev'], done: () => {} }),
+    pingEach: load('svc', 'PING', { each: 'ids', done: () => {} }),
+    // @ts-expect-error `args` is required because BATCH expects `{ ids: string[] }`
+    missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),
   }),
   calls: ({ one, each }) => ({
     run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),

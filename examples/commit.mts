@@ -79,10 +79,9 @@ export const commit = state<Commit, CommitEvent>()({
   data: { gitStatus: null, revision: 0, selectedGitFile: null, gitDiff: null, pushPhase: null, gitError: null },
 
   loads: (load) => ({
-    // Read as the surface starts, and again whenever the repository changes.
+    // Read as the surface starts, and again whenever the repository changes (`args` omitted because ask takes `{}`).
     status: load('code', 'commit.GET_GIT_STATUS', {
       from: ['revision'],
-      args: () => ({}),
       done: (outcome) => (outcome.ok ? { data: { gitStatus: outcome.value } } : { data: { gitError: outcome.failure.message } }),
     }),
 
