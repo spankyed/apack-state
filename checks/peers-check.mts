@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { dial, join, listen, memoryPair } from '@apackdev/link'
 import { connect, rest, run, system } from './checks.mts'
-import { forNet, type Lane, type PeerPort, type StepLog, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { forNet, peersFor, type Lane, type PeerPort, type StepLog, type ViewHost, type ViewUpdate } from '../src/index.ts'
 import { explore, onSchedule } from '../src/testing.ts'
 
 type HistoryEvent = { type: 'STEP_RECORDED'; id: string; detail: string } | { type: 'RUN_ENDED'; id: string }
@@ -16,6 +16,7 @@ type AppNet = {
   peers: { runHistory: { events: HistoryEvent }; audit: { events: { type: 'NOTE'; text: string } } }
 }
 export const state = forNet<AppNet>()
+export const attachPeer = peersFor<AppNet>()
 
 const runner = state<{ data: { ids: string[] }; states: { idle: {}; asyncStep: {} } }, { type: 'RECORD'; id: string; detail: string } | { type: 'FAIL'; id: string } | { type: 'ASYNC_RECORD'; id: string }>()({
   data: { ids: [] },
@@ -519,6 +520,41 @@ await run([
     // The entire first flush (primary peer, secondary peer, and first step log) completes before FOLLOW_UP or STATUS runs.
     deepStrictEqual(order, ['handle:FIRST', 'peer:primary', 'peer:secondary', 'log:2', 'handle:FOLLOW_UP', 'log:3', 'answer:STATUS:11', 'log:4'])
     strictEqual(logs.length, 3)
+  }],
+
+  ['peersFor<Net>() attaches typed callback and PeerPort handlers and returns detach', async () => {
+    const historyEvents: HistoryEvent[] = []
+    const auditEvents: Array<{ peer: string; text: string }> = []
+    const backend = system({ side: 'backend' })
+    const detachHistory = attachPeer(backend, 'runHistory', (event) => {
+      historyEvents.push(event)
+    })
+    const detachAudit = attachPeer(backend, 'audit', {
+      tell: (peer, event) => { auditEvents.push({ peer, text: event.text }) },
+    })
+
+    const emitter = state<{}, { type: 'GO'; id: string; text: string }>()({
+      on: {
+        GO: ({ id, text }, { tell }) => {
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id, detail: text })
+          tell({ peer: 'audit' }, { type: 'NOTE', text })
+        },
+      },
+    })
+    const h = backend.start('emitter', emitter)
+    backend.send(h, { type: 'GO', id: '1', text: 'first' })
+    await rest()
+
+    deepStrictEqual(historyEvents, [{ type: 'STEP_RECORDED', id: '1', detail: 'first' }])
+    deepStrictEqual(auditEvents, [{ peer: 'audit', text: 'first' }])
+
+    detachHistory()
+    detachAudit()
+    backend.send(h, { type: 'GO', id: '2', text: 'after-detach' })
+    await rest()
+    strictEqual(historyEvents.length, 1)
+    strictEqual(auditEvents.length, 1)
+    backend.stop()
   }],
 ], async (tally) => {
   await tally.every('under every ordering over @apackdev/link, a peer receives tells with no view hold while a window waits for its view', () => {

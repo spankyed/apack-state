@@ -190,7 +190,7 @@ points at.
    leaves the state at, which the definition says without running anything. This costs nothing where it does not
    fire, because a draft builds a new value beside the old one and never changes it: refusing is keeping the old
    one.
-9. **Cleanup is registered where the resource is taken**: `use(release)` runs when the state ends, however it ends.
+9. **Cleanup is registered where the resource is taken**: `onExit(release)` runs when the state ends, however it ends.
 10. **An ask's answer and the change it makes are one thing.** A handler that only answers returns the answer. One
    that also changes something returns `answered(answer, next)`, where `next` is what every other handler returns:
    where to be, and what data changes. The change is made in the step the answer leaves in, so whoever asked sees
@@ -339,7 +339,7 @@ points at.
 | `send(event)` | A state | Itself: an event only it sends, or one others may send it too | No |
 | `tell(name, event)` | Anywhere | A backend system, by name | No |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window | No |
-| `ask(name, ask, args, heard?)` | A state's `run`, or an ask's handler | A backend system, by name | One answer, refusal or failure |
+| `ask(name, ask, args, progress?)` | A state's `run`, or an ask's handler | A backend system, by name | One answer, refusal or failure |
 | `progress(update)` | An ask's handler | Whoever asked, and only them, as a list at most once a frame | No |
 | `broadcast(name, event)` | The backend | That surface in every window | No |
 | `report(event)` | A state that was started | The state that started it, and only that one | No |

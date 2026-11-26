@@ -22,7 +22,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1671,4 +1671,29 @@ export function system(host: {
     [Symbol.dispose]: () => { self.stop() },
   }
   return self
+}
+
+/** A typed named-peer handler: either a direct event callback or a `PeerPort`-shaped object. */
+export type TypedPeer<E extends AnyEvent> =
+  | ((event: Read<E>) => void)
+  | { tell(peer: string, event: Read<E>): void }
+
+/**
+ * Returns a typed peer-attachment helper bound to the `peers` declared in network `N`.
+ * Matches `forNet<N>()`: export `const attachPeer = peersFor<AppNet>()` from a pack or host facade so
+ * `attachPeer(sys, name, handler)` type-checks both the peer name and its event union.
+ */
+export function peersFor<N extends Net>(): <
+  K extends N['peers'] extends Record<string, { events: AnyEvent }> ? keyof N['peers'] & string : never,
+>(
+  sys: System,
+  name: K,
+  handler: TypedPeer<N['peers'] extends Record<string, { events: AnyEvent }> ? N['peers'][K]['events'] : never>,
+) => () => void {
+  return (sys, name, handler) => {
+    const port: PeerPort = typeof handler === 'function'
+      ? { tell: (_peer, event) => handler(event as never) }
+      : (handler as PeerPort)
+    return sys.attach(name, port)
+  }
 }

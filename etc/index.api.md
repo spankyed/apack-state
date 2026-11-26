@@ -439,6 +439,13 @@ export type OutcomeOf<A extends AskShape> = Outcome<A['answer'], AskFailure<A>>;
 export type PeerPort = Pick<Port, 'tell'>;
 
 // @public
+export function peersFor<N extends Net>(): <K extends N['peers'] extends Record<string, {
+    events: AnyEvent;
+}> ? keyof N['peers'] & string : never>(sys: System, name: K, handler: TypedPeer<N['peers'] extends Record<string, {
+    events: AnyEvent;
+}> ? N['peers'][K]['events'] : never>) => () => void;
+
+// @public
 export interface Port {
     ask(to: string, name: string, args: unknown, progress: (update: unknown) => void, done: (outcome: PortOutcome) => void): () => void;
     follow(feature: string, view: string, args: unknown, updated: (update: unknown) => void, failed: (failure: Failure) => void): Following;
@@ -629,6 +636,11 @@ export function system(host: {
 
 // @public
 export type Transact = <T>(run: () => T) => T;
+
+// @public
+export type TypedPeer<E extends AnyEvent> = ((event: Read<E>) => void) | {
+    tell(peer: string, event: Read<E>): void;
+};
 
 // Warning: (ae-forgotten-export) The symbol "Leaves" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "AllCalls" needs to be exported by the entry point index.d.ts
