@@ -126,6 +126,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
+| `sys.stop(hChild)` | TS2345: Argument of type 'Started&lt;{ readonly data: { readonly id: string; }; }, never, {}, {}>' is not assignable to parameter of type 'Handle&lt;unknown, never, Asks, any> &amp; { readonly _s… | child handles belong to their starter; change the starter's data to stop them |
 | `listen: ({ ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope&lt;Shape, "", Event, Net>'. | asking is for `run` and for an ask's handler, not `listen` |
 | `listen: ({ sleep }) => { void sleep },` | TS2339: Property 'sleep' does not exist on type 'EventScope&lt;Shape, "", Event, Net>'. | sleeping is for `run` and for an ask's handler, not `listen` |
 | `listen: () => ({ at: 'b' }),` | TS2322: Type '() => { at: string; }' is not assignable to type '(scope: EventScope&lt;Shape, "", Event, Net>) => void \| (() => void)'. | `listen` returns a cleanup function or nothing, never a transition |

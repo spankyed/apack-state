@@ -45,7 +45,7 @@ const validRoot = netState<Shape, Event, { READ: { args: {}; answer: number } }>
   },
 })
 
-// `stop(handle)` accepts any handle returned by `sys.start(...)` or `sys.child(...)`, with or without events/asks/starts.
+// `stop(handle)` accepts any top-level handle returned by `sys.start(...)` and refuses child handles from `sys.child(...)`.
 {
   const kid = state<{ data: { id: string } }>()({ data: { id: '' } })
   const bare = state<{}>()({})
@@ -61,6 +61,7 @@ const validRoot = netState<Shape, Event, { READ: { args: {}; answer: number } }>
   sys.stop(hRich)
   sys.stop(hBare)
   sys.stop(hParent)
+  // @ts-expect-error child handles belong to their starter; change the starter's data to stop them
   sys.stop(hChild)
   sys.stop()
 }

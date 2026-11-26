@@ -333,11 +333,11 @@ await run([
 
     // Passing a child handle throws synchronously with a clear message and leaves both child and parent running.
     throws(
-      () => sys.stop(hOne),
+      () => sys.stop(hOne as never),
       /host cannot stop parent\/one: it was started by parent; change its starter's data to stop it/,
     )
     throws(
-      () => sys.stop(hMany),
+      () => sys.stop(hMany as never),
       /host cannot stop parent\/many\/x: it was started by parent; change its starter's data to stop it/,
     )
     ok(sys.read(hOne) !== undefined)
@@ -345,7 +345,7 @@ await run([
     strictEqual(steps.length, stepsBefore)
 
     // Unknown / not-running handle is a safe no-op (no step, no throw, no defect).
-    sys.stop(sys.child(hParent, 'many', 'missing'))
+    sys.stop(sys.child(hParent, 'many', 'missing') as never)
     strictEqual(steps.length, stepsBefore)
 
     // Stopping parent succeeds; stopping it a second time is a safe no-op.
@@ -354,25 +354,26 @@ await run([
     strictEqual(sys.read(hParent), undefined)
     sys.stop(hParent)
     strictEqual(steps.length, stepsAfterStop)
-    deepStrictEqual(defects, [])
+    strictEqual(defects.length, 0)
 
-    // Queued guard: during subscribe flush, queue spawning child 'y' and immediately call sys.stop(childY).
+    // Queued guard: during subscribe flush, queue spawning child 'y', stopping childY, and then adding 'after'.
+    // Deferred child-stop reports a Defect rather than throwing out of pump(), so 'after' still drains cleanly.
     const hParent2 = sys.start('parent', parent)
     const hChildY = sys.child(hParent2, 'many', 'y')
-    let queuedError: unknown
+    const hChildAfter = sys.child(hParent2, 'many', 'after')
     const unsub = sys.subscribe(() => {
       unsub()
       sys.send(hParent2, { type: 'ADD', id: 'y' })
-      sys.stop(hChildY)
+      sys.stop(hChildY as never)
+      sys.send(hParent2, { type: 'ADD', id: 'after' })
     })
-    try {
-      sys.send(hParent2, { type: 'ADD', id: 'z' })
-    } catch (error) {
-      queuedError = error
-    }
-    ok(queuedError instanceof Error, 'queued stop on newly spawned child should throw')
-    ok(/cannot stop parent\/many\/y: it was started by parent/.test(queuedError.message), queuedError.message)
+    sys.send(hParent2, { type: 'ADD', id: 'z' })
+    strictEqual(defects.length, 1)
+    strictEqual(defects[0]!.ref, 'parent/many/y')
+    ok(/cannot stop parent\/many\/y: it was started by parent/.test(defects[0]!.message), defects[0]!.message)
     ok(sys.read(hChildY) !== undefined)
+    ok(sys.read(hChildAfter) !== undefined, 'subsequent queued items must still drain after a deferred child-stop defect')
+    strictEqual(sys.idle(), true)
 
     // Queued duplicate stop(handle) during flush is a safe no-op on the second queued step.
     const unsub2 = sys.subscribe(() => {
@@ -798,19 +799,45 @@ await run([
     strictEqual(defects[0]!.ref, 'brokenUnsub')
     strictEqual(defects[0]!.error, cleanupBoom)
 
-    // Stopping self synchronously inside listen: returned cleanup runs immediately, and run() does not execute.
+    // Stopping self synchronously inside listen: returned cleanup runs immediately, run() does not execute,
+    // and descend() does not enter initial substates.
     let selfStoppedCleanup = false
     let runExecuted = false
-    const selfStop = state<{}>()({
+    let initialListenExecuted = false
+    let initialRunExecuted = false
+    const selfStop = state<{ states: { initialSub: {} } }>()({
+      initial: 'initialSub',
       listen() {
         sys.stop({ ref: 'selfStop' } as never)
         return () => { selfStoppedCleanup = true }
       },
       run() { runExecuted = true },
+      states: {
+        initialSub: {
+          listen() { initialListenExecuted = true },
+          run() { initialRunExecuted = true },
+        },
+      },
     })
     sys.start('selfStop', selfStop)
     strictEqual(selfStoppedCleanup, true)
     strictEqual(runExecuted, false)
+    strictEqual(initialListenExecuted, false)
+    strictEqual(initialRunExecuted, false)
+
+    // Stopping self inside listen and then throwing must NOT execute registered onExit releases twice.
+    let releaseCount = 0
+    const selfStopThenThrow = state<{}>()({
+      listen({ onExit }) {
+        onExit(() => { releaseCount++ })
+        sys.stop({ ref: 'selfStopThenThrow' } as never)
+        throw new Error('after self-stop')
+      },
+    })
+    sys.start('selfStopThenThrow', selfStopThenThrow)
+    strictEqual(releaseCount, 1)
+    strictEqual(defects.length, 2)
+    ok(defects[1]!.message.includes("selfStopThenThrow's listen threw: after self-stop"), defects[1]!.message)
   }],
 ], async ({ every }) => {
   await every('concurrent stop(handle) and hot reload alongside a sibling produce zero defects under every ordering', () => explore((schedule) => {

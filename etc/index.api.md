@@ -606,7 +606,9 @@ export interface System {
     snapshot(): Record<string, unknown>;
     // (undocumented)
     start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>;
-    stop(of?: Handle<unknown, never, Asks, any>): void;
+    stop(of?: Handle<unknown, never, Asks, any> & {
+        readonly _started?: never;
+    }): void;
     subscribe(listener: (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void): () => void;
 }
 

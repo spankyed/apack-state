@@ -63,8 +63,9 @@ incarnation token:
   event or data.
 - **Per-ref `stop(handle)`.** Calling `sys.stop(handle)` stops only that top-level state and everything it started, leaving
   sibling top-level states untouched so a ref can be unloaded or hot-reloaded immediately with `sys.start(ref, nextState)`.
-  Passing a handle that is not currently running is a safe no-op; passing a child handle started via `starts` throws
-  synchronously (change its starter's data to stop it).
+  Passing a handle that is not currently running is a safe no-op; passing a child handle started via `starts` is refused
+  at compile time, and at runtime throws synchronously (or reports a `Defect` if deferred behind a queued start) without
+  disturbing the starter or later queued work.
 
 ## Name resolution (`forNet(resolve)` / `vueBinding(resolve)`)
 

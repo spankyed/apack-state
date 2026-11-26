@@ -247,10 +247,10 @@ export interface System {
   idle(): boolean
   /**
    * Stops every running state in reverse start order, or, when given a top-level handle, stops only that state and
-   * everything it started. Stopping a handle that is not running is a no-op; passing a handle started by another
-   * state throws synchronously.
+   * everything it started. Stopping a handle that is not running is a no-op; child handles started via `starts` are
+   * refused at compile time (and throw synchronously or report a defect if passed at runtime).
    */
-  stop(of?: Handle<unknown, never, Asks, any>): void
+  stop(of?: Handle<unknown, never, Asks, any> & { readonly _started?: never }): void
   [Symbol.dispose](): void
 }
 
@@ -782,7 +782,7 @@ export function system(host: {
         said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent,
       }))
     }
-    for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
+    for (const release of active.releases.splice(0).reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
     active.top.data = rest
@@ -791,8 +791,13 @@ export function system(host: {
 
   const descend = (under: Active, names: readonly string[], entering: Plain): void => {
     let active = under
-    for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering)
-    while (active.def.initial !== undefined) active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering)
+    for (const name of names) {
+      if (active.controller.signal.aborted) return
+      active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering)
+    }
+    while (!active.controller.signal.aborted && active.def.initial !== undefined) {
+      active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering)
+    }
   }
 
   /**
@@ -1656,7 +1661,7 @@ export function system(host: {
       run(() => {
         const top = running.get(of.ref)
         if (!top) return
-        if (top.starter) throw new Error(cannotStopChild(top.starter.ref))
+        if (top.starter) { defect(cannotStopChild(top.starter.ref), of.ref); return }
         end(of.ref)
       }, true)
     },
