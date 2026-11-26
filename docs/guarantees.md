@@ -71,7 +71,7 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `ViewHost` start/stop | Yes (`safely` → defect) | Reported as a defect; state continues running |
 | `Port.ask` / `Port.tell` | Yes (`safely` → defect / failure outcome) | Ask settles as `failed`; system continues running |
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
-| `clock.now()` / `clock.after()` | `after` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
+| `clock.now()` / `clock.after()` | `after` throw rejects `sleep()`; `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
 ## What the kernel does not detect
 
