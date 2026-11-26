@@ -20,7 +20,7 @@ function mustNotCompile(): void {
   state<Threads, ThreadsEvent, ThreadsAsks>()({
     data: { titles: {} },
     starts: (start) => ({ thread: start(thread(undefined as never), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    asks: {
+    answers: {
       CREATE_THREAD: () => ({ threadId: 'THR-1' }),
       // @ts-expect-error `attachment-missing` carries the document's id, so it cannot be refused without one
       USER_MSG: async (_, { refuse }) => { throw refuse('attachment-missing', 'no') },
@@ -30,7 +30,7 @@ function mustNotCompile(): void {
   state<Threads, ThreadsEvent, ThreadsAsks>()({
     data: { titles: {} },
     starts: (start) => ({ thread: start(thread(undefined as never), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    asks: {
+    answers: {
       CREATE_THREAD: () => ({ threadId: 'THR-1' }),
       // @ts-expect-error `no-such-thread` carries nothing, so it takes no document id
       USER_MSG: async (_, { refuse }) => { throw refuse('no-such-thread', 'no', { documentId: 'DOC-1' }) },

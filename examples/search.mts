@@ -7,7 +7,7 @@
 // `searchFiles` signature, so that the last section can run.
 
 import { deepStrictEqual } from 'node:assert'
-import { reaching, system } from '../src/index.ts'
+import { forNet, system } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -69,7 +69,7 @@ type App = {
   surfaces: {}
   views: {}
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Backend: code/search
@@ -83,7 +83,7 @@ function searchSystem(baseDirectory: string | null) {
   return state<SearchSystem, SearchSystemEvent, SearchSystemAsks>()({
     data: { repository: baseDirectory ? new FileSystemRepository(baseDirectory) : null },
 
-    asks: {
+    answers: {
       async SEARCH_FILES(options, { data, progress, refuse, signal }) {
         if (!data.repository) throw refuse('no-directory', 'No directory selected. Please select a directory first.')
 
@@ -142,7 +142,7 @@ const searchSurface = state<SearchSurface, SearchSurfaceEvent>()({
     searchError: null,
     searchOptions: { includePattern: '', excludePattern: '', caseSensitive: false, wholeWord: false, useRegex: false },
   },
-  start: 'idle',
+  initial: 'idle',
 
   on: {
     // Going to `searching` while already there starts it again: the search in flight is aborted.

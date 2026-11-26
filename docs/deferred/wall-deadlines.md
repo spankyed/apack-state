@@ -10,7 +10,7 @@ A system takes a structural `Clock` (`now()` and `after(ms, run)`) and exposes:
 
 - `scope.now` and `StepLog.now`: monotonically clamped wall time stamped once per step (and read live after an
   `await` in `run` or an ask's handler).
-- `scope.sleep(ms)`: a monotonic duration wait built on `clock.after(ms, run)`, cancelled with `Left` when its
+- `scope.sleep(ms)`: a monotonic duration wait built on `clock.after(ms, run)`, cancelled with `Cancelled` when its
   state is left, its asker goes, or its work finishes.
 
 What is left out is waiting for a **wall-clock timestamp** (`scope.until(wallTime)`) and **derived deadlines**

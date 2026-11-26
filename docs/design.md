@@ -22,19 +22,19 @@ Its shape is a type. Its definition has the same keys at every depth.
 | Key | What it says |
 |---|---|
 | `data` | Its own fields and their starting values. `given` marks one that whoever enters it has to give |
-| `start`, `states` | The states inside it, and which it is at when entered |
+| `initial`, `states` | The states inside it, and which it is at when entered |
 | `on` | The events others may send it. A handler is synchronous and returns what happens next: `{ at, data }` |
 | `internal` | The events it sends itself, which nothing else may send it |
-| `asks` | The asks it answers. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
+| `answers` | The asks it answers. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `run`, `failed` | Work it does while it is the case, and where it goes if that work fails |
 | `starts` | Other states it runs |
 | `follows` | Views of the database it keeps up to date |
-| `awaits` | Reads it is waiting on |
-| `makes` | Writes it makes when told to |
+| `loads` | Reads it is loading |
+| `calls` | Writes it calls on demand |
 
 ## Standing things follow the data
 
-`starts`, `follows` and `awaits` are all **standing**: while the data says so, they go on. You never start, follow or
+`starts`, `follows` and `loads` are all **standing**: while the data says so, they go on. You never start, follow or
 read by hand. A state declares each and says which fields of its data it depends on, and the kernel keeps what is
 live matching the data, looking again only when one of those fields changes.
 
@@ -52,21 +52,21 @@ So changing data is how they start and stop:
 | Follow another thread's detail | Set `id` |
 | Read the status again | Count `revision` up |
 
-## A write is said once
+## A write is called once
 
-A write is not standing. Nothing in the data stands for it: it is made once, because a handler said `make`. The
-kernel makes it when the step commits, and keeps the record of which are under way. A component reads that record
-beside `at` and `data`, as `making`.
+A write is not standing. Nothing in the data stands for it: it is fired once, because a handler called `call`. The
+kernel sends it when the step commits, and keeps the record of which are in flight. A component reads that record
+beside `at` and `data`, as `pending`.
 
 | To do this | Say this |
 |---|---|
-| Stage a file | `make('stage', path)` |
-| Push | `make('push')` |
-| Stop a push | `drop('push')` |
+| Stage a file | `call('stage', path)` |
+| Push | `call('push')` |
+| Stop a push | `cancel('push')` |
 
 Keeping the two apart is what Elm does with subscriptions and commands, and TanStack Query with queries and
 mutations. It matters for three reasons: the kernel never changes a state's data, one thing owns the record of what
-is under way, and restoring a state reads again but does not write again.
+is in flight, and restoring a state reads again but does not write again.
 
 ## A complete example
 
@@ -84,48 +84,48 @@ type Commit = {
     pushPhase: string | null
     gitError: string | null
   }
-  makes: { stage: 'each'; push: 'one' }                 // staging for each of many paths, one push at a time
+  calls: { stage: 'each'; push: 'one' }                 // staging for each of many paths, one push at a time
 }
 
 const commit = state<Commit, CommitEvent>()({
   data: { gitStatus: null, revision: 0, selectedGitFile: null, gitDiff: null, pushPhase: null, gitError: null },
 
   // Reads. Each is there because the data says so.
-  awaits: (asking) => ({
-    // Asked as the surface starts, and again whenever the repository changes.
-    status: asking('code', 'commit.GET_GIT_STATUS', {
+  loads: (load) => ({
+    // Loaded as the surface starts, and again whenever the repository changes.
+    status: load('code', 'commit.GET_GIT_STATUS', {
       from: ['revision'],
       args: () => ({}),
-      ended: (outcome) => (outcome.ok ? { data: { gitStatus: outcome.value } } : { data: { gitError: outcome.failure.message } }),
+      done: (outcome) => (outcome.ok ? { data: { gitStatus: outcome.value } } : { data: { gitError: outcome.failure.message } }),
     }),
 
-    // The diff of whichever file is selected. Selecting another gives up the read of the first.
-    diff: asking('code', 'commit.GET_GIT_DIFF', {
+    // The diff of whichever file is selected. Selecting another cancels the read of the first.
+    diff: load('code', 'commit.GET_GIT_DIFF', {
       from: ['selectedGitFile'],
       args: ({ selectedGitFile }) => selectedGitFile,
-      ended: (outcome) => (outcome.ok ? { data: { gitDiff: outcome.value.text } } : { data: { gitError: outcome.failure.message } }),
+      done: (outcome) => (outcome.ok ? { data: { gitDiff: outcome.value.text } } : { data: { gitError: outcome.failure.message } }),
     }),
   }),
 
-  // Writes. Each is made when a handler says so.
-  makes: ({ one, each }) => ({
+  // Writes. Each is called when a handler says so.
+  calls: ({ one, each }) => ({
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
-      ended: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
+      done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
     }),
 
     push: one('code', 'commit.PUBLISH_BRANCH', {
       args: () => ({}),
-      heard: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
-      ended: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
+      progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
+      done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
     }),
   }),
 
   on: {
-    'commit.STAGE_FILE':  ({ path }, { make }) => { make('stage', path) },
+    'commit.STAGE_FILE':  ({ path }, { call }) => { call('stage', path) },
     'commit.VIEW_DIFF':   ({ path, staged }) => ({ data: { selectedGitFile: { path, staged }, gitDiff: null } }),
-    'commit.PUSH_BRANCH': (_, { make }) => { make('push') },          // a second while one is made is the same push
-    'commit.STOP_PUSH':   (_, { drop }) => { drop('push'); return { data: { pushPhase: null } } },
+    'commit.PUSH_BRANCH': (_, { call }) => { call('push') },           // a second while one is pending is the same push
+    'commit.STOP_PUSH':   (_, { cancel }) => { cancel('push'); return { data: { pushPhase: null } } },
     'REPOSITORY_CHANGED': (_, { data }) => ({ data: { revision: data.revision + 1 } }),
   },
 })
@@ -139,16 +139,16 @@ const { state: commit, send } = useState('commit')
 </script>
 
 <template>
-  <Spinner v-if="commit.making.push" :label="commit.data.pushPhase" />
+  <Spinner v-if="commit.pending.push" :label="commit.data.pushPhase" />
   <li v-for="file in commit.data.gitStatus?.unstaged" :key="file">
     {{ file }}
-    <Spinner v-if="commit.making.stage[file]" />
+    <Spinner v-if="commit.pending.stage[file]" />
     <button v-else @click="send({ type: 'commit.STAGE_FILE', path: file })">Stage</button>
   </li>
 </template>
 ```
 
-Whether a write is under way is `making`, which the kernel keeps and the component reads. It imports nothing but the
+Whether a write is in flight is `pending`, which the kernel keeps and the component reads. It imports nothing but the
 state.
 
 ## The other two standing things, in the same grammar
@@ -161,8 +161,8 @@ starts: (start) => ({
 
 // Views it follows: the detail of the open thread, and one for each open tab.
 follows: (follow) => ({
-  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), heard: (update) => … }),
-  tab:    follow('threads', 'tab',    { each: 'openTabs', args: (threadId) => ({ threadId }), heard: (update, { key }) => … }),
+  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated: (update) => … }),
+  tab:    follow('threads', 'tab',    { each: 'openTabs', args: (threadId) => ({ threadId }), updated: (update, { key }) => … }),
 }),
 ```
 
@@ -170,10 +170,10 @@ follows: (follow) => ({
 
 | What it is | Use |
 |---|---|
-| A value fetched for some arguments | `awaits`, with `from` |
-| A value fetched for each of many things | `awaits`, with `each` |
-| A write to make, several at once | `makes`, with `each`, and `make(name, key)` |
-| A write to make, one at a time | `makes`, with `one`, and `make(name)` |
+| A value fetched for some arguments | `loads`, with `from` |
+| A value fetched for each of many things | `loads`, with `each` |
+| A write to fire, several at once | `calls`, with `each`, and `call(name, key)` |
+| A write to fire, one at a time | `calls`, with `one`, and `call(name)` |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
@@ -190,7 +190,7 @@ follows: (follow) => ({
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
-| `make(name, key?)`, `drop(name, key?)` | A state | The kernel: have a write it declares made, or given up |
+| `call(name, key?)`, `cancel(name, key?)` | A state | The kernel: fire a declared write, or cancel one in flight |
 
 A component reads and sends. It does not ask.
 
@@ -208,29 +208,29 @@ A system given `log` tells it of each step once it has ended, for a timeline or 
 ```ts
 system({ side: 'window', log: (step) => timeline.push(step) })
 
-// { number: 12, ended: 'committed',
-//   handled: [{ kind: 'event', ref: 'commit', name: 'commit.PUSH_BRANCH' }, { kind: 'make', ref: 'commit', name: 'push' }],
-//   changed: { commit: { fields: ['pushPhase'], moved: false, making: true, at: 'ready' } },
-//   left: [{ kind: 'ask', to: 'code', name: 'commit.PUBLISH_BRANCH' }] }
+// { number: 12, status: 'committed',
+//   handled: [{ kind: 'event', ref: 'commit', name: 'commit.PUSH_BRANCH' }, { kind: 'call', ref: 'commit', name: 'push' }],
+//   changed: { commit: { fields: ['pushPhase'], moved: false, pending: true, at: 'ready' } },
+//   sent: [{ kind: 'ask', to: 'code', name: 'commit.PUBLISH_BRANCH' }] }
 ```
 
 - **What began it, and everything after**: each thing handled in order, as its kind (an event, an ask, a view's
-  result, how a read or write ended, what a state's work found), the state, and the name it was declared or sent by.
+  result, how a read or write finished, what a state's work found), the state, and the name it was declared or sent by.
   An event a state sent itself is marked `own`. When the system is given a `clock`, `now` stamps when the step began,
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
-  what it is making changed.
-- **What left at the commit**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
+  its pending calls changed.
+- **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
   `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
-- **How it ended**: `committed`; `lost`, when its rows could not be kept and the system stopped; `cut short`, when it
+- **How it finished (`status`)**: `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it
   ran away.
 - **Never what any of it carried.** An event's fields, an ask's arguments, an answer, progress, a refusal's message and
   data are none of them in a log. A log that throws is its own to answer for, and the system goes on.
 
 ## What holds, always
 
-- **Only a handler changes data.** The kernel never does. What is under way is its own record, beside the data.
+- **Only a handler changes data.** The kernel never does. What is in flight is its own record, beside the data.
 - **What a state holds is a value, and it is frozen.** A write to it throws on the line that tried, and most do not
   compile: what is read is typed so that no field can be assigned, at any depth, and a list a
   field holds cannot be changed in place. One that runs is reported with what to write. A component is
@@ -245,13 +245,13 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   is answered. Nothing outside the database is part of it: git, files and models are
   done first, and the row that records one is written in the step its result arrives in.
 - **Work has one owner and stops when its owner does.** A state's `run` is the state's. An ask is the asker's. What a
-  state starts, follows, awaits or makes is that state's. When `run` or an ask's handler finishes (returns or throws),
+  state starts, follows, loads or calls is that state's. When `run` or an ask's handler finishes (returns or throws),
   the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`send`, `tell`,
   `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
   stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
   when `run` or an ask returns.
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
-- **An ask or `sleep` whose owner has gone throws `Left` where it is awaited**, so `finally` runs and what was held is let go.
+- **An ask or `sleep` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
 - **Nothing depends on itself in a circle.** What a view delivers, or how a read ended, may not change a field it is
   itself asked from.

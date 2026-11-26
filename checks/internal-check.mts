@@ -5,7 +5,7 @@
 //   npx vitest run internal
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 
 export type ListEvent =
   | { type: 'PICK'; id: string }
@@ -21,7 +21,7 @@ type App = {
   surfaces: { list: { events: ListEvent }; detail: { events: DetailEvent } }
   views: {}
 }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 export type List = {
   data: { picked: string | null; ticks: number }

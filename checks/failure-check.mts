@@ -5,17 +5,17 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, reaching, type Each } from '../src/index.ts'
+import { given, forNet, type Each } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
 type App = { systems: { slow: { events: never; asks: SlowAsks } }; surfaces: {}; views: { threads: { detail: { args: { id: string }; result: string } } } }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 const slow = state<{}, never, SlowAsks>()({
-  asks: {
+  answers: {
     WAIT: async ({ turns: count }) => { await turns(count); return 'done' },
     BREAK: async () => { await turns(2); throw new Error('the answer broke') },
   },
@@ -41,7 +41,7 @@ export type Panel = {
 
 const panel = (released: string[]) => state<Panel, PanelEvent>()({
   data: { count: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: ({ how }) => ({ at: 'working', data: { how, problem: null } }),
     SET_UP: () => ({ at: 'ready' }),
@@ -56,10 +56,10 @@ const panel = (released: string[]) => state<Panel, PanelEvent>()({
     idle: {},
     working: {
       data: { how: given },
-      run({ data, ask, use }) {
-        use(() => { released.push('first') })
-        use(() => { throw new Error('the release broke') })
-        use(() => { released.push('last') })
+      run({ data, ask, onExit }) {
+        onExit(() => { released.push('first') })
+        onExit(() => { throw new Error('the release broke') })
+        onExit(() => { released.push('last') })
         if (data.how === 'at once') throw new Error('broke at once')
         return (async () => {
           if (data.how === 'while asking') await ask('slow', 'WAIT', { turns: 30 })
@@ -98,7 +98,7 @@ const helper = state<{ data: { title: string } }, never>()({ data: { title: give
 type Odd = {
   data: { count: number; id: string | null; waited: string | null }
   starts: { helper: typeof helper }
-  makes: { save: 'one' }
+  calls: { save: 'one' }
 }
 type OddEvent = { type: 'THROWS_A_STRING' } | { type: 'SET'; id: string } | { type: 'SAVE' }
 type OddAsks = { THROWS: { args: {}; answer: string } }
@@ -106,15 +106,15 @@ const noId = (id: string | null): string => { if (id === null) throw new Error('
 const oddState = state<Odd, OddEvent, OddAsks>()({
   data: { count: 0, id: null, waited: null },
   starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
-  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), heard: () => {} }) }),
-  awaits: (asking) => ({ wait: asking('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), ended: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
-  makes: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), ended: () => {} }) }),
+  follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), updated: () => {} }) }),
+  loads: (load) => ({ wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), done: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
+  calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
   on: {
     THROWS_A_STRING: () => ({ data: (d) => { d.count++; throw 'not an error' } }),
     SET: ({ id }) => ({ data: { id } }),
-    SAVE: (_, { make }) => { make('save') },
+    SAVE: (_, { call }) => { call('save') },
   },
-  asks: { THROWS: () => { throw 'not an error' } },
+  answers: { THROWS: () => { throw 'not an error' } },
 })
 const brokenAtOnce = state<{ data: { n: number } }, never>()({ data: { n: 0 }, run() { throw new Error('could not start') } })
 
@@ -262,7 +262,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(Object.keys(logs.at(-1)!.changed), ['fine'])
   }],
   ['cutting a runaway step short settles every queued and held ask and leaves the system idle', async () => {
-    const localState = reaching<{
+    const localState = forNet<{
       systems: {
         spinner: { events: { type: 'SPIN' }; asks: { PING: { args: {}; answer: string } } }
         spinAsk: { events: { type: 'STEP' }; asks: { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } } }
@@ -279,13 +279,13 @@ const checks: Array<[string, () => Promise<void>]> = [
           return { data: { n: data.n + 1 } }
         },
       },
-      asks: { PING: () => 'pong' },
+      answers: { PING: () => 'pong' },
     })
     sys.start('spinner', spinner)
     let heldOutcome: unknown
     let queuedOutcome: unknown
     const launcher = localState<{}, never, { GO: { args: {}; answer: string } }>()({
-      asks: {
+      answers: {
         GO: async (_, { ask, tell }) => {
           const p1 = ask('spinner', 'PING', {})
           const p2 = ask('ghost' as never, 'PING', {})
@@ -308,7 +308,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const spinAsk = localState<{ data: { n: number } }, { type: 'STEP' }, { PING: { args: {}; answer: string }; FLOOD: { args: {}; answer: string } }>()({
       data: { n: 0 },
       on: { STEP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
-      asks: {
+      answers: {
         PING: () => 'pong',
         FLOOD: async (_, { ask, send }) => {
           for (let i = 0; i < 10_000; i++) send({ type: 'STEP' })
@@ -388,7 +388,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(it.defects.some((line) => line.includes('could not say what to ask wait for: no id yet')), it.defects.join(' / '))
     it.send({ type: 'SAVE' })
     ok(it.defects.some((line) => line.includes('could not say what to ask save for: no id yet')), it.defects.join(' / '))
-    strictEqual(it.now().making.save, false)
+    strictEqual(it.now().pending.save, false)
     it.send({ type: 'SET', id: 'a' })
     deepStrictEqual(it.followed, [{ id: 'a' }])
     await rest()

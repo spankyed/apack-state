@@ -74,16 +74,16 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | Key | Meaning |
 |---|---|
 | `data` | Its own fields and their starting values. `given` marks a field whoever enters the state must supply |
-| `start` | Which state inside it it is at when entered |
+| `initial` | Which state inside it it is at when entered |
 | `states` | Every state inside it. Leaving one out does not compile |
 | `on` | The events others may send it. Synchronous. A handler returns what happens next |
 | `internal` | The events it sends itself, which nothing else may send it. The same handlers |
-| `asks` | The asks it answers. May be async. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
+| `answers` | The asks it answers. May be async. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `run` | What it does while it is the case. May be async. What it returns happens only if the state still is the case |
 | `starts` | The states it starts, which run while it is the case |
-| `follows` | The views it follows while it is the case, each with a handler for what it delivers |
-| `awaits` | The reads it is waiting on while it is the case, each with a handler for how it ended |
-| `makes` | The writes it makes when a handler says `make`, each with a handler for how it ended |
+| `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
+| `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
+| `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
 
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
@@ -123,8 +123,8 @@ points at.
    **Work that awaits says where the state goes if it fails.** A `run` that returns a promise does not compile without
    `failed`, which is given what was thrown and returns what happens next, as an event's handler does. Without it a
    state whose work threw would stay where it was with nothing running, which on a surface is a screen that never
-   leaves "searching". `failed` is not given a `Left`: being left is not failing. So it is also where to handle a
-   failure without writing a `catch`, which could take a `Left`. A `run` that only sets things up need not say; what it
+   leaves "searching". `failed` is not given a `Cancelled`: being cancelled is not failing. So it is also where to handle a
+   failure without writing a `catch`, which could take a `Cancelled`. A `run` that only sets things up need not say; what it
    throws is reported and the state stays as entered.
 
 5. **Nothing a pack's code throws stops the kernel.** A handler that throws changes nothing and is reported, and the
@@ -207,8 +207,8 @@ points at.
    end.
 11. **Every ask ends exactly once**: with its answer, a refusal it declares, or `failed`, `abandoned`, `unavailable` or
    `disconnected`. An ask whose asker has gone, because the state that asked was left or its system stopped, ends
-   where it is awaited by throwing `Left`. The code that asked unwinds as cancelled code does everywhere: its `finally`
-   runs, what it held is let go, and nothing after the ask runs. The kernel takes the `Left` at the top of `run` and
+   where it is awaited by throwing `Cancelled`. The code that asked unwinds as cancelled code does everywhere: its `finally`
+   runs, what it held is let go, and nothing after the ask runs. The kernel takes the `Cancelled` at the top of `run` and
    says in the trace that an ask was left; it is not a failure. The answerer's `signal` aborts, and a handler that was
    itself asking unwinds the same way and answers `abandoned`.
 12. **A refusal is a kind, a message, and the data that kind declares.** `refuses` names kinds alone
@@ -223,12 +223,12 @@ points at.
    question.
 
    **Stopping is asked for, not done.** JavaScript cannot interrupt running code. When the owner goes, the work's
-   `signal` aborts, its next `ask` throws `Left`, and what it sends through the kernel goes nowhere. Code that awaits
+   `signal` aborts, its next `ask` throws `Cancelled`, and what it sends through the kernel goes nowhere. Code that awaits
    no ask and passes `signal` to nothing runs to its end. Data is changed only by what a handler returns, at its end,
    so work that stopped part-way has changed nothing; and a handler that does reach its end has its change made even
    if whoever asked has gone, because the work was done and the data should say so. A handler that throws because its
    `signal` aborted has stopped, and is reported as that and not as a failure.
-14. **What a state starts, follows and awaits is declared, and which of them are live follows from its data.**
+14. **What a state starts, follows and loads is declared, and which of them are live follows from its data.**
     These three are standing: each goes on for as long as the data says so. Nothing is started, followed or read
     by hand. A state declares each, and each says which fields of the data it
     depends on, in one of two ways. With `from`, there is one, and it reads the fields named: it is asked again when
@@ -237,8 +237,8 @@ points at.
 
     ```ts
     starts:  (start)  => ({ thread: start(thread(inference), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
-    follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), heard: (update) => … }) }),
-    awaits:  (asking) => ({ diff:   asking('code', 'commit.GET_GIT_DIFF', { from: ['selectedGitFile'], args: ({ selectedGitFile }) => selectedGitFile, ended: (outcome) => … }) }),
+    follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated: (update) => … }) }),
+    loads:   (load)   => ({ diff:   load('code', 'commit.GET_GIT_DIFF', { from: ['selectedGitFile'], args: ({ selectedGitFile }) => selectedGitFile, done: (outcome) => … }) }),
     ```
 
     Once a step has handled everything sent in it, the kernel makes what is live match. **So changing data is how
@@ -277,38 +277,38 @@ points at.
     **A started state tells only its starter**, with `report(event)`, as only whoever asked hears an ask's progress.
     It arrives as an event like any other, with `from` saying which one told it.
 
-    **A view delivers to a handler**, `heard`, which returns what happens next as every handler does, so data still
+    **A view delivers to a handler**, `updated`, which returns what happens next as every handler does, so data still
     changes only by what a handler returns.
 
-    **An ask that is awaited is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
-    asked again when one of them changes, the one before given up. Where `args` gives nothing, nothing is asked. A
+    **An ask that is loaded is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
+    asked again when one of them changes, the one before cancelled. Where `args` gives nothing, nothing is asked. A
     field that only counts has it asked again. With `each`, one is asked for each key of a field, and what it found
-    stays. How one ended goes to `ended`, and what it says before that to `heard`, as a list at most once a frame.
+    stays. How one finishes goes to `done`, and what it says before that to `progress`, as a list at most once a frame.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
-    says so. A write is made once, because a handler said so, and nothing in the data stands for it. So it is
-    declared apart, under `makes`, and made with a verb, as a state tells or broadcasts:
+    says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
+    declared apart, under `calls`, and fired with a verb, as a state tells or broadcasts:
 
     ```ts
-    makes: ({ one, each }) => ({
-      stage: each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), ended: (outcome, { key }) => … }),
-      push:  one('code', 'commit.PUBLISH_BRANCH', { args: () => ({}), heard: (updates) => …, ended: (outcome) => … }),
+    calls: ({ one, each }) => ({
+      stage: each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), done: (outcome, { key }) => … }),
+      push:  one('code', 'commit.PUBLISH_BRANCH', { args: () => ({}), progress: (updates) => …, done: (outcome) => … }),
     }),
     on: {
-      'commit.STAGE_FILE':  ({ path }, { make }) => { make('stage', path) },
-      'commit.STOP_PUSH':   (_, { drop }) => { drop('push') },
+      'commit.STAGE_FILE':  ({ path }, { call }) => { call('stage', path) },
+      'commit.STOP_PUSH':   (_, { cancel }) => { cancel('push') },
     },
     ```
 
-    It is made when the step commits, with the data as the handler left it. One that is under way, or under way for
-    that key, is the same one and is not made twice. `drop` gives one up: the one answering is told, and how it
-    ended is not heard. Leaving the state that declares it gives up all of its.
+    It is fired when the step commits, with the data as the handler left it. One that is in flight, or in flight for
+    that key, is the same one and is not started twice. `cancel` cancels one: the one answering is told, and `done`
+    is not called. Leaving the state that declares it cancels all of its in-flight calls.
 
-    **Which writes are under way is the kernel's to keep**, and is read beside `at` and `data`, as `making`:
-    `making.stage[path]` for one of many, `making.push` for one at a time. Nothing else writes it. So the kernel
+    **Which writes are in flight is the kernel's to keep**, and is read beside `at` and `data`, as `pending`:
+    `pending.stage[path]` for one of many, `pending.push` for one at a time. Nothing else writes it. So the kernel
     never changes a state's data, the record has one writer, and a state that is restored reads again and does not
-    write again, since what was being made is not data. There is no id for an ask, no list of what is under way kept
-    by hand, and no event for how one ended.
+    write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
+    by hand, and no event for how one finished.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
@@ -432,7 +432,7 @@ be exact, and neither wraps a value:
   since the kernel makes a new object only for what a change touched, and a computed does not pass on a value that
   came out the same.
 
-What a state is making (`making`) is the kernel's own record and holds only whether each is under way, so it is kept
+What a state has pending (`pending`) is the kernel's own record and holds only whether each call is in flight, so it is kept
 to the key: a spinner on one file renders again for that file.
 
 One of many is read through the handle of a state the first one starts. It reads as nothing while it is not
@@ -510,7 +510,7 @@ detail: {
     detail: follow('threads', 'detail', {
       from: ['id'],
       args: ({ id }) => ({ id }),
-      heard: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: update.error } }),
+      updated: (update) => (update.ok ? { data: { detail: update.value } } : { data: { problem: update.failure.message } }),
     }),
   }),
 }
@@ -587,7 +587,7 @@ and are not counted. Outside the repositories, 136 functions in the built-in pac
 #### How it is joined
 
 The kernel is given the database's `transact`, and on a backend that runs views for its windows, views that can
-say when each has been handed what was kept: a `ViewHost` whose views are each a `Viewing` with `caughtUp`, which
+say when each has been handed what was kept: a `ViewHost` whose views are each a `Following` with `caughtUp`, which
 on elmdb is a watch's own `Watching.caughtUp({ soon: true })`:
 
 ```ts
@@ -795,7 +795,7 @@ thing declined here: one transaction over two stores.
 | Data is under `data`, apart from `at` | Fields beside `at`. Framework words could not be told from the user's |
 | Every state inside must be defined | Optional entries. An example that left one out was unreadable |
 | A handler names the path to go to | `leave`, by which a state changed the state around it |
-| `asks` is a table of its own | One `on` table. An ask and an event follow different rules, and nothing marked which was which |
+| `answers` is a table of its own | One `on` table. An ask and an event follow different rules, and nothing marked which was which |
 | What a state sends itself is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
 | A surface is told as `{ surface }`, with the verb a system is told with | A verb of its own, as the app's `sendToSurface` is beside `tell`. A feature's system and its surface share a name, so the name alone cannot say which. Naming the kind of thing in the address keeps one verb for telling, and is how a role is to be named too: `tell({ role: 'brain' }, …)` |
 | An ask changes data only together with its answer, as `answered(answer, next)` | An ask that could not change data at all, which was the first decision: to change data it sent its own state an event and returned the answer separately. The answer could then say "created" before the event that did the creating was handled, and still say it if that event's handler threw. The handler could not see the result of its own change. And each such ask needed an event that existed only for it, which anything could tell the state. Every system this was checked against joins the two: Erlang's `gen_statem` replies and moves in one handler, Effect's `Machine` handlers return `[reply, newState]`, and Temporal added Updates beside its read-only queries. They are safe because their handlers do not interleave; these do, at each `await`, which is why a change after one must be a draft edit. The graph stays complete: the extractor reads `next` as it reads any handler's return |
@@ -803,22 +803,22 @@ thing declined here: one transaction over two stores.
 | Where work is put says who owns it, and so when it stops | One rule for every handler. Stopping an ask's work when its asker goes is right for a search and wrong for a message being answered, and never stopping it, as Effect's `Machine` does once a handler is running, wastes the search. A flag on the ask saying it survives its asker, or a shield around part of a handler as Trio and Kotlin have, would each be a second way to say what a state's `run` already says: this work is the answerer's. The threads example had it wrong: a window that closed mid-reply aborted the reply, and the message it had sent was never stored |
 | What a state starts is declared and follows from its data | `start(name, state)` called from a handler, which the prototype had. A start was then something a handler did and not part of what it returned, so after an `await`, checking and starting could not be one step; nothing stopped a started state short of its starter ending; a handle was rebuilt from the definition at every use; and a state that was restored would have had nothing it started. And naming the starts in what a handler returns, beside `at` and `data`, which makes them one step and leaves them to be remembered: a start with no stop is a leak, and what runs is kept in two places. Working it out from data is what a view layer does with a keyed list, and what Effect's `forkOne` and `forkReplace` do by hand under a key: a key that stays is theirs "only if missing", and replacing is a key that changes |
 | What says which there are is a field, by name | A function from the data to the keys, which was built first: `each((data) => Object.keys(data.titles), …)`. It could throw, so there had to be a rule for what ran when it did. It had to be run again after every change, since nothing said what it read. And the graph could not say where the keys came from. Tracking what the function reads, as a signals library does, would fix the second and not the others |
-| One grammar for what a state starts, follows and awaits: `each` a field, or `from` fields | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
+| One grammar for what a state starts, follows and loads: `each` a field, or `from` fields | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
 | Each of the three is a function of the helper its entries are made with | The helpers as imports, `follow(…)` called in an object. TypeScript then has to work out the state's types backwards from where the call's result is put, and while it is doing that it cannot type a draft edit nested in a handler: `(d) => { d.tabs[key] = … }` came out untyped. Handing the helper in already typed leaves nothing to work out |
-| A read that is not a state's work is awaited, declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
-| A write is said, with `make`, and the kernel keeps which are under way | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is made once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |
-| `make` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `send` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `make` and not `ask` |
+| A read that is not a state's work is loaded (`loads`), declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
+| A write is fired, with `call`, and the kernel keeps `pending` | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is fired once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |
+| `call` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `send` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `call` and not `ask` |
 | What runs is matched once, when a step has handled everything | Matching after each thing handled, which was built first so that a state started part-way through a step would be there for what came next. It made what ran depend on the route: a key taken out and put back by one handler kept its state, and by two events in one step lost it. Holding what is sent to a state that is not running, until the match, keeps the one thing the first way was for |
 | A started state is given its data once | Data that follows the starter's as it changes. That keeps one fact in two states and needs a rule for which of them may write it |
-| A started state reports to its starter with one verb, into the starter's own events | A table of handlers per started state, which would have been a fourth beside `on`, `asks` and `follows` |
+| A started state reports to its starter with one verb, into the starter's own events | A table of handlers per started state, which would have been a fourth beside `on`, `answers` and `follows` |
 | What a view delivers goes to a handler | Writing it straight into a field. Data would then change by something other than what a handler returns, and the graph would not show it |
 | Views may not depend on each other in a circle, refused where the circle closes | Finding it in the graph beforehand, which needs to know which fields a function reads. Refusing it when it happens stops it, where a finding only warns. Refusing only a view that changes what it is itself asked for, which was built first and left the same fault one view longer. And refusing whatever a delivery leads to being asked, which forbids a list leading a detail |
 | Event handlers are synchronous | Async handlers. They bring back work nobody can see or cancel |
 | What was gathered is handed over before anything else arrives | Progress waiting for its frame while other messages went straight through. A broadcast sent after a piece of text was then heard before it, a reordering that shows only under timing |
-| An ask whose asker has gone throws `Left` where it is awaited | Never settling it, which was tried first. A promise that never settles skips every `finally` after it, so a lock or a handle taken before the ask is held for good, and `Promise.all` over it hangs. Rejection is what `AbortSignal`, `fetch` and structured concurrency do, and code written for them is already correct here |
-| `Left` is an exception, raised again by every later ask from the state that was left | The other designs that exist. A third outcome that runs `finally` and skips `catch` (Bluebird 3, the withdrawn TC39 cancelable promises) is the cleanest and cannot be expressed through native `await`. A separate interruption channel (Effect, ZIO) means writing in an effect system. Dropping the computation (Rust) needs destructors. A value to check (Go's `context`) lets code run on after it should have stopped. Killing with no unwinding (Erlang) is what never settling was, and `use(release)` already gives its cleanup. What every exception design has had to repair is cancellation swallowed by a `catch` meant for failures (Python moved `CancelledError` out from under `Exception`; Kotlin's `runCatching`), and raising once only (asyncio, which Trio corrected). Raising again is in the kernel; the swallowing is a pack rule, under What to build around it |
+| An ask whose asker has gone throws `Cancelled` where it is awaited | Never settling it, which was tried first. A promise that never settles skips every `finally` after it, so a lock or a handle taken before the ask is held for good, and `Promise.all` over it hangs. Rejection is what `AbortSignal`, `fetch` and structured concurrency do, and code written for them is already correct here |
+| `Cancelled` is an exception, raised again by every later ask from the state that was left | The other designs that exist. A third outcome that runs `finally` and skips `catch` (Bluebird 3, the withdrawn TC39 cancelable promises) is the cleanest and cannot be expressed through native `await`. A separate interruption channel (Effect, ZIO) means writing in an effect system. Dropping the computation (Rust) needs destructors. A value to check (Go's `context`) lets code run on after it should have stopped. Killing with no unwinding (Erlang) is what never settling was, and `onExit(release)` already gives its cleanup. What every exception design has had to repair is cancellation swallowed by a `catch` meant for failures (Python moved `CancelledError` out from under `Exception`; Kotlin's `runCatching`), and raising once only (asyncio, which Trio corrected). Raising again is in the kernel; the swallowing is a pack rule, under What to build around it |
 | A `run` that awaits must declare `failed` | Leaving it optional, as XState's `onError` is: a forgotten one is the stuck state every XState codebase has met. And requiring it of every `run`, which would ask a line of the many that only start a child or follow a view and cannot fail later. And restarting the state as Erlang's supervisors do, which loses what a surface holds and needs a limit on restarts to not loop |
-| An event handler is not given `ask` | `ask` everywhere. An event handler cannot await, so it could only start an ask and drop the promise, with nothing around it to take a `Left`. That floating promise is what took a process down when a check stopped a window mid-ask. Without `ask` the mistake does not compile, and the kernel still catches an ask started in `run` and never awaited |
+| An event handler is not given `ask` | `ask` everywhere. An event handler cannot await, so it could only start an ask and drop the promise, with nothing around it to take a `Cancelled`. That floating promise is what took a process down when a check stopped a window mid-ask. Without `ask` the mistake does not compile, and the kernel still catches an ask started in `run` and never awaited |
 | A component is handed the state's own values, a field at a time | A reactive copy of the state, written to only at the places a step changed, which was built first and rendered to the key. Moving the app's components onto `useState` showed what a copy costs: a machine that drops what it is told by `includes` never matched the copies sent back, `structuredClone` refused a proxy, a component definition held in data was copied, a watch did not run when a result was replaced by an equal one, and a mirrored object sent in an event put the mirror's storage into the machine. Every one is the copy not being the state's object. And tracking the path a reader took through proxies that hand over the state's own value at the end, which only saves a value that is not an object: a list passed to a child is a proxy again. MobX, Solid's stores, Pinia and Vue's `reactive` all track that way, and each ships a way to unwrap and a list of what to watch for. Valtio hands a component a frozen snapshot with what it read tracked, which is that done soundly and is more to build; the promise above leaves room to go there, since a reader that runs less often is still one that runs when what it read changed. This is what Vue's own guide shows for an outside store, Immer or XState held in a `shallowRef`, and what the app ships |
 | What a state holds is frozen | Leaving it as it is and trusting that nothing writes to it. With a copy, a component that wrote to what it read damaged the copy. With the state's own objects it damages the state: no handler ran, nobody is told, and every earlier value that shares the object changes with it. Two of the prototype's own checks were sorting a state's list in place. Immer freezes what it makes for the same reason, and Vue leaves a frozen object unwrapped |
 | The types say a field read-only at every depth, and a list where a field holds it | Read-only at every depth for lists too, which is what Vue's `readonly()` and Effect type. TypeScript holds a caller to a read-only list and not to a read-only object, so a list typed read-only inside an entity refuses the entity at every helper that takes it as its type declares it: measured on the app, 125 errors in the built-in pack against 54, with no write among either (Not built). And read-only one level in only, a field and a list a field holds, which leaves `data.titles[id] = title` compiling: the commonest write there is to a record kept by id, and refusing it costs nothing, since a read-only object passes wherever a writable one is asked for. Measured, the pack and the renderer report the same errors with it as without. Solid removed the deep type from its stores, Redux Toolkit declined it, and Immer's is left off by most who use it. And no types at all, as Redux Toolkit, NgRx and Apollo have it, which gives up the one check that does carry: a list sorted or pushed to in place, the commonest write there is. Freezing is the guarantee under either |
@@ -859,8 +859,8 @@ the brain slice, the testing kit, graphs, and mutation tooling as well):
 | `checks/internal-check.mts` | 7 | Who may send a state what |
 | `checks/starts-check.mts` | 15 | The states a state starts |
 | `checks/follows-check.mts` | 16 | The views a state follows |
-| `checks/awaits-check.mts` | 12 | The reads a state awaits |
-| `checks/makes-check.mts` | 15 | The writes a state makes |
+| `checks/loads-check.mts` | 13 | The reads a state loads |
+| `checks/calls-check.mts` | 15 | The writes a state calls |
 | `checks/binding-check.mts` | 18 | What a reader is handed |
 | `checks/vue-check.mts` | 24 | Vue components, rendered and counted |
 | `checks/rows-check.mts` | 48 | A step as one unit of the database, in memory and on elmdb |
@@ -908,7 +908,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   is not declared; leaving the starts out; naming a field that is neither keyed nor a list; giving a started state
   less than it marks `given`; and naming bare a state that has to be given something. `examples/threads.mts` runs on it: a
   thread for each title, told which it is, and the composer's draft for as long as a thread is open.
-- **Reads and writes, with no ids** (`checks/awaits-check.mts`, 12 checks; `checks/makes-check.mts`, 15 checks; `examples/commit.mts`, 12
+- **Reads and writes, with no ids** (`checks/loads-check.mts`, 13 checks; `checks/calls-check.mts`, 15 checks; `examples/commit.mts`, 12
   comparisons). `examples/commit.mts` is a slice of the app's commit surface: its status and the diff of the selected file as
   reads, and staging, unstaging and a push as writes. Two files staged at once are both under way and both gone when
   they end; the status is read again when the repository changes; selecting another file gives up the read of the
@@ -1095,7 +1095,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   data is handed over as it is and is not frozen; a field replaced by an equal value runs its reader; and nothing a
   reader is handed can be written. One of many, reached from outside by name and key: a change in one runs only that
   one's reader; one that is not running reads as nothing, and its reader runs when it starts and when it stops. A
-  reader of whether one write is under way runs for that one and not for another (`checks/makes-check.mts`). The same file
+  reader of whether one write is pending runs for that one and not for another (`checks/calls-check.mts`). The same file
   checks a window's frame: the next paint while it shows, the next turn while it is hidden, and what was waiting
   handed over once when it hides. Six changes to a copy of the kernel and the mirror each fail a check: nothing
   frozen, everything frozen, a copy handed out, an equal value not written, a field the state no longer has kept, and
@@ -1181,9 +1181,9 @@ The design is the smaller half of the value. In the order they would pay:
 5. **A pack rule against a promise nobody awaits.** The kernel keeps a dropped ask from taking the process down, but
    the code that dropped it also never sees its answer or its refusal. `no-floating-promises` over pack sources, as a
    pack rule beside the others, refuses it for every pack.
-6. **A pack rule against a swallowed `Left`.** A `catch` in `run` or in an ask's handler that can take a `Left` has to
+6. **A pack rule against a swallowed `Cancelled`.** A `catch` in `run` or in an ask's handler that can take a `Cancelled` has to
    rethrow it. One that does not lets the code carry on after its state was left. The kernel already drops what that
-   code returns and raises `Left` again at its next ask, so what the rule protects is a side effect outside the state,
+   code returns and raises `Cancelled` again at its next ask, so what the rule protects is a side effect outside the state,
    a file written or a process started, made by code that should have stopped. Refusals come back as values, so
    ordinary code has no reason to catch around an ask and the rule should fire rarely.
 7. **The rough edges the examples showed.** The two under Not built about fields: a default that still has to be
@@ -1218,7 +1218,7 @@ projects. Each would loosen the fit to this app.
   `attach(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
   one-method sink), declare optional `peers` on `Net`, and send to it via `tell({ peer: name }, event)`. Tells
   deliver `peer.tell(name, event)` after the step commits with no view hold (or record `outcome: 'dropped'` in
-  `StepLog.left` if unattached).
+  `StepLog.sent` if unattached).
 - **Field names unique along a path** are enforced at compile time (`NoShadowedData`) and at runtime (`cannotBegin()`).
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
@@ -1239,7 +1239,7 @@ projects. Each would loosen the fit to this app.
     step that brings the stored one forward.
 
   Open: what brings a kept state back and in what order among those it started and those it asked; what an ask
-  it was answering is told; and what its views and its makes are on the way back. The brain is ported first,
+  it was answering is told; and what its views and its calls are on the way back. The brain is ported first,
   with runs that end with the process as they do now.
 - **Rows** ([Rows](#rows)): the rule is proven on elmdb. What is left:
   - *A step that must be on disk before it answers.* `transact` takes `durable: true`; a handler has no way to ask
@@ -1257,7 +1257,7 @@ projects. Each would loosen the fit to this app.
 - **Delayed transitions and history states.** History states are absent (the app uses none). Monotonic delays and
   step-stamped time are built: a system takes a structural `Clock` (`now` and `after`, matching `@apackdev/clock`'s
   `controller.clock` and `@apackdev/orderings`'s `schedule.clock` via `onSchedule(schedule)`), stamps `StepLog.now`
-  and `scope.now` once per step, and offers `scope.sleep(ms)` in `run` and `asks` with cancellation on exit or
+  and `scope.now` once per step, and offers `scope.sleep(ms)` in `run` and `answers` with cancellation on exit or
   completion. Wall-clock deadlines (`until(wallTime)`) are [deferred](deferred/wall-deadlines.md) until kept states
   arrive.
 - **The kernel's own rough edge.** Reading a state that has ended throws.

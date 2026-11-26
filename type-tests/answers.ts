@@ -12,10 +12,10 @@ type CounterEvent = from.CounterEvent
 // What must not compile.
 state<Counter, CounterEvent, CounterAsks>()({
   data: { count: 0 },
-  start: 'open',
+  initial: 'open',
   states: {
     open: {
-      asks: {
+      answers: {
         // @ts-expect-error after a wait, data is changed by editing a draft, not by giving fields worked out before it
         ADD_LATER: async (_, { data }) => answered('added' as const, { data: { count: data.count + 1 } }),
         // @ts-expect-error a move into `closed` has to give its reason
@@ -29,14 +29,14 @@ state<Counter, CounterEvent, CounterAsks>()({
 })
 
 // After an await, a move's gained data accepts read-only values straight from `data`.
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 type ListAsks = { FINISH: { args: {}; answer: 'done' } }
-reaching()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
+forNet()<{ data: { items: string[] }; states: { open: {}; done: { data: { snapshot: string[] } } } }, never, ListAsks>()({
   data: { items: [] },
-  start: 'open',
+  initial: 'open',
   states: {
     open: {
-      asks: {
+      answers: {
         FINISH: async (_, { data }) => answered('done' as const, { at: 'done', data: { snapshot: data.items } }),
       },
     },

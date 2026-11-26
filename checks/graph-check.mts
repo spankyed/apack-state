@@ -24,7 +24,7 @@ await run([
     const { out, err, status } = graph('checks/graphs/written-short.mts')
     strictEqual(status, 0, err)
     ok(out.includes('reaches: tell where()'), out)
-    ok(out.includes('awaits  lookup: library LOOKUP, from what from names'), out)
+    ok(out.includes('loads   lookup: library LOOKUP, from what from names'), out)
   }],
   ['given nothing to read, or a file that is not there, it says so and fails', () => {
     const none = graph()

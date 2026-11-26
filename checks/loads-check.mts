@@ -1,23 +1,23 @@
-// The asks a state awaits. These are reads: one is there because the data says so, for as long as it does. It names
+// The asks a state loads. These are reads: one is there because the data says so, for as long as it does. It names
 // the fields it reads, or the field with one for each of its keys, and which are asked follows from the data.
 //
-//   npx vitest run awaits
+//   npx vitest run loads
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { sample, type Schedule } from '@apackdev/orderings'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 type LibraryAsks = { LOOKUP: { args: { query: string }; progress: string; answer: string } }
 type App = { systems: { library: { events: never; asks: LibraryAsks } }; surfaces: {}; views: {} }
-export const state = reaching<App>()
+export const state = forNet<App>()
 
 /** What the library was asked and what it was told to give up, in order. */
 const library = (did: string[]) => state<{}, never, LibraryAsks>()({
-  asks: {
+  answers: {
     LOOKUP: async ({ query }, { progress, signal }) => {
       did.push(`lookup ${query}`)
       signal.addEventListener('abort', () => { did.push(`gave up ${query}`) })
@@ -44,7 +44,7 @@ export type Reader = {
 
 const reader = state<Reader, ReaderEvent>()({
   data: { title: 'Reader', query: '', again: 0, found: null, heard: [], watched: [], labels: {}, circling: 0, problem: null, pending: '', got: null },
-  start: 'on',
+  initial: 'on',
 
   on: {
     SET_QUERY: ({ query }) => ({ data: { query, found: null } }),
@@ -58,34 +58,34 @@ const reader = state<Reader, ReaderEvent>()({
 
   states: {
     on: {
-      awaits: (asking) => ({
+      loads: (load) => ({
         // Nothing is looked up while there is nothing to look up, and `again` only counts.
-        lookup: asking('library', 'LOOKUP', {
+        lookup: load('library', 'LOOKUP', {
           from: ['query', 'again'],
           args: ({ query }) => query !== '' && { query },
-          heard: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
-          ended: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : { data: { problem: outcome.failure.message } }),
+          progress: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
+          done: (outcome) => (outcome.ok ? { data: { found: outcome.value } } : { data: { problem: outcome.failure.message } }),
         }),
 
         // One for each thing watched. It is asked once for its key, and what it found stays.
-        label: asking('library', 'LOOKUP', {
+        label: load('library', 'LOOKUP', {
           each: 'watched',
           args: (id) => ({ query: id }),
-          ended: (outcome, { key }) => (outcome.ok ? { data: (d) => { d.labels[key] = outcome.value } } : undefined),
+          done: (outcome, { key }) => (outcome.ok ? { data: (d) => { d.labels[key] = outcome.value } } : undefined),
         }),
 
         // Asked from a field that how it ended changes: it would ask itself again for good.
-        circle: asking('library', 'LOOKUP', {
+        circle: load('library', 'LOOKUP', {
           from: ['circling'],
           args: ({ circling }) => circling > 0 && { query: `round ${circling}` },
-          ended: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
+          done: (_, { data }) => ({ data: { circling: data.circling + 1 } }),
         }),
 
         // Asked while something is pending, and how it ended clears it: it asks for nothing, which cannot come round.
-        once: asking('library', 'LOOKUP', {
+        once: load('library', 'LOOKUP', {
           from: ['pending'],
           args: ({ pending }) => pending !== '' && { query: pending },
-          ended: (outcome) => ({ data: { pending: '', got: outcome.ok ? outcome.value : null } }),
+          done: (outcome) => ({ data: { pending: '', got: outcome.ok ? outcome.value : null } }),
         }),
       }),
     },

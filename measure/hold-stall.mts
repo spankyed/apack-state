@@ -12,7 +12,7 @@
 //
 //   npx tsx measure/hold-stall.mts
 import { cpus, loadavg } from 'node:os'
-import { reaching, system, type ViewHost } from '../src/index.ts'
+import { forNet, system, type ViewHost } from '../src/index.ts'
 import { connect } from '../src/testing.ts'
 import { elmdb } from '../checks/store-elmdb.mts'
 import { reading } from './record.mts'
@@ -24,7 +24,7 @@ const GIVE_UP_MS = 10_000
 
 type Net = { systems: { rows: { events: never; asks: { CREATE: { args: { id: string }; answer: string } } } }; surfaces: {}; views: { rows: { count: { args: { view: string }; result: number } } } }
 type PanelAsks = { ADD: { args: { id: string }; answer: boolean } }
-const linked = reaching<Net>()
+const linked = forNet<Net>()
 
 type Hold = 'every watch settled' | 'each view caught up'
 const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => {
@@ -36,13 +36,13 @@ const run = async (hold: Hold): Promise<{ took: number[]; unended: number }> => 
     return hold === 'each view caught up' ? running : { stop: () => running.stop(), caughtUp: (then) => store.settled(then) }
   }
   const backend = system({ side: 'backend', transact: store.transact, views })
-  backend.start('rows', linked<{}, never, Net['systems']['rows']['asks']>()({ asks: { CREATE: ({ id }) => { store.put('thread', 'asked', { topic: id }); return id } } }))
+  backend.start('rows', linked<{}, never, Net['systems']['rows']['asks']>()({ answers: { CREATE: ({ id }) => { store.put('thread', 'asked', { topic: id }); return id } } }))
   const window = system({ side: 'window' })
   const link = connect(window, backend)
   const panel = window.start('panel', linked<{ data: { views: string[]; counts: Record<string, number> } }, never, PanelAsks>()({
     data: { views: Array.from({ length: VIEWS }, (_, at) => String(at)), counts: {} },
-    follows: (follow) => ({ count: follow('rows', 'count', { each: 'views', args: (view) => ({ view }), heard: (update, { key }) => (update.ok ? { data: (d) => { d.counts[key] = update.value } } : undefined) }) }),
-    asks: { ADD: async ({ id }, { ask }) => (await ask('rows', 'CREATE', { id })).ok },
+    follows: (follow) => ({ count: follow('rows', 'count', { each: 'views', args: (view) => ({ view }), updated: (update, { key }) => (update.ok ? { data: (d) => { d.counts[key] = update.value } } : undefined) }) }),
+    answers: { ADD: async ({ id }, { ask }) => (await ask('rows', 'CREATE', { id })).ok },
   }))
   // The steady stream: a write every 2 ms, each its own unit, from outside any ask, to each view's row in turn.
   let written = 0

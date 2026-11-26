@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, run } from './checks.mts'
 import { explore, replay, sample, type Schedule } from '@apackdev/orderings'
-import { reaching, system } from '../src/index.ts'
+import { forNet, system } from '../src/index.ts'
 
 type FinderAsks = {
   /** Says a piece, does its work, says another, and answers. */
@@ -27,10 +27,10 @@ type App = {
   surfaces: { panel: { events: PanelEvent } }
   views: {}
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 const finder = (schedule: Schedule) => state<{}, never, FinderAsks>()({
-  asks: {
+  answers: {
     FIND: async ({ query }, { progress }) => {
       progress(`${query}:1`)
       await schedule.work(`finding ${query}`, null)
@@ -61,7 +61,7 @@ type Panel = { data: { query: string; results: string[]; pieces: string[] }; sta
 /** A search whose results are its answer: only the search that is running can be heard from. */
 const panel = (held: { locks: number; unwound: number }) => state<Panel, PanelEvent>()({
   data: { query: '', results: [], pieces: [] },
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: ({ query }) => ({ at: 'searching', data: { query, results: [], pieces: [] } }),
     CANCEL: () => ({ at: 'idle' }),
@@ -85,7 +85,7 @@ const panel = (held: { locks: number; unwound: number }) => state<Panel, PanelEv
 /** The same search with its results taken from a broadcast: whichever search finishes last is the one shown. */
 const broadcastPanel = state<Panel, PanelEvent>()({
   data: { query: '', results: [], pieces: [] },
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: ({ query }) => ({ at: 'searching', data: { query, results: [], pieces: [] } }),
     RESULTS: ({ results }) => ({ data: { results } }),
@@ -102,7 +102,7 @@ const broadcastPanel = state<Panel, PanelEvent>()({
 /** A search that does its own work, with nobody to ask: what it finds comes back as what `run` returns. */
 const ownWork = (schedule: Schedule) => state<Panel, PanelEvent>()({
   data: { query: '', results: [], pieces: [] },
-  start: 'idle',
+  initial: 'idle',
   on: { START: ({ query }) => ({ at: 'searching', data: { query, results: [] } }) },
   states: {
     idle: {},
@@ -120,7 +120,7 @@ const ownWork = (schedule: Schedule) => state<Panel, PanelEvent>()({
 /** Writes down everything it hears, in the order it hears it. */
 type Listener = { states: { idle: {}; listening: {} } }
 const listener = (heard: string[]) => state<Listener, PanelEvent>()({
-  start: 'idle',
+  initial: 'idle',
   on: {
     START: () => ({ at: 'listening' }),
     NOTE: ({ note }) => { heard.push(`note ${note}`) },
@@ -231,11 +231,11 @@ const broken = (schedule: Schedule): (() => void) => {
 // ── what a window says to its backend, in order ─────────────────────────────────────────────────────────────────────
 
 type Said = { systems: { notes: { events: { type: 'NOTE'; n: number }; asks: { READ: { args: {}; answer: number[] } } } }; surfaces: {}; views: {} }
-const saying = reaching<Said>()
+const saying = forNet<Said>()
 const notes = saying<{ data: { heard: number[] } }, { type: 'NOTE'; n: number }, { READ: { args: {}; answer: number[] } }>()({
   data: { heard: [] },
   on: { NOTE: ({ n }) => ({ data: (d) => { d.heard.push(n) } }) },
-  asks: { READ: (_, { data }) => [...data.heard] },
+  answers: { READ: (_, { data }) => [...data.heard] },
 })
 /** Tells the backend one thing, asks it what it has heard, and tells it another. */
 const sayer = (answered: number[][]) => saying<{}, never>()({

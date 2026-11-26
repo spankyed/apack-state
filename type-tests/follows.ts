@@ -10,39 +10,39 @@ type ShopEvent = from.ShopEvent
 // What must not compile.
 state<Shop, ShopEvent>()({
   data: { currency: '', total: null, watching: [], prices: {}, note: '', problem: null },
-  start: 'browsing',
+  initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error there is no such view
-    stock: follow('shop', 'stock', { from: [], args: () => ({}), heard: () => {} }),
+    stock: follow('shop', 'stock', { from: [], args: () => ({}), updated: () => {} }),
     // @ts-expect-error the total is asked for a currency, not an id
-    total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: currency }), heard: () => {} }),
+    total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: currency }), updated: () => {} }),
     // @ts-expect-error a currency is neither a list nor keyed, so it cannot say which prices to follow
-    price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), heard: () => {} }),
+    price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), updated: () => {} }),
     // @ts-expect-error it reads the note, which it did not name: a field it does not name is not there to read
-    noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: note }), heard: () => {} }),
+    noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: note }), updated: () => {} }),
     // @ts-expect-error the shop has no such field to read from
-    missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), heard: () => {} }),
+    missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), updated: () => {} }),
   }),
   states: { browsing: {}, away: {} },
 })
 state<Shop, ShopEvent>()({
   data: { currency: '', total: null, watching: [], prices: {}, note: '', problem: null },
-  start: 'browsing',
+  initial: 'browsing',
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
-    price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), heard: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
+    price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
     // @ts-expect-error a view is followed from fields or for each key, not both at once
-    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), heard: () => {} }),
+    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), updated: () => {} }),
   }),
   states: { browsing: {}, away: {} },
 })
 
 // `args` accepts read-only values straight from `data`.
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 type ListNet = { systems: {}; surfaces: {}; views: { items: { list: { args: { ids: string[] }; result: number } } } }
-reaching<ListNet>()<{ data: { ids: string[] } }, never>()({
+forNet<ListNet>()<{ data: { ids: string[] } }, never>()({
   data: { ids: [] },
   follows: (follow) => ({
-    list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), heard: () => {} }),
+    list: follow('items', 'list', { from: ['ids'], args: ({ ids }) => ({ ids }), updated: () => {} }),
   }),
 })

@@ -5,9 +5,9 @@
 import * as path from 'path'
 import * as os from 'os'
 import * as fs from 'fs/promises'
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 
-const state = reaching()
+const state = forNet()
 
 // ── stand-ins for the real imports ──────────────────────────────────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ function resolveHomePath(inputPath: string): string {
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export const librarySystem = state<{}, LibraryEvent, LibraryAsks>()({
-  asks: {
+  answers: {
     // ── documents ───────────────────────────────────────────────────────────────────────────────────────────────────
 
     async CREATE_DOCUMENT({ name, content, tags, collectionId, documentType }) {

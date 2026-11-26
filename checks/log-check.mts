@@ -4,7 +4,7 @@
 //   npx vitest run log
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { given, reaching, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
+import { given, forNet, type Handled, type Sent, type StepLog, type ViewHost } from '../src/index.ts'
 import { memory, type Rows } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -20,11 +20,11 @@ type App = {
   surfaces: { panel: { events: PanelEvent } }
   views: {}
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 const notes = (store: Rows) => state<{ data: { written: string[] } }, never, NotesAsks>()({
   data: { written: [] },
-  asks: {
+  answers: {
     WRITE: ({ text }, { progress, broadcast, refuse }) => {
       if (!text) throw refuse('empty', `Nothing to write: ${MARK}`, { text: MARK })
       store.put('thread', text, { topic: text })
@@ -37,7 +37,7 @@ const notes = (store: Rows) => state<{ data: { written: string[] } }, never, Not
 
 const panel = state<{ data: { draft: string; seen: string[] }; states: { idle: {}; sending: { data: { text: string } } }; internal: { type: 'SENT'; text: string } }, PanelEvent>()({
   data: { draft: '', seen: [] },
-  start: 'idle',
+  initial: 'idle',
   on: {
     TYPE: ({ text }) => ({ data: { draft: text } }),
     SEND: (_, { data }) => ({ at: 'sending', data: { text: data.draft } }),
@@ -63,62 +63,62 @@ type Kinds = {
   surfaces: {}
   views: { threads: { count: { args: {}; result: number } } }
 }
-const kinds = reaching<Kinds>()
+const kinds = forNet<Kinds>()
 
 /** Answers a run once its id is let go: `now` at once, anything else when this check says. */
 const worker = (letGo: (id: string) => Promise<void>) => kinds<{}, { type: 'PING' }, WorkAsks>()({
   on: { PING: () => {} },
-  asks: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
+  answers: { RUN: async ({ id }, { progress }) => { progress(`on ${id}`); await letGo(id); return id } },
 })
-/** Makes a run of the worker for each id it is given, and lets one go. */
-const jobs = kinds<{ data: { done: string[] }; states: { on: { makes: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
+/** Calls a run of the worker for each id it is given, and cancels one. */
+const jobs = kinds<{ data: { done: string[] }; states: { on: { calls: { run: 'each' } } } }, { type: 'ADD'; id: string } | { type: 'DROP'; id: string }>()({
   data: { done: [] },
-  start: 'on',
+  initial: 'on',
   states: {
     on: {
-      makes: ({ each }) => ({
+      calls: ({ each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
-          heard: () => undefined,
-          ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
+          progress: () => undefined,
+          done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined),
         }),
       }),
-      on: { ADD: ({ id }, { make }) => { make('run', id) }, DROP: ({ id }, { drop }) => { drop('run', id) } },
+      on: { ADD: ({ id }, { call }) => { call('run', id) }, DROP: ({ id }, { cancel }) => { cancel('run', id) } },
     },
   },
 })
 /** Answers a run while it is open, once its id is let go; closed, it has left what it was answering. */
 const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { open: {}; shut: {} } }, { type: 'CLOSE' }, WorkAsks>()({
-  start: 'open',
+  initial: 'open',
   states: {
-    open: { asks: { RUN: async ({ id }) => { await letGo(id); return id } }, on: { CLOSE: () => ({ at: 'shut' }) } },
+    open: { answers: { RUN: async ({ id }) => { await letGo(id); return id } }, on: { CLOSE: () => ({ at: 'shut' }) } },
     shut: {},
   },
 })
-/** Makes one save at a time, of the id it was told. */
-const saver = kinds<{ data: { id: string }; states: { on: { makes: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
+/** Calls one save at a time, of the id it was told. */
+const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
   data: { id: '' },
-  start: 'on',
+  initial: 'on',
   states: {
     on: {
-      makes: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), ended: () => undefined }) }),
-      on: { SAVE: ({ id }, { make }) => { make('save'); return { data: { id } } } },
+      calls: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
+      on: { SAVE: ({ id }, { call }) => { call('save'); return { data: { id } } } },
     },
   },
 })
 /** Work that ends, or throws. */
 const runs = (breaks: boolean) => kinds<{ states: { busy: {}; idle: {} } }, never>()({
-  start: 'busy',
+  initial: 'busy',
   states: { busy: { async run() { if (breaks) throw new Error('it broke') }, failed: () => ({ at: 'idle' }) }, idle: {} },
 })
 /** Work in a state inside another: named by its path. */
 const nested = kinds<{ states: { outer: { states: { inner: {}; done: {} } } } }, never>()({
-  start: 'outer',
-  states: { outer: { start: 'inner', states: { inner: { async run() {}, failed: () => ({ at: 'outer.done' }) }, done: {} } } },
+  initial: 'outer',
+  states: { outer: { initial: 'inner', states: { inner: { async run() {}, failed: () => ({ at: 'outer.done' }) }, done: {} } } },
 })
 /** Asks the worker to run something that is never let go. */
 const asker = kinds<{ states: { asking: {}; asked: {} } }, never>()({
-  start: 'asking',
+  initial: 'asking',
   states: { asking: { async run({ ask }) { await ask('worker', 'RUN', { id: 'never' }) }, failed: () => ({ at: 'asked' }) }, asked: {} },
 })
 /** Sends itself the same event as it handles it, without end. */
@@ -126,16 +126,16 @@ const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => {
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
-  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), heard: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+  follows: (follow) => ({ count: follow('threads', 'count', { args: () => ({}), updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
 })
 /** Once its work has waited a turn, outside any step, tells the worker something. */
 const teller = kinds<{ states: { telling: {}; told: {} } }, never>()({
-  start: 'telling',
+  initial: 'telling',
   states: { telling: { async run({ tell }) { await Promise.resolve(); tell('worker', { type: 'PING' }) }, failed: () => ({ at: 'told' }) }, told: {} },
 })
 const countOf = (store: Rows): ViewHost => (_feature, _view, _args, heard) => store.watch(() => store.count('thread'), (value) => heard({ ok: true, value }))
 const handledIn = (logs: readonly StepLog[]): Handled[] => logs.flatMap((step) => step.handled)
-const leftIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.left)
+const leftIn = (logs: readonly StepLog[]): Sent[] => logs.flatMap((step) => step.sent)
 /** While an ask is held unanswered nothing comes to rest, so a few turns are let pass instead. */
 const turns = async (): Promise<void> => { for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => { nextTurn(resolve) }) }
 const has = <T,>(all: readonly T[], one: T): void => { ok(all.some((each) => { try { deepStrictEqual(each, one); return true } catch { return false } }), `${JSON.stringify(one)} is not among ${JSON.stringify(all)}`) }
@@ -160,14 +160,14 @@ await run([
     await rest()
     const typed = logs.window.at(-1)!
     deepStrictEqual(typed.handled, [{ kind: 'event', ref: 'panel', name: 'TYPE' }])
-    strictEqual(typed.ended, 'committed')
+    strictEqual(typed.status, 'committed')
     deepStrictEqual(logs.window.map((step) => step.number), logs.window.map((_, at) => at + 1))
   }],
   ['what changed is each state\'s fields that did, whether it moved, and where it is', async () => {
     const { window, handle, logs } = wired()
     window.send(handle, { type: 'TYPE', text: 'hello' })
     await rest()
-    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, making: false, at: 'idle' } })
+    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, at: 'idle' } })
     window.send(handle, { type: 'SEND' })
     await rest()
     const sent = logs.window.find((step) => step.handled[0]?.name === 'SEND')!
@@ -179,15 +179,15 @@ await run([
     window.send(handle, { type: 'TYPE', text: 'hello' })
     window.send(handle, { type: 'SEND' })
     await rest()
-    const left = (of: StepLog[]) => of.flatMap((step) => step.left)
+    const left = (of: StepLog[]) => of.flatMap((step) => step.sent)
     ok(left(logs.window).some((sent) => sent.kind === 'ask' && sent.to === 'notes' && sent.name === 'WRITE'), JSON.stringify(left(logs.window)))
     const answered = logs.backend.find((step) => step.handled[0]?.kind === 'ask')!
     deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE' })
     // Taken once, and logged once.
     strictEqual(answered.handled.filter((one) => one.kind === 'ask').length, 1)
-    deepStrictEqual(answered.left.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
-    deepStrictEqual(answered.left.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
-    deepStrictEqual(answered.left.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
+    deepStrictEqual(answered.sent.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
+    deepStrictEqual(answered.sent.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
+    deepStrictEqual(answered.sent.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
     // The window's state sent itself what its work found: an event of its own.
     ok(logs.window.some((step) => step.handled.some((one) => one.kind === 'event' && one.name === 'SENT' && one.own === true)))
   }],
@@ -198,17 +198,17 @@ await run([
     const empty = asker.start('panel', panel)
     asker.send(empty, { type: 'SEND' })
     await rest()
-    ok(logs.backend.flatMap((step) => step.left).some((sent) => sent.kind === 'answer' && sent.outcome === 'empty'))
+    ok(logs.backend.flatMap((step) => step.sent).some((sent) => sent.kind === 'answer' && sent.outcome === 'empty'))
   }],
   ['a step whose rows could not be kept is logged as lost', async () => {
     const { window, handle, logs } = wired({ failNext: 'the disk is full' })
     window.send(handle, { type: 'TYPE', text: 'hello' })
     window.send(handle, { type: 'SEND' })
     await rest()
-    const lost = logs.backend.find((step) => step.ended === 'lost')
-    ok(lost, JSON.stringify(logs.backend.map((step) => step.ended)))
+    const lost = logs.backend.find((step) => step.status === 'lost')
+    ok(lost, JSON.stringify(logs.backend.map((step) => step.status)))
     // Whoever asked in it was told it failed, and the log says so.
-    has(lost.left, { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'failed' })
+    has(lost.sent, { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'failed' })
   }],
   ['a step whose rows could not be kept logs what its states sent as they ended: an ask one was answering, abandoned', async () => {
     const store = memory()
@@ -222,9 +222,9 @@ await run([
     store.failNext('the disk is full')
     backend.send(writer, { type: 'WRITE' })
     await turns()
-    const lost = logs.find((step) => step.ended === 'lost')
-    ok(lost, JSON.stringify(logs.map((step) => step.ended)))
-    has(lost.left, { kind: 'abandoned', to: 'worker', name: 'RUN' })
+    const lost = logs.find((step) => step.status === 'lost')
+    ok(lost, JSON.stringify(logs.map((step) => step.status)))
+    has(lost.sent, { kind: 'abandoned', to: 'worker', name: 'RUN' })
   }],
   ['what is sent to a state that is not running is logged once, as it is taken', async () => {
     const logs: StepLog[] = []
@@ -258,7 +258,7 @@ await run([
     const made = backend.start('saver', saver)
     backend.send(made, { type: 'SAVE', id: 'a' })
     await rest()
-    has(handledIn(logs), { kind: 'make', ref: 'saver', name: 'save' })
+    has(handledIn(logs), { kind: 'call', ref: 'saver', name: 'save' })
   }],
   ['nothing any of it carried is in a log', async () => {
     const { window, handle, logs } = wired()
@@ -292,17 +292,17 @@ await run([
     backend.send(made, { type: 'DROP', id: 'later' })
     await turns()
     const handled = handledIn(logs)
-    has(handled, { kind: 'make', ref: 'jobs', name: 'run', key: 'now' })
-    has(handled, { kind: 'progressed', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'call', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'progress', ref: 'jobs', name: 'run', key: 'now' })
     has(handled, { kind: 'answer', ref: 'worker', name: 'RUN' })
-    has(handled, { kind: 'ended', ref: 'jobs', name: 'run', key: 'now' })
-    has(handled, { kind: 'drop', ref: 'jobs', name: 'run', key: 'later' })
+    has(handled, { kind: 'done', ref: 'jobs', name: 'run', key: 'now' })
+    has(handled, { kind: 'cancel', ref: 'jobs', name: 'run', key: 'later' })
     has(handled, { kind: 'result', ref: 'ends', name: 'busy' })
     has(handled, { kind: 'failure', ref: 'breaks', name: 'busy' })
     has(handled, { kind: 'view', ref: 'watcher', name: 'count' })
     // A state that moved and changed none of its fields says so, and where it is.
     const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
-    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, making: false, at: 'idle' })
+    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, at: 'idle' })
     for (const resolve of held.values()) resolve()
     await rest()
     // Every run was answered: nothing is abandoned when the system stops.
@@ -348,12 +348,12 @@ await run([
     await turns()
     has(handledIn(logs), { kind: 'answer', ref: 'worker', name: 'RUN' })
   }],
-  ['a step that runs away is logged as cut short', async () => {
+  ['a step that runs away is logged as halted', async () => {
     const logs: StepLog[] = []
     const window = system({ side: 'window', log: (step) => { logs.push(step) }, trace: () => {} })
     window.send(window.start('runaway', runaway), { type: 'AGAIN' })
     await turns()
-    ok(logs.some((step) => step.ended === 'cut short'), JSON.stringify(logs.map((step) => step.ended)))
+    ok(logs.some((step) => step.status === 'halted'), JSON.stringify(logs.map((step) => step.status)))
   }],
   ['a window that starts and stops following in one turn logs both follow and unfollow and stops the view', async () => {
     const store = memory()

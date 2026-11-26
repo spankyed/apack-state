@@ -21,10 +21,10 @@ export interface Following {
 export interface Port {
   /** Something happened. Nobody waits. */
   tell(to: string, event: unknown): void
-  /** Asks. `heard` takes what is said before the answer, `ended` how it ended. Returns what to call when whoever asked has gone. */
-  ask(to: string, name: string, args: unknown, heard: (update: unknown) => void, ended: (outcome: PortOutcome) => void): () => void
-  /** Follows a view. `shown` takes its result and each changed result after it, `over` that it has ended and why. */
-  follow(feature: string, view: string, args: unknown, shown: (update: unknown) => void, over: (failure: Failure) => void): Following
+  /** Asks. `progress` takes what is said before the answer, `done` how it finished. Returns what to call when whoever asked has gone. */
+  ask(to: string, name: string, args: unknown, progress: (update: unknown) => void, done: (outcome: PortOutcome) => void): () => void
+  /** Follows a view. `updated` takes its result and each changed result after it, `failed` that it has failed and why. */
+  follow(feature: string, view: string, args: unknown, updated: (update: unknown) => void, failed: (failure: Failure) => void): Following
 }
 /** A tell-only port for a named non-window peer: matches a full `@apackdev/link` `Port` or a one-method sink. */
 export type PeerPort = Pick<Port, 'tell'>

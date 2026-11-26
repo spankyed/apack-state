@@ -15,9 +15,9 @@ When a state outlives its process ([the plan](../plan.md), *A state that is kept
 different from starting it fresh:
 
 - **Separate `restore(...)` from `start(...)`** (as XState v6's `xstate/persist` separates `restoreActor` from
-  `createActor`). Fresh startup initializes defaults, enters `start` substates, and launches `run()`; restoration
-  rehydrates `{ at, data }` from a committed snapshot, re-attaches standing reads (`starts`, `follows`, `awaits`),
-  does **not** re-run one-shot writes (`makes`) or unasked `run()` work, and invokes a declared `restored` handler
+  `createActor`). Fresh startup initializes defaults, enters `initial` substates, and launches `run()`; restoration
+  rehydrates `{ at, data }` from a committed snapshot, re-attaches standing reads (`starts`, `follows`, `loads`),
+  does **not** re-run one-shot writes (`calls`) or unasked `run()` work, and invokes a declared `restored` handler
   so the state decides what happens next.
 - **Structural Standard Schema boundary validation.** Accept an optional structural `StandardSchemaV1`-shaped
   validator (`~standard.validate`) at persistence and untrusted wire boundaries so packs can plug in Zod, Valibot,
@@ -70,7 +70,7 @@ list in `data`.
 ### What it would take
 
 - A per-`Running` FIFO postpone queue cleared on `end()`, re-enqueued into `inside` when `at` changes in `go()`.
-- Clear rules for `StepLog` visibility, `asks` (likely event-only, not asks), and runaway/queue limits.
+- Clear rules for `StepLog` visibility, `answers` (likely event-only, not asks), and runaway/queue limits.
 
 ### What would make it worth starting
 
@@ -93,7 +93,7 @@ waiting: {
 ```
 
 Because `run` is `async`, the type system requires a `failed` handler even though `sleep()` can only reject with
-`Left` (which cancels without calling `failed`). In addition, [tools/graph.mts](../../tools/graph.mts) sees arbitrary
+`Cancelled` (which cancels without calling `failed`). In addition, [tools/graph.mts](../../tools/graph.mts) sees arbitrary
 async work rather than a declared timeout edge (as XState's `after` or `gen_statem`'s `state_timeout` exposes).
 
 ### Why not yet
@@ -147,8 +147,8 @@ Recorded here so they are not re-proposed without new evidence:
 - **Parallel regions and history states (XState v6 / SCXML):** Already declined in [the plan](../plan.md); separate
   states plus atomic steps handle concurrency without region-interaction complexity.
 - **`always` eventless transitions and `final`/`output` (XState v6):** Plain JS handlers compute targets directly;
-  standing reactions belong in `starts`/`follows`/`awaits`; child completion already uses `report(event)`.
+  standing reactions belong in `starts`/`follows`/`loads`; child completion already uses `report(event)`.
 - **Mutable non-reactive `refs` and `watch`/`track` (Zag.js v1):** Mutable `refs` break frozen-value/rollback
-  guarantees (`run()` closures + `use(release)` hold handles instead); declarative `from`/`each` replace `watch`.
+  guarantees (`run()` closures + `onExit(release)` hold handles instead); declarative `from`/`each` replace `watch`.
 - **`reenter: true` (XState v6):** Unnecessary because `{ data }` updates in place while `{ at }` always enters the
   target state afresh.

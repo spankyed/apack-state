@@ -11,7 +11,7 @@ type PanelEvent = from.PanelEvent
 // Work that awaits has to say where the state goes if it fails. Work that does not, need not.
 state<Panel, PanelEvent>()({
   data: { count: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   states: {
     idle: {},
     // @ts-expect-error its work awaits, and it does not say where it goes when that fails

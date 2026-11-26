@@ -6,7 +6,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run, system } from './checks.mts'
 import { explore, type Schedule } from '@apackdev/orderings'
-import { answered, given, reaching } from '../src/index.ts'
+import { answered, given, forNet } from '../src/index.ts'
 import { memory, WROTE_OUTSIDE_A_STEP, type Rows } from './store.mts'
 import { elmdb } from './store-elmdb.mts'
 import { nextTurn } from '../src/turn.ts'
@@ -27,7 +27,7 @@ type Events =
   | { type: 'BACK' }
   | { type: 'JOIN'; from: string; to: string }
   | { type: 'JOIN_AHEAD'; from: string; to: string }
-const state = reaching()
+const state = forNet()
 
 type Threads = {
   data: { count: number; touched: number; problem: string | null }
@@ -48,7 +48,7 @@ const commands = (store: Rows) => ({
 
 const threads = (store: Rows, read: (path: string) => Promise<string> = async (path) => `read ${path}`) => state<Threads, Events, Asks>()({
   data: { count: 0, touched: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   on: {
     NOTE: ({ id }, { data }) => { store.put('thread', id, { topic: 'noted' }); return { data: { count: data.count + 1 } } },
     // Two rows, and then it throws.
@@ -63,7 +63,7 @@ const threads = (store: Rows, read: (path: string) => Promise<string> = async (p
     // In one step: the join first, and the thread it joins to after.
     JOIN_AHEAD: ({ from, to }, { send }) => { send({ type: 'JOIN', from, to }); send({ type: 'NOTE', id: to }) },
   },
-  asks: {
+  answers: {
     // The thread and its parent's link, and then the refusal: the link is looked for after the thread is written.
     CREATE: ({ id, topic, parent }, { data, refuse }) => {
       if (store.get('thread', id)) throw refuse('taken', `There is a thread ${id}`)
@@ -153,15 +153,15 @@ const settled = async (store: ReturnType<typeof elmdb>): Promise<void> => {
 
 type SourceAsks = { FIND: { args: { q: string }; answer: string; progress: string } }
 type Sourced = { systems: { source: { events: never; asks: SourceAsks } }; surfaces: {}; views: {} }
-const sourced = reaching<Sourced>()
+const sourced = forNet<Sourced>()
 /** Says it has begun, waits a turn, and answers. */
 const source = sourced<{}, never, SourceAsks>()({
-  asks: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
+  answers: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
 })
 type KeeperEvents = { type: 'SET'; query: string } | { type: 'SAVE' }
-type Keeper = { data: { query: string; got: string[] }; makes: { save: 'one' } }
+type Keeper = { data: { query: string; got: string[] }; calls: { save: 'one' } }
 /**
- * Awaits a read of what its query names and makes a write when told to, and writes a row each time it hears from
+ * Loads a read of what its query names and calls a write when told to, and writes a row each time it hears from
  * either and each time one ends. A query that says so has it throw after writing, in the one place it names.
  */
 const keeper = (store: Rows) => {
@@ -173,21 +173,21 @@ const keeper = (store: Rows) => {
     data: { query: '', got: [] },
     on: {
       SET: ({ query }) => ({ data: { query } }),
-      SAVE: (_, { make }) => { make('save') },
+      SAVE: (_, { call }) => { call('save') },
     },
-    awaits: (asking) => ({
-      lookup: asking('source', 'FIND', {
+    loads: (load) => ({
+      lookup: load('source', 'FIND', {
         from: ['query'],
         args: ({ query }) => query !== '' && { q: query },
-        heard: (_updates, { data }) => { note('read heard', data.query) },
-        ended: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
+        progress: (_updates, { data }) => { note('read heard', data.query) },
+        done: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
       }),
     }),
-    makes: ({ one }) => ({
+    calls: ({ one }) => ({
       save: one('source', 'FIND', {
         args: ({ query }) => ({ q: `save ${query}` }),
-        heard: (_updates, { data }) => { note('write heard', data.query) },
-        ended: (_outcome, { data }) => { note('write ended', data.query) },
+        progress: (_updates, { data }) => { note('write heard', data.query) },
+        done: (_outcome, { data }) => { note('write ended', data.query) },
       }),
     }),
   })
@@ -199,7 +199,7 @@ const stores: readonly Kept[] = [['in memory', memory], ['in elmdb', elmdb]]
 let before: Rows | undefined
 
 /** A state that says when it ends. */
-const noting = (name: string, ended: string[]) => state<{}>()({ run({ use }) { use(() => { ended.push(name) }) } })
+const noting = (name: string, ended: string[]) => state<{}>()({ run({ onExit }) { onExit(() => { ended.push(name) }) } })
 
 const made = (open: () => Rows, later?: Schedule['later'], read?: (path: string) => Promise<string>) => {
   before?.close()

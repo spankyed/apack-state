@@ -4,10 +4,10 @@
 //   npx vitest run clock
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run, system } from './checks.mts'
-import { Left, reaching, type Clock, type StepLog } from '../src/index.ts'
+import { Cancelled, forNet, type Clock, type StepLog } from '../src/index.ts'
 import { explore, onSchedule } from '../src/testing.ts'
 
-const state = reaching()
+const state = forNet()
 
 type ConnEvent = { type: 'CONNECTED' } | { type: 'RETRY' }
 type Conn = {
@@ -17,7 +17,7 @@ type Conn = {
 
 const connection = state<Conn, ConnEvent>()({
   data: { startedAt: -1, timedOutAt: null, unwound: 0, failed: 0 },
-  start: 'connecting',
+  initial: 'connecting',
   states: {
     connecting: {
       on: { CONNECTED: () => ({ at: 'connected' }) },
@@ -25,7 +25,7 @@ const connection = state<Conn, ConnEvent>()({
         try {
           await scope.sleep(30_000)
         } catch (error) {
-          if (error instanceof Left) return
+          if (error instanceof Cancelled) return
           throw error
         }
         return { at: 'unreachable', data: { timedOutAt: scope.now } }
@@ -114,7 +114,7 @@ await run([
     type TickShape = { states: { idle: {}; working: {}; done: {} } }
     type TickEvent = { type: 'GO' } | { type: 'INNER' }
     const ticker = state<TickShape, TickEvent>()({
-      start: 'idle',
+      initial: 'idle',
       on: {
         GO: (_, scope) => {
           strictEqual('key' in scope, false)
@@ -197,13 +197,13 @@ await run([
     type NoClockAsks = { PING: { args: {}; answer: string }; NOW: { args: {}; answer: number } }
     const noClock = state<NoClockShape, NoClockEvent, NoClockAsks>()({
       data: { count: 0 },
-      start: 'idle',
+      initial: 'idle',
       on: {
         INC: (_, { data }) => ({ data: { count: data.count + 1 } }),
         READ_NOW: (_, scope) => { void scope.now },
         SLEEP: () => ({ at: 'sleeping' }),
       },
-      asks: {
+      answers: {
         PING: () => 'pong',
         NOW: (_, scope) => scope.now,
       },
@@ -243,7 +243,7 @@ await run([
     sleepError = undefined
     let returnedPromise = false
     const syncNoClock = state<{ states: { checking: {} } }>()({
-      start: 'checking',
+      initial: 'checking',
       states: {
         checking: {
           run({ sleep }) {
@@ -269,7 +269,7 @@ await run([
     const errors: unknown[] = []
     let syncReturnedPromise = false
     const badSleep = state<{ states: { idle: {}; checking: {} } }, { type: 'TRY'; ms: number }>()({
-      start: 'idle',
+      initial: 'idle',
       on: { TRY: () => ({ at: 'checking' }) },
       states: {
         idle: {},
@@ -307,7 +307,7 @@ await run([
     const found = await explore((schedule) => {
       const seen: unknown[] = []
       const onSched = state<{ states: { checking: {}; done: {} } }>()({
-        start: 'checking',
+        initial: 'checking',
         states: {
           checking: {
             async run({ sleep }) { await sleep(Number.NaN) },
@@ -328,11 +328,11 @@ await run([
     strictEqual(found.failure, undefined)
   }],
 
-  ['sleep on an already-aborted scope rejects with Left without calling clock.after', async () => {
+  ['sleep on an already-aborted scope rejects with Cancelled without calling clock.after', async () => {
     const manual = manualClock()
     const saw: string[] = []
     const preAborted = state<{ states: { working: {}; idle: {} } }, { type: 'LEAVE' }>()({
-      start: 'working',
+      initial: 'working',
       states: {
         working: {
           on: { LEAVE: () => ({ at: 'idle' }) },
@@ -340,14 +340,14 @@ await run([
             try {
               await sleep(1_000)
             } catch (error) {
-              saw.push(error instanceof Left && error.message === 'sleep was left before it finished' ? 'cancelled Left' : String(error))
+              saw.push(error instanceof Cancelled && error.message === 'sleep was cancelled before it finished' ? 'cancelled Cancelled' : String(error))
               throw error
             } finally {
               try {
                 await sleep(500)
                 saw.push('finally sleep resolved')
               } catch (error) {
-                saw.push(error instanceof Left && error.message === 'sleep was left before it finished' ? 'finally sleep Left' : String(error))
+                saw.push(error instanceof Cancelled && error.message === 'sleep was cancelled before it finished' ? 'finally sleep Cancelled' : String(error))
               }
             }
           },
@@ -362,7 +362,7 @@ await run([
     strictEqual(manual.afterCalls(), 1)
     sys.send(h, { type: 'LEAVE' })
     await rest()
-    deepStrictEqual(saw, ['cancelled Left', 'finally sleep Left'])
+    deepStrictEqual(saw, ['cancelled Cancelled', 'finally sleep Cancelled'])
     strictEqual(manual.afterCalls(), 1, 'second sleep did not register a timer on a dead scope')
     strictEqual(sys.idle(), true)
   }],
@@ -374,7 +374,7 @@ await run([
     }
     let caught: unknown
     const failing = state<{ states: { waiting: {}; done: {} } }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
           async run({ sleep }) { await sleep(-1) },
@@ -392,7 +392,7 @@ await run([
     strictEqual(sys.idle(), true)
   }],
 
-  ['a throwing cancel callback from clock.after still unwinds sleep with Left and comes to rest', async () => {
+  ['a throwing cancel callback from clock.after still unwinds sleep with Cancelled and comes to rest', async () => {
     const traces: string[] = []
     const saw: string[] = []
     const throwingCancel: Clock = {
@@ -400,13 +400,13 @@ await run([
       after: () => () => { throw new Error('cancel broke') },
     }
     const cancellable = state<{ states: { waiting: {}; done: {} } }, { type: 'LEAVE' }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
           on: { LEAVE: () => ({ at: 'done' }) },
           async run({ sleep }) {
             try { await sleep(1_000) } catch (error) {
-              saw.push(error instanceof Left && error.message.includes('sleep') ? 'Left' : String(error))
+              saw.push(error instanceof Cancelled && error.message.includes('sleep') ? 'Cancelled' : String(error))
               throw error
             }
           },
@@ -419,7 +419,7 @@ await run([
     const h = sys.start('c', cancellable)
     sys.send(h, { type: 'LEAVE' })
     await rest()
-    deepStrictEqual(saw, ['Left'])
+    deepStrictEqual(saw, ['Cancelled'])
     ok(traces.some((line) => /DEFECT: cancelling a sleep threw: cancel broke/.test(line)), traces.join('\n'))
     strictEqual(sys.idle(), true)
   }],
@@ -434,7 +434,7 @@ await run([
       },
     }
     const syncWait = state<{ states: { waiting: {}; done: {} } }, { type: 'LEAVE' }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
           on: { LEAVE: () => ({ at: 'done' }) },
@@ -464,7 +464,7 @@ await run([
     strictEqual(sys2.idle(), true)
   }],
 
-  ['a synchronous abort during clock.after cancels the timer and rejects sleep with Left', async () => {
+  ['a synchronous abort during clock.after cancels the timer and rejects sleep with Cancelled', async () => {
     let cancelCalls = 0
     const saw: string[] = []
     let leaveNow!: () => void
@@ -476,7 +476,7 @@ await run([
       },
     }
     const reentrant = state<{ states: { idle: {}; waiting: {}; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
-      start: 'idle',
+      initial: 'idle',
       on: { GO: () => ({ at: 'waiting' }) },
       states: {
         idle: {},
@@ -485,7 +485,7 @@ await run([
           async run({ sleep }) {
             await Promise.resolve()
             try { await sleep(1_000) } catch (error) {
-              saw.push(error instanceof Left ? 'Left' : String(error))
+              saw.push(error instanceof Cancelled ? 'Cancelled' : String(error))
               throw error
             }
           },
@@ -501,7 +501,7 @@ await run([
     await rest()
     strictEqual(sys.read(h).at, 'done')
     strictEqual(cancelCalls, 1)
-    deepStrictEqual(saw, ['Left'])
+    deepStrictEqual(saw, ['Cancelled'])
     strictEqual(sys.idle(), true)
   }],
 
@@ -511,11 +511,11 @@ await run([
     const traces: string[] = []
     let released = 0
     const sleeper = state<{ states: { waiting: {} } }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
-          async run({ sleep, use }) {
-            use(() => { released++ })
+          async run({ sleep, onExit }) {
+            onExit(() => { released++ })
             await sleep(30_000)
           },
           failed: () => {},
@@ -523,7 +523,7 @@ await run([
       },
     })
     const catcher = state<{ states: { waiting: {} } }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
           async run({ sleep }) {
@@ -534,7 +534,7 @@ await run([
       },
     })
     const abortThrower = state<{ states: { waiting: {} } }>()({
-      start: 'waiting',
+      initial: 'waiting',
       states: {
         waiting: {
           run({ signal }) {
@@ -556,7 +556,7 @@ await run([
     })
     type WaitAsks = { WAIT_REJECT: { args: {}; answer: string }; WAIT_RESOLVE: { args: {}; answer: string } }
     const waiter = state<{}, never, WaitAsks>()({
-      asks: {
+      answers: {
         WAIT_REJECT: async (_, { sleep }) => { await sleep(30_000); return 'late' },
         WAIT_RESOLVE: async (_, { sleep }) => { try { await sleep(30_000) } catch { return 'caught' } return 'late' },
       },
@@ -630,9 +630,9 @@ await run([
     type UnawaitedShape = { states: { idle: {}; asyncReturn: {}; asyncThrow: {}; syncReturn: {}; syncThrow: {} } }
     type UnawaitedEvent = { type: 'GO'; at: 'asyncReturn' | 'asyncThrow' | 'syncReturn' | 'syncThrow' }
     const unawaited = state<UnawaitedShape, UnawaitedEvent, UnawaitedAsks>()({
-      start: 'idle',
+      initial: 'idle',
       on: { GO: ({ at }) => ({ at }) },
-      asks: {
+      answers: {
         ASYNC_RETURN: async (_, { sleep }) => { void sleep(30_000); await Promise.resolve(); return 'ok' },
         ASYNC_THROW: async (_, { sleep }) => { void sleep(30_000); await Promise.resolve(); throw new Error('boom') },
         SYNC_RETURN: (_, { sleep }) => { void sleep(30_000); return 'ok' },
@@ -694,8 +694,8 @@ await run([
 
     // 9. asker leaving cancels sleep inside an asks handler
     type CallerNet = { systems: { u: { events: never; asks: UnawaitedAsks } }; surfaces: {}; views: {} }
-    const callerState = reaching<CallerNet>()<{ states: { asking: {}; done: {} } }, { type: 'LEAVE' }>()({
-      start: 'asking',
+    const callerState = forNet<CallerNet>()<{ states: { asking: {}; done: {} } }, { type: 'LEAVE' }>()({
+      initial: 'asking',
       states: {
         asking: {
           on: { LEAVE: () => ({ at: 'done' }) },
@@ -718,7 +718,7 @@ await run([
       const unwound: boolean[] = []
       const failed: unknown[] = []
       const raced = state<{ states: { connecting: {}; connected: {}; unreachable: {} } }, { type: 'CONNECTED' }>()({
-        start: 'connecting',
+        initial: 'connecting',
         states: {
           connecting: {
             on: { CONNECTED: () => ({ at: 'connected' }) },
@@ -726,7 +726,7 @@ await run([
               try {
                 await sleep(30_000)
               } catch (error) {
-                if (error instanceof Left) { unwound.push(true); throw error }
+                if (error instanceof Cancelled) { unwound.push(true); throw error }
                 throw error
               }
               return { at: 'unreachable' }

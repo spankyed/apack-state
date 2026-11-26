@@ -12,7 +12,7 @@ import * as runtime from '@vue/runtime-core'
 import { createRenderer, defineComponent, h, nextTick, ref, type Component } from '@vue/runtime-core'
 import { mirrors } from '../src/mirror.ts'
 import { run, system } from './checks.mts'
-import { given, reaching, type Each } from '../src/index.ts'
+import { given, forNet, type Each } from '../src/index.ts'
 import { vueBinding } from '../src/vue.ts'
 
 // ── what is rendered into ───────────────────────────────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ let written: 'render functions' | 'templates' = 'render functions'
 
 // ── the states ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const state = reaching()
+const state = forNet()
 type Card = { data: { id: string; label: string; bumps: number } }
 const card = state<Card, { type: 'BUMP' }>()({
   data: { id: given, label: given, bumps: 0 },
@@ -70,7 +70,7 @@ type BoardEvent =
   | { type: 'CLOSE' }
 export const board = state<Board, BoardEvent>()({
   data: { title: 'Board', items: {}, told: 0 },
-  start: 'open',
+  initial: 'open',
   starts: (start) => ({ card: start(card, { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }) }),
   on: {
     ADD: ({ id, label }) => ({ data: (d) => { d.items[id] = label } }),
@@ -323,7 +323,7 @@ const either: Array<[string, () => Promise<void>]> = [
   ['unmounting a Vue component while an async ask and view update are in flight cleans up cleanly', async () => {
     let deliver!: (u: { ok: true; value: string }) => void
     let resolveAsk!: (v: string) => void
-    const s = reaching<{
+    const s = forNet<{
       systems: { panel: { events: never; asks: { LOAD: { args: {}; answer: string } } } }
       surfaces: {}
       views: { notes: { title: { args: {}; result: string } } }
@@ -333,10 +333,10 @@ const either: Array<[string, () => Promise<void>]> = [
       follows: (follow) => ({
         title: follow('notes', 'title', {
           args: () => ({}),
-          heard: (u) => (u.ok ? { data: { title: u.value } } : undefined),
+          updated: (u) => (u.ok ? { data: { title: u.value } } : undefined),
         }),
       }),
-      asks: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },
+      answers: { LOAD: () => new Promise<string>((r) => { resolveAsk = r }) },
     })
     const sys = system({
       side: 'window',

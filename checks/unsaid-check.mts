@@ -5,7 +5,7 @@
 //   npx vitest run unsaid
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { answered, given, reaching, type StepLog } from '../src/index.ts'
+import { answered, given, forNet, type StepLog } from '../src/index.ts'
 import { memory } from './store.mts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -30,13 +30,13 @@ type App = {
   surfaces: { panel: { events: PanelEvent } }
   views: { notes: { list: { args: {}; result: string } } }
 }
-const state = reaching<App>()
+const state = forNet<App>()
 
 /** Keeps what it was told and what it was asked, in the order they came. */
 const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEvent, EarAsks>()({
   data: { heard: [] },
   on: { NOTE: ({ text }, { data }) => ({ data: { heard: [...data.heard, text] } }) },
-  asks: {
+  answers: {
     ECHO: ({ text }) => answered(text, { data: (d) => { d.heard.push(`asked ${text}`) } }),
     SLOW: async ({ text }, { progress }) => {
       progress(`working ${text}`)
@@ -49,7 +49,7 @@ const ear = (gate?: Promise<void>) => state<{ data: { heard: string[] } }, EarEv
 /** Says something every way a backend state can, and then ends as it is told to. `ended` is told how the ask it made ended. */
 const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: number; problem: string | null }; states: { idle: {}; working: { data: { how: 'at once' | 'in failed' } } } }, DeskEvent, DeskAsks>()({
   data: { count: 0, problem: null },
-  start: 'idle',
+  initial: 'idle',
   on: {
     COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
     SAY: ({ how }, { tell, send, broadcast }) => {
@@ -63,7 +63,7 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
     WORK: ({ how }) => ({ at: 'working', data: { how } }),
     REST: () => ({ at: 'idle' }),
   },
-  asks: {
+  answers: {
     DO: ({ how }, { tell, send, broadcast, progress, ask, refuse }) => {
       tell('ear', { type: 'NOTE', text: 'doing' })
       send({ type: 'COUNT' })
@@ -118,7 +118,7 @@ const panel = (ended: (outcome: unknown) => void) => state<{ data: { seen: strin
       return undefined
     },
   },
-  asks: {
+  answers: {
     RELAY: ({ how }, { ask }) => {
       const done = ask('desk', 'DO', { how: 'made' })
       void done.then(ended)
@@ -214,7 +214,7 @@ await run([
     await rest()
     const step = it.steps.find((each) => each.handled[0]?.name === 'DO')!
     deepStrictEqual(step.handled, [{ kind: 'ask', ref: 'desk', name: 'DO' }])
-    deepStrictEqual(step.left, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
+    deepStrictEqual(step.sent, [{ kind: 'answer', to: 'desk', name: 'DO', outcome: 'failed' }])
   }],
   ['work that fails at once has said nothing, and goes where the state says', async () => {
     const it = wired()
@@ -298,12 +298,12 @@ await run([
   ['a handler that drops what is being made and then throws has dropped nothing', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const maker = state<{ data: { done: string[] }; makes: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
+    const maker = state<{ data: { done: string[] }; calls: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
       data: { done: [] },
-      makes: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), ended: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
+      calls: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
       on: {
-        START: (_, { make }) => { make('work') },
-        FAIL_DROP: (_, { drop }) => { drop('work'); throw new Error('drop broke') },
+        START: (_, { call }) => { call('work') },
+        FAIL_DROP: (_, { cancel }) => { cancel('work'); throw new Error('drop broke') },
       },
     })
     const backend = system({ side: 'backend' })
@@ -311,36 +311,36 @@ await run([
     const theMaker = backend.start('maker', maker)
     backend.send(theMaker, { type: 'START' })
     backend.send(theMaker, { type: 'FAIL_DROP' })
-    strictEqual(backend.read(theMaker).making.work, true)
+    strictEqual(backend.read(theMaker).pending.work, true)
     release()
     await rest()
     deepStrictEqual(backend.read(theMaker).data.done, ['kept'])
     deepStrictEqual(backend.read(theEar).data.heard, ['slow kept'])
   }],
-  ['a view, awaited read, or made ask handler that throws has said nothing', async () => {
+  ['a view, loaded read, or called ask handler that throws has said nothing', async () => {
     let deliverView!: (update: { ok: true; value: string }) => void
-    const reactor = state<{ data: { ready: boolean }; makes: { job: 'one' } }, { type: 'GO' }>()({
+    const reactor = state<{ data: { ready: boolean }; calls: { job: 'one' } }, { type: 'GO' }>()({
       data: { ready: true },
       follows: (follow) => ({
         list: follow('notes', 'list', {
           args: () => ({}),
-          heard: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
+          updated: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from view' }); throw new Error('view broke') },
         }),
       }),
-      awaits: (wait) => ({
+      loads: (wait) => ({
         read: wait('ear', 'ECHO', {
           from: ['ready'],
           args: () => ({ text: 'read' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
+          done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
         }),
       }),
-      makes: ({ one }) => ({
+      calls: ({ one }) => ({
         job: one('ear', 'ECHO', {
           args: () => ({ text: 'job' }),
-          ended: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
+          done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
         }),
       }),
-      on: { GO: (_, { make }) => { make('job') } },
+      on: { GO: (_, { call }) => { call('job') } },
     })
     const backend = system({
       side: 'backend',
@@ -424,7 +424,7 @@ await run([
       const earH = sys.start('ear', ear())
       const actor = state<{ data: { n: number }; states: { idle: {}; bad: {} } }, { type: 'GO' }>()({
         data: { n: 0 },
-        start: 'idle',
+        initial: 'idle',
         on: { GO: () => ({ at: 'bad' }) },
         states: {
           idle: {},
@@ -457,16 +457,16 @@ await run([
         other: {}
       }
     }, { type: 'GO' }>()({
-      start: 'idle',
+      initial: 'idle',
       on: { GO: () => ({ at: 'outer' }) },
       states: {
         idle: {},
         outer: {
           run() { order.push('outer'); return { at: 'other' } },
-          start: 'inner',
+          initial: 'inner',
           states: {
             inner: {
-              run({ use }) { order.push('inner'); use(() => { order.push('left-inner') }) },
+              run({ onExit }) { order.push('inner'); onExit(() => { order.push('left-inner') }) },
             },
           },
         },
@@ -486,7 +486,7 @@ await run([
       const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
       const actor = state<{ data: { n: number }; states: { idle: {}; step: {}; done: { data: { tag?: string | undefined } } } }, { type: 'GO' }>()({
         data: { n: 0 },
-        start: 'idle',
+        initial: 'idle',
         on: { GO: () => ({ at: 'step' }) },
         states: {
           idle: {},
@@ -530,11 +530,11 @@ await run([
       },
     })
     const worker = state<{ states: { busy: {}; done: {} } }, { type: 'LEAVE' }, { SLOW: { args: {}; answer: string } }>()({
-      start: 'busy',
+      initial: 'busy',
       states: {
         busy: {
           on: { LEAVE: () => ({ at: 'done' }) },
-          asks: { SLOW: async () => new Promise<string>(() => {}) },
+          answers: { SLOW: async () => new Promise<string>(() => {}) },
         },
         done: {},
       },
@@ -548,7 +548,7 @@ await run([
     strictEqual(outcome.ok, false)
     if (!outcome.ok) strictEqual(outcome.failure.kind, 'abandoned')
     const lostLog = logs.at(-1)!
-    strictEqual(lostLog.ended, 'lost')
-    deepStrictEqual(lostLog.left.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
+    strictEqual(lostLog.status, 'lost')
+    deepStrictEqual(lostLog.sent.filter((s) => s.to === 'worker' && s.name === 'SLOW'), [{ kind: 'abandoned', to: 'worker', name: 'SLOW' }])
   }],
 ])

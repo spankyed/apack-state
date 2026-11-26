@@ -1,9 +1,9 @@
 // The states the component files in this folder read, and the `useState` typed for them. In the app a pack's
 // generated facade would give both.
-import { given, reaching, type Each } from '../../src/index.ts'
+import { given, forNet, type Each } from '../../src/index.ts'
 import { vueBinding } from '../../src/vue.ts'
 
-const state = reaching()
+const state = forNet()
 
 type Card = { data: { id: string; label: string; bumps: number } }
 export const card = state<Card, { type: 'BUMP' }>()({
@@ -23,7 +23,7 @@ export type BoardEvent =
   | { type: 'CLOSE' }
 export const board = state<Board, BoardEvent>()({
   data: { title: 'Board', items: {} },
-  start: 'list',
+  initial: 'list',
   starts: (start) => ({ card: start(card, { each: 'items', given: (id, data) => ({ id, label: data.items[id]! }) }) }),
   on: {
     ADD: ({ id, label }) => ({ data: (d) => { d.items[id] = label } }),

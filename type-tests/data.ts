@@ -2,9 +2,9 @@
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import { reaching } from '../src/index.ts'
+import { forNet } from '../src/index.ts'
 
-const state = reaching()
+const state = forNet()
 
 // What must not compile: a field of what a handler is handed, or of what is read from a state, cannot be assigned
 // at any depth, and a field that is a list cannot be changed in place. What the types leave is a list further in
@@ -67,7 +67,7 @@ const state = reaching()
       // @ts-expect-error a draft's field is typed writable, and what is read is not
       TAKEN: (_, { data }) => ({ data: (d) => { d.picked = data.items } }),
     },
-    asks: {
+    answers: {
       LIST: (_, { data, progress }) => { progress(data.items); return data.items },
       LIST_LATER: async (_, { data }) => data.items,
     },
