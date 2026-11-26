@@ -652,7 +652,7 @@ export function system(host: {
   const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
-      const target = typeof to === 'string' ? resolveFor(mine.top, to) : to
+      const target = typeof to === 'string' && !workSignal.aborted ? resolveFor(mine.top, to) : to
       if (target === undefined) return Promise.resolve(refusal('failed', `Could not resolve ${to as string}`))
       const asked = ask(target, name, args, workSignal, hears)
       // An ask that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the process.

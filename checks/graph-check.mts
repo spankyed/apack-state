@@ -161,18 +161,21 @@ type Net = {
 }
 const state = forNet<Net>()
 
-type DynShape = { states: { a: {}; b: {} } }
+type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'one' } }
 const nextTarget = (): string => 'b'
 const dynSys = (): string => 'svc'
 const dynPeer = (): string => 'audit'
 const buildFollows = (follow: any) => ({ docs: follow('docs', 'all', { updated: () => undefined }) })
+const calls = ({ one }: any) => ({ save: one('svc', 'GET', { done: () => undefined }) })
 const loadOpts = { done: () => undefined }
 const extraLoads = {}
 const subB = {}
+const c = {}
 
 export const dynamicState = state<DynShape, { type: 'GO' }>()({
   initial: 'a',
   follows: buildFollows,
+  calls,
   loads: (load) => ({
     ...extraLoads,
     one: load('svc', 'GET', loadOpts),
@@ -189,6 +192,7 @@ export const dynamicState = state<DynShape, { type: 'GO' }>()({
   states: {
     a: {},
     b: subB,
+    c,
   },
 })
 
@@ -206,9 +210,11 @@ export const nonInlineState = state<BuiltShape, { type: 'INC' }>()(builtDef)
       ok(dyn.findings.some((f) => f.includes('dynamic target in tell target')), dyn.findings.join('; '))
       ok(dyn.findings.some((f) => f.includes('dynamic target in tell { peer }')), dyn.findings.join('; '))
       ok(dyn.findings.some((f) => f.includes('could not statically read follows')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read calls')), dyn.findings.join('; '))
       ok(dyn.findings.some((f) => f.includes('spread in loads could not be statically read')), dyn.findings.join('; '))
       ok(dyn.findings.some((f) => f.includes('could not statically read loads.one')), dyn.findings.join('; '))
       ok(dyn.findings.some((f) => f.includes('could not statically read b')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read c')), dyn.findings.join('; '))
 
       const nonInline = graphs[1]!
       strictEqual(nonInline.title, 'BuiltShape')

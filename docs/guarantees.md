@@ -67,7 +67,9 @@ dynamic service locator:
   resolver cannot drift mid-flight.
 - **Fault isolation.** If `resolve` throws or returns an empty/non-string value, the kernel reports a structured `Defect`
   and skips the operation without corrupting state, `at.following`, `at.awaiting`, or `at.pending` (and `scope.ask()`
-  resolves to a `failed` outcome).
+  resolves to a `failed` outcome). In `vueBinding(resolve)`, there is no kernel defect channel: `resolve` runs inside
+  the binding's Vue `computed` (cached per string ref while mounted), and a thrown error propagates synchronously in
+  Vue setup/watch.
 
 ## Trusted-host boundary
 

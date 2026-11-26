@@ -141,7 +141,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           uncertain.add(`spread in ${path || 'definition'} could not be statically read`)
           continue
         }
-        if (!ts.isPropertyAssignment(property) && !ts.isMethodDeclaration(property)) continue
+        if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property) && !ts.isMethodDeclaration(property)) continue
         const name = property.name.getText()
         const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
         if (name === 'states') {
@@ -155,6 +155,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             } else if (ts.isPropertyAssignment(inner)) {
               if (ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, inner.name.getText()))
               else uncertain.add(`could not statically read ${join(path, inner.name.getText())}`)
+            } else if (ts.isShorthandPropertyAssignment(inner)) {
+              uncertain.add(`could not statically read ${join(path, inner.name.getText())}`)
             }
           }
           continue

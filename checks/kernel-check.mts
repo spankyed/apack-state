@@ -5,7 +5,7 @@
 import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run as runChecks, system } from './checks.mts'
-import { answered, given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
+import { answered, Cancelled, given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
 import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
 import { connect } from '../src/testing.ts'
 
@@ -991,6 +991,7 @@ const moves: Array<[string, () => void]> = [
     })
 
     let askOutcome: unknown
+    let capturedAsk: ((to: 'badThrow', name: 'PING', args: {}) => Promise<unknown>) | undefined
     let brokenFollowUpdates = 0
     let brokenLoadArgs = 0
     let brokenLoadDone = 0
@@ -1014,6 +1015,7 @@ const moves: Array<[string, () => void]> = [
         goodCall: one('good', 'SAVE', { done: (o) => (o.ok ? { data: { goodCall: o.value } } : undefined) }),
       }),
       run: async ({ ask }) => {
+        capturedAsk = ask as typeof capturedAsk
         askOutcome = await ask('badThrow', 'PING', {})
       },
       failed: () => {},
@@ -1100,6 +1102,12 @@ const moves: Array<[string, () => void]> = [
     strictEqual(win.read(panelH).data.rev, 1)
     strictEqual(win.read(panelH).data.goodLoad, 'pong')
     win.stop()
+    // Calling a captured ask after work has aborted rejects with Cancelled without invoking the resolver or logging a defect.
+    const defectsBeforeCancelledAsk = defects.length
+    let cancelledError: unknown
+    try { await capturedAsk!('badThrow', 'PING', {}) } catch (error) { cancelledError = error }
+    ok(cancelledError instanceof Cancelled, String(cancelledError))
+    strictEqual(defects.length, defectsBeforeCancelledAsk)
     backend.stop()
   }],
   ['forNet(resolve) memoizes resolved targets per running state instance for its lifetime', async () => {
