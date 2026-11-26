@@ -555,11 +555,20 @@ await run([
     strictEqual(guard.defects[0]!.error, boomError)
     strictEqual(guard.defects[2]!.ref, 'f')
     strictEqual(guard.defects[2]!.error, undefined)
-    throws(() => guard.assertNone(), /Unexpected kernel defect\(s\):\n.*boom!.*\n.*boom!.*\n.*has no state nope/)
+    throws(() => guard.assertNone(), (err: unknown) => {
+      ok(err instanceof Error && /Unexpected kernel defect\(s\):\n.*boom!.*\n.*boom!.*\n.*has no state nope/.test(err.message))
+      strictEqual(err.cause, boomError)
+      return true
+    })
 
     // A global `/g` regex matching at index 0 matches every occurrence without stateful `lastIndex` drift.
     guard.allow(/^f threw.*boom!/g)
-    throws(() => guard.assertNone(), /has no state nope/)
+    // When no unexpected defect carries an `error`, no `cause` property is attached.
+    throws(() => guard.assertNone(), (err: unknown) => {
+      ok(err instanceof Error && /has no state nope/.test(err.message))
+      strictEqual('cause' in err, false)
+      return true
+    })
 
     // String patterns match literally (even with regex metacharacters like `+`).
     guard.onDefect({ message: 'bad a+b' })
@@ -571,11 +580,22 @@ await run([
     // Predicate allow matches on structured Defect fields (ref / error) and still rejects non-matching defects.
     const specific = new RangeError('out of bounds')
     guard.onDefect({ message: 'range issue', ref: 'r', error: specific })
-    throws(() => guard.assertNone(), /range issue/)
+    throws(() => guard.assertNone(), (err: unknown) => {
+      ok(err instanceof Error && /range issue/.test(err.message))
+      strictEqual(err.cause, specific)
+      return true
+    })
     guard.allow((d) => d.ref === 'r' && d.error === specific)
     guard.assertNone()
+    // When an earlier unexpected defect has no `error` and a later one does, `cause` attaches the first available error.
+    const laterError = new TypeError('later error')
     guard.onDefect({ message: 'unmatched issue', ref: 'other' })
-    throws(() => guard.assertNone(), /unmatched issue/)
+    guard.onDefect({ message: 'later issue', ref: 'other', error: laterError })
+    throws(() => guard.assertNone(), (err: unknown) => {
+      ok(err instanceof Error && /unmatched issue/.test(err.message) && /later issue/.test(err.message))
+      strictEqual(err.cause, laterError)
+      return true
+    })
     sys.stop()
   }],
   ['Symbol.dispose tears down System, Connected, and DefectGuard in LIFO order and catches teardown defects', () => {

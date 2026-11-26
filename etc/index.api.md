@@ -4,6 +4,8 @@
 
 ```ts
 
+/// <reference lib="esnext.disposable" />
+
 // Warning: (ae-forgotten-export) The symbol "StartsOf" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "Names" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "UnionToIntersection" needs to be exported by the entry point index.d.ts

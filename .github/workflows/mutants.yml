@@ -32,18 +32,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The kernel in four (cut between inner functions so no loop or block straddles a boundary), the last to its
-        # end however long it grows, and every other file of src/ in one: a file added to src/ is mutated without
-        # being named here.
+        # The kernel in five balanced shards (cut between inner functions so no loop or block straddles a boundary),
+        # the last to its end however long it grows, and every other file of src/ in one: a file added to src/ is
+        # mutated without being named here.
         include:
-          - id: kernel-1-475
-            part: 'src/kernel.ts:1-475'
-          - id: kernel-476-806
-            part: 'src/kernel.ts:476-806'
-          - id: kernel-807-985
-            part: 'src/kernel.ts:807-985'
-          - id: kernel-986-end
-            part: 'src/kernel.ts:986-99999'
+          - id: kernel-1-489
+            part: 'src/kernel.ts:1-489'
+          - id: kernel-490-727
+            part: 'src/kernel.ts:490-727'
+          - id: kernel-728-1141
+            part: 'src/kernel.ts:728-1141'
+          - id: kernel-1142-1363
+            part: 'src/kernel.ts:1142-1363'
+          - id: kernel-1364-end
+            part: 'src/kernel.ts:1364-99999'
           - id: other
             part: 'src/**/*.ts,!src/kernel.ts'
     steps:
@@ -126,7 +128,7 @@ jobs:
           path: reports
       - name: Listed, and still surviving
         run: |
-          test "$(ls reports/*/mutation.json | wc -l)" -eq 5 || { echo 'A job left no report, so the list cannot be checked'; exit 1; }
+          test "$(ls reports/*/mutation.json | wc -l)" -eq 6 || { echo 'A job left no report, so the list cannot be checked'; exit 1; }
           node scripts/mutants.mjs --all "$GITHUB_STEP_SUMMARY" reports/*/mutation.json
 
   # Master's result, said where it is seen (.github/scripts/master-status.sh)
