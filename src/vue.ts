@@ -41,9 +41,10 @@ export type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Val
 
 /**
  * `Top` is what the window runs at its outermost, by the name each is started under. In the app a pack's generated
- * facade would give it, so a name that is not running does not compile.
+ * facade would give it, so a name that is not running does not compile. Pass `resolve` to map bare own-pack surface
+ * names to qualified runtime refs (applied to string `useState(name)` calls, never to `Started` child handles).
  */
-export function vueBinding<Top extends Record<string, AnyState>>() {
+export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name: string) => string) {
   /** Reads a state the window runs, by name. */
   function useState<K extends keyof Top & string>(name: K): BoundTo<Top[K]>
   /**
@@ -55,7 +56,7 @@ export function vueBinding<Top extends Record<string, AnyState>>() {
     const system = inject(SYSTEM)
     if (!system) throw new Error('No system was provided to this app. Call `provide(app, system)` where the app is made')
     const all = mirrors(system)
-    const ref = computed(() => (typeof source === 'string' ? source : toValue(source).ref))
+    const ref = computed(() => (typeof source === 'string' ? (resolve ? resolve(source) : source) : toValue(source).ref))
 
     // One mirror is held at a time, taken before the one before is let go, so that a state both name is not dropped
     // and made again. It is swapped as the handle changes, before anything reads through it.

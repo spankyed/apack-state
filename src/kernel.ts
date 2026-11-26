@@ -89,7 +89,7 @@ class Queue<T> {
 const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({ ok: false, failure: { ...data, kind, message } })
 
 type Plain = Record<string, unknown>
-type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown } | { state: { def: unknown }; given: Function; each?: string }>
+type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown; resolve?: (name: string) => string } | { state: { def: unknown; resolve?: (name: string) => string }; given: Function; each?: string }>
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
@@ -125,6 +125,8 @@ interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySe
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
   calls: Map<string, 'one' | 'each' | 'many'>
+  /** Optional name resolver attached by `forNet(resolve)` for bare-to-qualified target resolution. */
+  readonly resolve?: (name: string) => string
   /** Fields of this running state already traced as `LARGE`, freed when the state stops. */
   readonly reported: Set<string>
   ref: string; data: Plain; root: Active; starter?: { readonly ref: string; readonly from: string }
@@ -574,6 +576,8 @@ export function system(host: {
     }))
   }
 
+  const resolveFor = (top: Running, name: string): string => (top.resolve ? top.resolve(name) : name)
+
   const eventScopeOf = (mine: Active, key?: string, own?: AbortSignal) => {
     const alive = (): boolean => !mine.controller.signal.aborted && !own?.aborted
     const ref = mine.top.ref
@@ -583,8 +587,16 @@ export function system(host: {
       get now() { return stepNow ?? readNow() },
       signal: mine.controller.signal,
       send: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
-      tell: (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent) => { if (alive()) tell(to, event) },
-      broadcast: (to: string, event: AnyEvent) => { if (alive()) out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(to, event)) }, { kind: 'broadcast', to, name: event.type }) },
+      tell: (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent) => {
+        if (!alive()) return
+        const resolved = typeof to === 'string' ? resolveFor(mine.top, to) : isSurface(to) ? { surface: resolveFor(mine.top, to.surface) } : to
+        tell(resolved, event)
+      },
+      broadcast: (to: string, event: AnyEvent) => {
+        if (!alive()) return
+        const target = resolveFor(mine.top, to)
+        out(() => { for (const window of [...down]) safely('what is sent to a window', () => window.tell(target, event)) }, { kind: 'broadcast', to: target, name: event.type })
+      },
       call: (name: string, ...rest: unknown[]) => {
         if (!alive()) return
         const kind = mine.top.calls.get(name)
@@ -612,7 +624,8 @@ export function system(host: {
   const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
-      const asked = ask(to, name, args, workSignal, hears)
+      const target = typeof to === 'string' ? resolveFor(mine.top, to) : to
+      const asked = ask(target, name, args, workSignal, hears)
       // An ask that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the process.
       asked.catch(() => {})
       return asked
@@ -791,16 +804,16 @@ export function system(host: {
       const at = active
       for (const [name, declared] of Object.entries(declaredBy(at.def).starts)) {
         const under = `${top.ref}/${name}`
-        const start = (ref: string, def: unknown, from: string, given: () => Plain): void => {
+        const start = (ref: string, def: unknown, from: string, given: () => Plain, resolve?: (name: string) => string): void => {
           let entering: Plain
           try { entering = given() } catch (error) { defect(`${top.ref} could not say what to give ${ref}: ${said(error)}`, top.ref, error); return }
           const problem = cannotBegin(def as LooseDef, entering)
           if (problem) { defect(`${ref} ${problem}`, ref); return }
           at.started.add(ref)
-          begin(ref, def as LooseDef, entering, { ref: top.ref, from })
+          begin(ref, def as LooseDef, entering, { ref: top.ref, from }, resolve)
         }
-        if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({})); continue }
-        if (declared.each === undefined) { if (!at.started.has(under)) start(under, declared.state.def, name, () => declared.given(top.data) as Plain); continue }
+        if ('def' in declared) { if (!at.started.has(under)) start(under, declared.def, name, () => ({}), declared.resolve); continue }
+        if (declared.each === undefined) { if (!at.started.has(under)) start(under, declared.state.def, name, () => declared.given(top.data) as Plain, declared.state.resolve); continue }
         if (!looks(declared.each)) continue
         trace(`${top.ref} looked at ${declared.each} for which ${name} to run`)
         const wanted = new Map<string, string>()
@@ -808,7 +821,7 @@ export function system(host: {
           if (key.includes('/')) defect(`${top.ref} has a ${name} under ${JSON.stringify(key)}, and a key cannot hold a slash`, top.ref); else wanted.set(`${under}/${key}`, key)
         }
         for (const ref of [...at.started]) if (ref.startsWith(`${under}/`) && !wanted.has(ref)) { at.started.delete(ref); end(ref) }
-        for (const [ref, key] of wanted) if (!at.started.has(ref)) start(ref, declared.state.def, key, () => declared.given(key, top.data) as Plain)
+        for (const [ref, key] of wanted) if (!at.started.has(ref)) start(ref, declared.state.def, key, () => declared.given(key, top.data) as Plain, declared.state.resolve)
       }
 
       /**
@@ -876,11 +889,12 @@ export function system(host: {
         }
       }))
       if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
+        const feature = resolveFor(top, declared.feature)
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
           settle(at.following, id, seen, args, (what, live) => {
             let runningView: (() => void) | Following
             try {
-              runningView = views(declared.feature, declared.view, what, (update) => {
+              runningView = views(feature, declared.view, what, (update) => {
                 if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
               })
             } catch (error) {
@@ -908,7 +922,7 @@ export function system(host: {
             const signal = AbortSignal.any([at.controller.signal, given.signal])
             const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted
             const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) })
-            const made = ask(declared.of, declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
+            const made = ask(resolveFor(top, declared.of), declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
             // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
             made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {})
             return () => given.abort()
@@ -999,7 +1013,7 @@ export function system(host: {
     return undefined
   }
 
-  const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter']): void => {
+  const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter'], resolve?: (name: string) => string): void => {
     const calls = new Map<string, 'one' | 'each' | 'many'>()
     const survey = (of: LooseDef): void => {
       for (const [name, called] of Object.entries(declaredBy(of).calls)) calls.set(name, called.kind)
@@ -1008,7 +1022,7 @@ export function system(host: {
     survey(def)
     restarted.add(ref)
     mark(ref)
-    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, reported: new Set() }
+    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, resolve, reported: new Set() }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
     top.data = frozen(top.data)
@@ -1217,7 +1231,7 @@ export function system(host: {
       pendingChanged(top)
       const { hasInput, input } = item
       const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates }) })
-      const made = ask(declared.of, declared.ask, asked, signal, hears) as unknown as Promise<AnyOutcome>
+      const made = ask(resolveFor(top, declared.of), declared.ask, asked, signal, hears) as unknown as Promise<AnyOutcome>
       // Cancelled, it ends with `Cancelled`, which is that and nothing to hear of.
       made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {})
       return MADE
@@ -1533,7 +1547,7 @@ export function system(host: {
       if (problem) throw new Error(`${ref} ${problem}`)
       starting.add(ref)
       try {
-        run(() => { starting.delete(ref); begin(ref, def, initial) })
+        run(() => { starting.delete(ref); begin(ref, def, initial, undefined, made.resolve) })
       } catch (error) {
         starting.delete(ref)
         throw error

@@ -72,6 +72,9 @@ export type AskShape = {
     progress?: unknown;
 };
 
+// @public
+export type AsksOf<T> = T extends State<any, any, infer A, any> ? A : never;
+
 // Warning: (ae-forgotten-export) The symbol "SystemsOf" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "EachArgsOpt" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "DataAt" needs to be exported by the entry point index.d.ts
@@ -267,6 +270,9 @@ export interface EachOf<D, X> {
 export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep'>;
 
 // @public
+export type EventsOf<T> = T extends State<any, infer E, any, any> ? E : never;
+
+// @public
 export interface Failure {
     // (undocumented)
     readonly kind: string;
@@ -319,7 +325,7 @@ export interface Following {
 // Warning: (ae-forgotten-export) The symbol "GivenIn" needs to be exported by the entry point index.d.ts
 //
 // @public
-export function forNet<N extends Net = Nothing>(): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>) => State<S, E, A, GivenIn<D>>;
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export const given: unique symbol;
@@ -526,6 +532,9 @@ export type Shape = {
 };
 
 // @public
+export type ShapeOf<T> = T extends State<infer S, any, any, any> ? S : never;
+
+// @public
 export interface Start<D> {
     // (undocumented)
     <X extends AnyState>(state: X, options: {
@@ -555,6 +564,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
     };
     // (undocumented)
     readonly def: unknown;
+    readonly resolve?: (name: string) => string;
 }
 
 // @public
@@ -676,9 +686,9 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:512:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:512:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:528:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:615:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:696:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:696:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:623:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:704:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:704:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

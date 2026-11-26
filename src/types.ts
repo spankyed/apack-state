@@ -436,7 +436,18 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
 })
 
 /** A state, as something that can be started. `G` names the fields of its own data that whoever starts it has to give. */
-export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never> { readonly def: unknown; readonly _?: { s: S; e: E; a: A; g: G } }
+export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never> {
+  readonly def: unknown
+  /** Optional name resolver attached by `forNet(resolve)` for bare-to-qualified target resolution. */
+  readonly resolve?: (name: string) => string
+  readonly _?: { s: S; e: E; a: A; g: G }
+}
+/** Extracts the shape `S` declared by a `State`. */
+export type ShapeOf<T> = T extends State<infer S, any, any, any> ? S : never
+/** Extracts the external events `E` accepted by a `State`. */
+export type EventsOf<T> = T extends State<any, infer E, any, any> ? E : never
+/** Extracts the asks `A` answered by a `State`. */
+export type AsksOf<T> = T extends State<any, any, infer A, any> ? A : never
 /** The fields a definition marks `given` in its own data. */
 type GivenIn<D> = D extends { data: infer X } ? { [K in keyof X]: X[K] extends Given ? K : never }[keyof X] & string : never
 
@@ -608,10 +619,13 @@ type NoShadowedData<S, Above extends string = never> =
       }
     : unknown
 
-/** `state`, bound to the network `N` it can reach by name. In the app this is what a pack's generated facade exports. */
-export function forNet<N extends Net = Nothing>() {
-  return <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() =>
-    <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>): State<S, E, A, GivenIn<D>> => ({ def })
+/**
+ * `state`, bound to the network `N` it can reach by name. In the app this is what a pack's generated facade exports.
+ * Pass `resolve` to map bare own-pack names to qualified runtime refs (applied to string `tell`, `{ surface }`,
+ * `broadcast`, string `ask`, `loads`, `calls`, and `follows`; never to handles or `{ peer }`).
+ */
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S>) => State<S, E, A, GivenIn<D>> {
+  return () => (def) => (resolve ? { def, resolve } : { def })
 }
 
 /** Defines a standalone state that reaches no external systems, surfaces, views, or peers by name. */
