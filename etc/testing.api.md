@@ -86,37 +86,8 @@ export type FromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 // @public
 export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(options: FromEvents<S, E, A, G>): Promise<void>;
 
-// @public
-export interface Inspector {
-    bind(systemName: string, sys: System): () => void;
-    clear(): void;
-    // Warning: (ae-forgotten-export) The symbol "StateGraph" needs to be exported by the entry point testing.d.ts
-    // Warning: (ae-forgotten-export) The symbol "StateCoverage" needs to be exported by the entry point testing.d.ts
-    coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string) => StateGraph | undefined)): readonly StateCoverage[];
-    // Warning: (ae-forgotten-export) The symbol "InspectedDefect" needs to be exported by the entry point testing.d.ts
-    readonly defects: readonly InspectedDefect[];
-    // Warning: (ae-forgotten-export) The symbol "CausalEdge" needs to be exported by the entry point testing.d.ts
-    readonly edges: readonly CausalEdge[];
-    // Warning: (ae-forgotten-export) The symbol "CausalExplanation" needs to be exported by the entry point testing.d.ts
-    explain(ref: string, field?: string): CausalExplanation;
-    // Warning: (ae-forgotten-export) The symbol "ExportedTrace" needs to be exported by the entry point testing.d.ts
-    export(): ExportedTrace;
-    // Warning: (ae-forgotten-export) The symbol "FormatOptions" needs to be exported by the entry point testing.d.ts
-    format(options?: FormatOptions): string;
-    // Warning: (ae-forgotten-export) The symbol "HookForward" needs to be exported by the entry point testing.d.ts
-    // Warning: (ae-forgotten-export) The symbol "InspectorHooks" needs to be exported by the entry point testing.d.ts
-    hooks(systemName: string, forward?: HookForward): InspectorHooks;
-    // Warning: (ae-forgotten-export) The symbol "InFlightOp" needs to be exported by the entry point testing.d.ts
-    inFlight(): readonly InFlightOp[];
-    snapshots(): Readonly<Record<string, Record<string, unknown>>>;
-    // Warning: (ae-forgotten-export) The symbol "InspectedStep" needs to be exported by the entry point testing.d.ts
-    readonly steps: readonly InspectedStep[];
-    // Warning: (ae-forgotten-export) The symbol "InspectorUpdate" needs to be exported by the entry point testing.d.ts
-    subscribe(listener: (update: InspectorUpdate) => void): () => void;
-    // Warning: (ae-forgotten-export) The symbol "IgnoredEntry" needs to be exported by the entry point testing.d.ts
-    whyIgnored(ref?: string): readonly IgnoredEntry[];
-}
-
+// Warning: (ae-forgotten-export) The symbol "Inspector" needs to be exported by the entry point testing.d.ts
+//
 // @public
 export function inspectOrder(scenario: (schedule: Schedule, inspector: Inspector) => () => void | Promise<void>, options?: InspectOrderOptions): Promise<Explored>;
 
@@ -170,10 +141,10 @@ export interface WaitForOptions {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:30:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:49:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:54:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:62:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:29:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:48:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:53:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:61:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

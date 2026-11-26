@@ -14,7 +14,6 @@ import { createInspector, type Inspector } from './inspect.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type ExploreOptions, type Scenario, type Schedule } from '@apackdev/orderings'
 export type { Defect } from './kernel.ts'
-export type { Inspector } from './inspect.ts'
 
 /** A window and a backend joined across `@apackdev/link` over an in-memory transport. */
 export interface Connected {
