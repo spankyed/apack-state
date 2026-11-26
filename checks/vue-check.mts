@@ -402,6 +402,48 @@ const either: Array<[string, () => Promise<void>]> = [
     app.unmount()
     sys.stop()
   }],
+  ['vueBinding(resolve) memoizes resolved names per binding and fails fast on empty or non-string results', async () => {
+    const sys = system({ side: 'window' })
+    const box = state<{ data: { label: string } }, never>()({ data: { label: given } })
+    sys.start('epoch1/box', box, { label: 'one' })
+    sys.start('epoch2/box', box, { label: 'two' })
+
+    let epoch = 1
+    let calls = 0
+    const unstable = vueBinding<{ box: typeof box }>((name) => {
+      calls += 1
+      return `epoch${epoch}/${name}`
+    })
+    const Pair = defineComponent({
+      setup() {
+        const a = unstable.useState('box')
+        epoch = 2
+        const b = unstable.useState('box')
+        return () => h('div', `${a.state.value.data.label}:${b.state.value.data.label}`)
+      },
+    })
+    const host = node('root')
+    const app = createApp(Pair)
+    unstable.provide(app, sys)
+    app.mount(host)
+    strictEqual(shown(host), 'one:one')
+    strictEqual(calls, 1)
+    app.unmount()
+
+    for (const bad of [() => '', () => 123 as unknown as string]) {
+      const broken = vueBinding<{ box: typeof box }>(bad)
+      const errors: unknown[] = []
+      const badApp = createApp(defineComponent(() => { broken.useState('box'); return () => h('p') }))
+      badApp.config.errorHandler = (error) => { errors.push(error) }
+      badApp.config.warnHandler = () => {}
+      broken.provide(badApp, sys)
+      badApp.mount(node('bad'))
+      strictEqual(errors.length, 1)
+      ok(/non-empty string/.test(String(errors[0])), String(errors[0]))
+      badApp.unmount()
+    }
+    sys.stop()
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>

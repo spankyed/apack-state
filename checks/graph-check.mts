@@ -118,8 +118,9 @@ export const panel = state<PanelShape, { type: 'GO' } | { type: 'STOP' }>()({
   on: {
     GO: (_ev, scope) => {
       void Object.prototype.hasOwnProperty.call(scope.data, 'flag')
+      const kidHandle = scope.child('kid')
       scope.tell('svc', { type: 'PING' })
-      scope.tell(scope.child('kid'), { type: 'HI' })
+      scope.tell(kidHandle, { type: 'HI' })
       scope.broadcast('panel', { type: 'UPDATED' })
       scope.call('save')
     },

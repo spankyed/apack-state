@@ -263,16 +263,30 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
     return undefined
   }
+  const unwrapConst = (expr: any): any => {
+    const seen = new Set<any>()
+    let current = expr
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      while (ts.isParenthesizedExpression(current)) current = current.expression
+      if (!ts.isIdentifier(current)) break
+      const decl = checker.getSymbolAtLocation(current)?.valueDeclaration
+      if (!decl || !ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || !decl.initializer) break
+      current = decl.initializer
+    }
+    return current
+  }
   const isChildCall = (expr: any): boolean =>
     ts.isCallExpression(expr) && expr.arguments.length > 0 && (
       (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
       || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeReceiver(expr.expression.expression))
     )
   const hasStaticTarget = (target: any): boolean => {
-    if (ts.isStringLiteralLike(target)) return true
-    if (isChildCall(target)) return hasStaticTarget(target.arguments[0])
-    if (ts.isObjectLiteralExpression(target)) {
-      const prop = target.properties.find((p: any) =>
+    const resolvedTarget = unwrapConst(target)
+    if (ts.isStringLiteralLike(resolvedTarget)) return true
+    if (isChildCall(resolvedTarget)) return hasStaticTarget(resolvedTarget.arguments[0])
+    if (ts.isObjectLiteralExpression(resolvedTarget)) {
+      const prop = resolvedTarget.properties.find((p: any) =>
         (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
         && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
       if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
@@ -306,7 +320,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
                   const verb = verbOf(inner.expression)
                   if (verb) {
                     const target = inner.arguments[0]
-                    reaches.add(`${verb} ${isChildCall(target) ? `its ${target.arguments[0].getText()}` : target.getText()}`)
+                    const resolvedTarget = unwrapConst(target)
+                    reaches.add(`${verb} ${isChildCall(resolvedTarget) ? `its ${resolvedTarget.arguments[0].getText()}` : target.getText()}`)
                     if (!hasStaticTarget(target)) scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
                   }
                 }
