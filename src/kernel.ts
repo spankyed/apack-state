@@ -139,9 +139,9 @@ type Item =
   | { kind: 'ask'; ref: string; name: string; args: object; question: Question; progress?: (update: unknown) => void; gone?: AbortSignal }
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
-  | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown> }
-  | { kind: 'done'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; outcome: AnyOutcome }
-  | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; updates: unknown[] }
+  | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown>; opId: number }
+  | { kind: 'done'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; outcome: AnyOutcome; opId: number }
+  | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; updates: unknown[]; opId: number }
   | { kind: 'call'; of: Active; name: string; key: string | undefined; hasInput: boolean; input: unknown }
   | { kind: 'cancel'; of: Active; name: string; key: string | undefined }
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
@@ -165,6 +165,10 @@ export interface Handled {
   readonly key?: string
   /** An event the state sent itself. */
   readonly own?: true
+  /** Monotonic per-system operation id correlating async asks, answers, progress, done, and view updates. */
+  readonly id?: number
+  /** Set on an event when no handler took it (state not running, wrong substate, or internal event from outside). */
+  readonly ignored?: true
 }
 /** One thing that was sent at a step's commit: what kind, to whom, and its name. Never what it carried. */
 export interface Sent {
@@ -173,6 +177,8 @@ export interface Sent {
   readonly name?: string
   /** How an answer finished (`ok`, or its failure's kind), or `dropped` / `failed` for a peer tell. */
   readonly outcome?: string
+  /** Monotonic per-system operation id correlating outbound asks, answers, abandoned, progress, follow, and unfollow. */
+  readonly id?: number
 }
 type Said = Sent | (() => Sent)
 /**
@@ -211,6 +217,8 @@ export interface Defect {
   readonly ref?: string
   /** The thrown error or value, when the defect was caused by a throw. */
   readonly error?: unknown
+  /** Step number during which the defect occurred (matching `StepLog.number`), when inside a step or its flush. */
+  readonly step?: number
 }
 
 export interface System {
@@ -294,10 +302,16 @@ export function system(host: {
   limit?: number
 }): System {
   const trace = (line: string): void => { try { host.trace?.(line) } catch {} }
+  let activeStep: number | undefined
   const defect = (message: string, ref?: string, error?: unknown): void => {
     trace(`DEFECT: ${message}`)
     if (!host.onDefect) return
-    const entry: Defect = { message, ...(ref === undefined ? {} : { ref }), ...(error === undefined ? {} : { error }) }
+    const entry: Defect = {
+      message,
+      ...(ref === undefined ? {} : { ref }),
+      ...(error === undefined ? {} : { error }),
+      ...(activeStep === undefined ? {} : { step: activeStep }),
+    }
     try { host.onDefect(entry) } catch {}
   }
   const called = host.name ?? host.side
@@ -305,6 +319,8 @@ export function system(host: {
   let pending = 0
   /** Deterministic counter for unkeyed concurrent (`many`) calls. */
   let manySeq = 0
+  /** Monotonic per-system id correlating async asks, answers, progress, done, and follows in `StepLog`. */
+  let causalSeq = 0
   /** Counts a promise as under way until it settles, and whatever its settling does is done. */
   const under = <T,>(made: Promise<T>, done: (value: T) => void, failed: (error: unknown) => void): void => {
     pending++
@@ -329,7 +345,7 @@ export function system(host: {
   const leaving: Array<(() => void) & { lost?: () => void; said?: Said; anyway?: true; unsaid?: () => void }> = []
   const sentOf = (entry: Said): Sent => (typeof entry === 'function' ? entry() : entry)
   /** For each ask a state here was asked, which it was: what its answer is said to be to. */
-  const askedOf = new WeakMap<Question, { readonly ref: string; readonly name: string }>()
+  const askedOf = new WeakMap<Question, { readonly ref: string; readonly name: string; readonly id: number }>()
   /** The state answering each ask it answers later, until the answer is taken; and each ask it left unanswered. */
   const answeringOf = new WeakMap<Question, Active>()
   const abandoned = new WeakSet<Question>()
@@ -368,7 +384,7 @@ export function system(host: {
   /** An answer leaves when the step's rows are kept. If they cannot be, whoever asked is told that it failed. */
   const answer = (question: Question, outcome: AnyOutcome): void => {
     const asked = askedOf.get(question)
-    const said: Sent = { kind: 'answer', ...(asked ? { to: asked.ref, name: asked.name } : {}), outcome: outcome.ok ? 'ok' : outcome.failure.kind }
+    const said: Sent = { kind: 'answer', ...(asked ? { to: asked.ref, name: asked.name, id: asked.id } : {}), outcome: outcome.ok ? 'ok' : outcome.failure.kind }
     leaving.push(Object.assign(() => question.end(outcome), { lost: () => question.end(refusal('failed', 'What this step wrote could not be kept, so nothing was changed')), said, anyway: true as const }))
   }
   const changed = new Set<string>()
@@ -506,7 +522,7 @@ export function system(host: {
 
   /** An ask is under way from when it is made until it ends, however it ends. */
   const asked = <T,>(made: Promise<T>): Promise<T> => { under(made, () => {}, () => {}); return made }
-  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, onProgress: ((updates: unknown[]) => void) | undefined): Promise<never> => asked(new Promise((resolve, reject) => {
+  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, onProgress: ((updates: unknown[]) => void) | undefined, opId = ++causalSeq): Promise<never> => asked(new Promise((resolve, reject) => {
     const ref = refOf(to)
     const progress = onProgress && gather(onProgress, signal)
     // Whoever asked has gone: the ask ends where it is awaited, with `Cancelled`, so the code that asked unwinds.
@@ -514,7 +530,7 @@ export function system(host: {
     // What was gathered is handed over before the answer, so an answer is never ahead of progress sent before it.
     const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) })
     // Which ask it is, for what is logged of how it ends: here or across the link, it may end without being taken.
-    askedOf.set(question, { ref, name })
+    askedOf.set(question, { ref, name, id: opId })
     if (signal?.aborted) { left(); return }
     signal?.addEventListener('abort', left, { once: true })
     // In the same system the asker's own signal tells the answerer; across a link, the port does.
@@ -541,7 +557,7 @@ export function system(host: {
       }
       if (settled) return
       abort.addEventListener('abort', gone, { once: true })
-    }, { kind: 'ask', to: ref, name }, () => abandon(question))
+    }, { kind: 'ask', to: ref, name, id: opId }, () => abandon(question))
   }))
 
   let lastNow: number | undefined
@@ -757,7 +773,7 @@ export function system(host: {
       leaving.push(Object.assign(endAbandoned, {
         lost: endAbandoned,
         anyway: true as const,
-        said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent,
+        said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name, id: asked.id } : {}) } satisfies Sent,
       }))
     }
     for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
@@ -897,36 +913,39 @@ export function system(host: {
       // A window with no views of its own follows its backend's, over the attached port: what a view delivers comes
       // back in order with everything else the backend sends, held by the link.
       const peer = up
-      const views: ViewHost | undefined = host.views ?? (peer && ((feature, view, args, updated) => {
-        let following: Following | undefined
-        let stopped = false
-        out(() => {
-          if (stopped) return
-          following = peer.follow(
-            feature, view, args,
-            (update) => updated(update as ViewUpdate<unknown>),
-            (failure) => { following = undefined; updated({ ok: false, failure }) },
-          )
-        }, { kind: 'follow', to: feature, name: view })
-        return () => {
-          stopped = true
-          if (!following) return
-          const live = following
-          following = undefined
-          if (stepping) out(() => live.stop(), { kind: 'unfollow', to: feature, name: view })
-          else live.stop()
-        }
-      }))
-      if (views) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
+      const followVia = host.views
+        ? (feature: string, view: string, args: object, updated: (update: ViewUpdate<unknown>) => void, _opId: number) => host.views!(feature, view, args, updated)
+        : (peer && ((feature: string, view: string, args: object, updated: (update: ViewUpdate<unknown>) => void, opId: number) => {
+            let following: Following | undefined
+            let stopped = false
+            out(() => {
+              if (stopped) return
+              following = peer.follow(
+                feature, view, args,
+                (update) => updated(update as ViewUpdate<unknown>),
+                (failure) => { following = undefined; updated({ ok: false, failure }) },
+              )
+            }, { kind: 'follow', to: feature, name: view, id: opId })
+            return () => {
+              stopped = true
+              if (!following) return
+              const live = following
+              following = undefined
+              if (stepping) out(() => live.stop(), { kind: 'unfollow', to: feature, name: view, id: opId })
+              else live.stop()
+            }
+          }))
+      if (followVia) for (const [name, declared] of Object.entries(declaredBy(at.def).follows)) {
         const feature = resolveFor(top, declared.feature)
         if (feature === undefined) continue
         const followed = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
           settle(at.following, id, seen, args, (what, live) => {
+            const opId = ++causalSeq
             let runningView: (() => void) | Following
             try {
-              runningView = views(feature, declared.view, what, (update) => {
-                if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update })
-              })
+              runningView = followVia(feature, declared.view, what, (update) => {
+                if (!at.controller.signal.aborted && at.following.get(id) === live) arrive({ kind: 'view', of: at, name, id, key, live, update, opId })
+              }, opId)
             } catch (error) {
               defect(`${top.ref} could not follow ${id}: ${said(error)}`, top.ref, error)
               return undefined
@@ -950,13 +969,14 @@ export function system(host: {
         const awaited = (id: string, key: string | undefined, seen: readonly unknown[], args: () => unknown): void => {
           // Nothing to ask for is nothing asked, and it is still looked at again when its fields change.
           settle(at.awaiting, id, seen, args, (what, live) => {
+            const opId = ++causalSeq
             const given = new AbortController()
             const signal = AbortSignal.any([at.controller.signal, given.signal])
             const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted
-            const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) })
-            const made = ask(of, declared.ask, what, signal, hears) as unknown as Promise<AnyOutcome>
+            const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates, opId }) })
+            const made = ask(of, declared.ask, what, signal, hears, opId) as unknown as Promise<AnyOutcome>
             // Given up, it ends with `Cancelled`, which is that and nothing to hear of.
-            made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {})
+            made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome, opId }) }, () => {})
             return () => given.abort()
           })
         }
@@ -1172,12 +1192,12 @@ export function system(host: {
   const handledOf = (item: Exclude<Item, { kind: 'out' }>): Handled => {
     switch (item.kind) {
       case 'event': return { kind: 'event', ref: item.ref, name: item.event.type, ...(item.own ? { own: true as const } : {}) }
-      case 'ask': return { kind: 'ask', ref: item.ref, name: item.name }
+      case 'ask': return { kind: 'ask', ref: item.ref, name: item.name, id: askedOf.get(item.question)!.id }
       case 'result': case 'failure': return { kind: item.kind, ref: item.of.top.ref, name: item.of.path || item.of.name }
-      case 'view': case 'done': case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
+      case 'view': case 'done': case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }), id: item.opId }
       case 'call': case 'cancel': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
       // Every ask an answer comes back to was noted where it was made, or where it arrived to be answered.
-      case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name } }
+      case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name, id: asked.id } }
     }
   }
   /**
@@ -1257,6 +1277,7 @@ export function system(host: {
       }
       const target = resolveFor(top, declared.of)
       if (target === undefined) return NOT_MADE
+      const opId = ++causalSeq
       const given = new AbortController()
       const signal = AbortSignal.any([at.controller.signal, given.signal])
       const live: Live = { seen: [], because: new Set(), stop: () => given.abort() }
@@ -1264,10 +1285,10 @@ export function system(host: {
       at.pending.set(id, live)
       pendingChanged(top)
       const { hasInput, input } = item
-      const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates }) })
-      const made = ask(target, declared.ask, asked, signal, hears) as unknown as Promise<AnyOutcome>
+      const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates, opId }) })
+      const made = ask(target, declared.ask, asked, signal, hears, opId) as unknown as Promise<AnyOutcome>
       // Cancelled, it ends with `Cancelled`, which is that and nothing to hear of.
-      made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {})
+      made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome, opId }) }, () => {})
       return MADE
     }
     if (item.kind === 'done' || item.kind === 'progress') {
@@ -1304,10 +1325,10 @@ export function system(host: {
     // has been matched to the data.
     if (!top && !settling) { held.push(item); return MADE }
     if (item.kind === 'event') {
-      note()
       // What a state sends itself is looked for among what only it sends, and then among what anyone may. What
       // comes from outside is looked for among what anyone may send, and nowhere else.
       const found = top && ((item.own ? taker(top, 'internal', item.event.type) : undefined) ?? taker(top, 'on', item.event.type))
+      if (logging) logging.handled.push(found ? handledOf(item) : { ...handledOf(item), ignored: true })
       if (!found) {
         trace(top && !item.own && taker(top, 'internal', item.event.type)
           ? `${item.ref} was sent ${item.event.type} from outside, which only it sends itself: ignored`
@@ -1323,8 +1344,9 @@ export function system(host: {
     const { name, args, question, progress, gone } = item
     // Whoever asked already left (or finished its work) before this ask was taken: do not run the handler.
     if (gone?.aborted) return MADE
+    const askId = askedOf.get(question)?.id ?? ++causalSeq
+    askedOf.set(question, { ref: item.ref, name, id: askId })
     note()
-    askedOf.set(question, { ref: item.ref, name })
     const found = top && taker(top, 'answers', name)
     if (!found) { answer(question, refusal('unavailable', `${item.ref} does not take ${name}`)); return MADE }
     const signal = gone ? AbortSignal.any([found.of.controller.signal, gone]) : found.of.controller.signal
@@ -1344,7 +1366,7 @@ export function system(host: {
     try {
       const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, own.signal, workSignal), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
-        progress: (update: unknown) => { if (!workSignal.aborted) out(() => progress?.(update), { kind: 'progress', to: item.ref, name }) },
+        progress: (update: unknown) => { if (!workSignal.aborted) out(() => progress?.(update), { kind: 'progress', to: item.ref, name, id: askId }) },
       }))
       if (made instanceof Promise) {
         found.of.questions.add(question)
@@ -1505,6 +1527,7 @@ export function system(host: {
         else stepNow = readNow()
       }
       steps++
+      activeStep = logged + 1
       told = log ? { ...(stepNow === undefined ? {} : { now: stepNow }), handled: [], changed: {}, sent: [], status: 'committed' } : undefined
       logging = told
       // The step is one unit: its rows are kept as `transact` returns, and only then does anything leave.
@@ -1520,10 +1543,13 @@ export function system(host: {
       if (!flush) flush = prepareCommit(told)
     } finally {
       stepping = false; stepNow = undefined; hearing = undefined; logging = undefined
+      if (!flush) activeStep = undefined
     }
     flushing = true
     try { flush() } finally {
-      if (log && told) safely('the step log', () => log({ number: ++logged, ...told }))
+      const number = ++logged
+      if (log && told) safely('the step log', () => log({ number, ...told }))
+      activeStep = undefined
       flushing = false
     }
   }
