@@ -225,4 +225,63 @@ export const nonInlineState = state<BuiltShape, { type: 'INC' }>()(builtDef)
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['inspects listen at root and in substates, recording reaches with findings: none', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-listen-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'listen.ts')
+      writeFileSync(file, `
+import { forNet } from '${stateIndex}'
+type Net = {
+  systems: { svc: { events: { type: 'PING' }; asks: { SAVE: { args: {}; answer: void } } } }
+  surfaces: { panel: { events: { type: 'UPDATED' } } }
+  views: {}
+  peers: { audit: { events: { type: 'LOG' } } }
+}
+const state = forNet<Net>()
+type WatcherShape = {
+  calls: { save: 'one' }
+  states: { active: {}; paused: {} }
+}
+export const watcher = state<WatcherShape, { type: 'PAUSE' } | { type: 'RESUME' }>()({
+  initial: 'active',
+  calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => undefined }) }),
+  listen({ tell, broadcast }) {
+    tell('svc', { type: 'PING' })
+    broadcast('panel', { type: 'UPDATED' })
+    return () => {}
+  },
+  on: {
+    PAUSE: () => ({ at: 'paused' }),
+    RESUME: () => ({ at: 'active' }),
+  },
+  states: {
+    active: {
+      listen: (scope) => {
+        scope.tell({ peer: 'audit' }, { type: 'LOG' })
+        scope.call('save')
+        return () => { scope.cancel('save') }
+      },
+    },
+    paused: {},
+  },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 1, formatGraphs(graphs))
+      const g = graphs[0]!
+      deepStrictEqual(g.reaches, [
+        "tell 'svc'",
+        "broadcast 'panel'",
+        "tell { peer: 'audit' }",
+        "call 'save'",
+        "cancel 'save'",
+      ])
+      deepStrictEqual(g.findings, [])
+      ok(g.text.includes('findings: none'), g.text)
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

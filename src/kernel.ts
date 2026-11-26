@@ -89,7 +89,7 @@ class Queue<T> {
 const refusal = (kind: string, message: string, data?: object): AnyOutcome => ({ ok: false, failure: { ...data, kind, message } })
 
 type Plain = Record<string, unknown>
-type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown; resolve?: (name: string) => string } | { state: { def: unknown; resolve?: (name: string) => string }; given: Function; each?: string }>
+type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; listen?: Function; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown; resolve?: (name: string) => string } | { state: { def: unknown; resolve?: (name: string) => string }; given: Function; each?: string }>
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
@@ -245,7 +245,12 @@ export interface System {
    * and nothing gathered. For a check, to wait until what it did has come to rest and not for a count of turns.
    */
   idle(): boolean
-  stop(): void
+  /**
+   * Stops every running state in reverse start order, or, when given a top-level handle, stops only that state and
+   * everything it started. Stopping a handle that is not running is a no-op; child handles started via `starts` are
+   * refused at compile time (and throw synchronously or report a defect if passed at runtime).
+   */
+  stop(of?: Handle<unknown, never, Asks, any> & { readonly _started?: never }): void
   [Symbol.dispose](): void
 }
 
@@ -685,7 +690,27 @@ export function system(host: {
       top.data = nextData
     }
     if (path) trace(`${top.ref} entered ${path}`)
-    if (def.run) {
+    if (def.listen) {
+      let release: unknown
+      const listenNow = (): unknown => def.listen!(eventScopeOf(active))
+      const before = sayings()
+      try {
+        release = host.transact ? host.transact(listenNow) : listenNow()
+      } catch (error) {
+        unsay(before)
+        for (const cleanup of active.releases.splice(0).reverse()) safely(`a release of ${top.ref}`, cleanup, top.ref)
+        inside.push({ kind: 'failure', of: active, error })
+        return active
+      }
+      if (typeof release === 'function') {
+        const cleanup = release as () => void
+        if (active.controller.signal.aborted) safely(`a release of ${top.ref}`, cleanup, top.ref)
+        else active.releases.push(cleanup)
+      } else if (release !== undefined) {
+        defect(`${top.ref}${path ? ` in ${path}` : ''}'s listen returned a non-function value`, top.ref)
+      }
+    }
+    if (def.run && !active.controller.signal.aborted) {
       const own = new AbortController()
       const workSignal = AbortSignal.any([active.controller.signal, own.signal])
       let made: unknown
@@ -760,7 +785,7 @@ export function system(host: {
         said: { kind: 'abandoned', ...(asked ? { to: asked.ref, name: asked.name } : {}) } satisfies Sent,
       }))
     }
-    for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
+    for (const release of active.releases.splice(0).reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
     active.top.data = rest
@@ -769,8 +794,13 @@ export function system(host: {
 
   const descend = (under: Active, names: readonly string[], entering: Plain): void => {
     let active = under
-    for (const name of names) active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering)
-    while (active.def.initial !== undefined) active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering)
+    for (const name of names) {
+      if (active.controller.signal.aborted) return
+      active = enter(active.top, active.def.states?.[name] ?? {}, name, active, entering)
+    }
+    while (!active.controller.signal.aborted && active.def.initial !== undefined) {
+      active = enter(active.top, active.def.states?.[active.def.initial] ?? {}, active.def.initial, active, entering)
+    }
   }
 
   /**
@@ -1624,7 +1654,20 @@ export function system(host: {
       }
     }) as System['attach'],
     idle: () => pending === 0 && !due && !stepping && !flushing && !outside.any,
-    stop: () => run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true),
+    stop: (of) => {
+      if (of === undefined) { run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true); return }
+      const cannotStopChild = (starterRef: string): string =>
+        `${called} cannot stop ${of.ref}: it was started by ${starterRef}; change its starter's data to stop it`
+      const existing = running.get(of.ref)
+      if (existing?.starter) throw new Error(cannotStopChild(existing.starter.ref))
+      if (!existing && !outside.any) return
+      run(() => {
+        const top = running.get(of.ref)
+        if (!top) return
+        if (top.starter) { defect(cannotStopChild(top.starter.ref), of.ref); return }
+        end(of.ref)
+      }, true)
+    },
     [Symbol.dispose]: () => { self.stop() },
   }
   return self

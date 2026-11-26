@@ -10,7 +10,7 @@ The kernel tracks four distinct lifetimes. They nest, but they are **not** inter
 | Lifetime | Begins | Ends | What is atomic or cancelled |
 |---|---|---|---|
 | **System** | `system(...)` | `stop()` / `[Symbol.dispose]()` or a lost transaction | Stops all running states, cancels all work and asks, detaches ports |
-| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, or system stops | Cancels owned `run()`, `starts`, `follows`, `loads`, `calls`, and runs `onExit` releases (LIFO) |
+| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, and runs `onExit` releases (LIFO) |
 | **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `send`/`tell`/`progress` calls are ignored |
 | **Transactional step** | One outside arrival (`send`, `ask`, view update, work result) | `transact` returns and `flush()` runs | Data updates, database rows written via `transact`, and managed outgoing sends (`tell`, `broadcast`, `ask`, `answer`, `peer`) commit or roll back together |
 
@@ -45,6 +45,14 @@ network) that already ran.
 - **Late `onExit()` while work is still in flight.** If the state is left *while* async `run()` is still running (before
   `run()` returns), any subsequent `onExit(release)` registered before `run()` exits executes `release()` immediately under
   exception isolation so acquired resources are not leaked.
+- **`listen` vs. `run()`.** `listen` runs synchronously on entry (before `run()`) with a state-lifetime `EventScope` (no
+  `ask` or `sleep`) and does not block `sys.idle()`. If it returns a cleanup function, that function is registered with
+  `onExit` and runs LIFO on exit (returning a non-function non-`undefined` value reports a `Defect`). Any late callback
+  firing after the state exits ignores `send`, `tell`, `broadcast`, `call`, `cancel`, and `report`, while a late
+  `onExit(release)` runs `release()` immediately under exception isolation so resources never leak (consistent with
+  `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
+  registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
+  absent, matching synchronous `run()`).
 
 ## Handle semantics
 
@@ -56,6 +64,12 @@ incarnation token:
 - If a child at `parent/card/a` is stopped and later recreated under the same key `a`, an earlier handle for `parent/card/a`
   addresses the new incarnation. Callers that need to distinguish incarnations should carry a domain/generation id in the
   event or data.
+- **Per-ref `stop(handle)`.** Calling `sys.stop(handle)` stops only that top-level state and everything it started, leaving
+  sibling top-level states untouched so a ref can be unloaded or hot-reloaded immediately with `sys.start(ref, nextState)`.
+  Passing a handle that is not currently running is a safe no-op; passing a child handle started via `starts` is refused
+  at compile time, and at runtime throws synchronously (or reports a `Defect` if deferred behind a queued start) without
+  disturbing the starter or later queued work. `System` lifecycle methods (`start`, `stop`) are host-level imperatives
+  outside handler transaction rollback (not `Scope` operations).
 
 ## Name resolution (`forNet(resolve)` / `vueBinding(resolve)`)
 
