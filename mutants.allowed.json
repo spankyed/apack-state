@@ -150,11 +150,6 @@
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const release of active.releases.reverse()) safely(`a release of ${active.top.ref}`, release) | ``",
-    "original": "`a release of ${active.top.ref}`",
-    "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"
-  },
-  {
     "key": "src/kernel.ts | StringLiteral | for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, {}, {})) | \"\"",
     "original": "'a subscriber'",
     "why": "The words naming the place that threw, in a DEFECT line. The line is still a DEFECT and still says what was thrown; which words name the place is wording, not behaviour"

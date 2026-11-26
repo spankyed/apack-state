@@ -445,8 +445,32 @@ const checks: Array<[string, () => Promise<void>]> = [
     // 3: subscribe listener threw (no ref key, has original error)
     strictEqual('ref' in defects[3]!, false)
     strictEqual(defects[3]!.error, subBoom)
+    // 4 & 5: onExit releases (normal teardown and post-abort late registration) carry `ref` and original `error`.
+    const exitBoom = new Error('exit release boom')
+    const lateBoom = new Error('late release boom')
+    let resumeLate!: () => void
+    const withExits = forNet()<{ data: { n: number } }, never>()({
+      data: { n: 0 },
+      run: async ({ onExit }) => {
+        onExit(() => { throw exitBoom })
+        await new Promise<void>((resolve) => { resumeLate = resolve })
+        onExit(() => { throw lateBoom })
+      },
+      failed: () => {},
+    })
+    sys.start('withExits', withExits)
+    sys.stop()
+    resumeLate()
+    await rest()
+    strictEqual(defects.length, 6)
+    strictEqual(defects[4]!.ref, 'withExits')
+    strictEqual(defects[4]!.error, exitBoom)
+    ok(defects[4]!.message.includes('a release of withExits') && defects[4]!.message.includes('exit release boom'))
+    strictEqual(defects[5]!.ref, 'withExits')
+    strictEqual(defects[5]!.error, lateBoom)
+    ok(defects[5]!.message.includes('a release of withExits') && defects[5]!.message.includes('late release boom'))
     // All defects were also traced with DEFECT: prefix, and the throw inside onDefect did not recurse or crash.
-    strictEqual(traced.filter((l) => l.startsWith('DEFECT:')).length, 4)
+    strictEqual(traced.filter((l) => l.startsWith('DEFECT:')).length, 6)
   }],
 ]
 
