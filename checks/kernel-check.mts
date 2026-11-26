@@ -5,7 +5,7 @@
 import source from './kernel-check.mts?raw'
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { rest, run as runChecks, system } from './checks.mts'
-import { answered, given, forNet, type Each, type StepLog } from '../src/index.ts'
+import { answered, Cancelled, given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
 import { said, WROTE_TO_WHAT_WAS_READ } from '../src/kernel.ts'
 import { connect } from '../src/testing.ts'
 
@@ -938,6 +938,252 @@ const moves: Array<[string, () => void]> = [
     ok(backendLogs.some((s) => s.sent.some((e) => e.kind === 'broadcast' && e.to === 'packA/panel')))
     win.stop()
     backend.stop()
+  }],
+  ['forNet(resolve) isolates throwing and invalid resolvers across tell, surface, broadcast, ask, follows, loads, and calls without corrupting pending or awaiting', async () => {
+    type SvcAsks = { PING: { args: {}; answer: string }; SAVE: { args: {}; answer: string } }
+    type Net = {
+      systems: {
+        badThrow: { events: { type: 'GO' }; asks: SvcAsks }
+        badEmpty: { events: { type: 'GO' }; asks: SvcAsks }
+        badType: { events: { type: 'GO' }; asks: SvcAsks }
+        good: { events: { type: 'GO' }; asks: SvcAsks }
+      }
+      surfaces: {
+        badSurf: { events: { type: 'HI' } }
+        goodSurf: { events: { type: 'HI' } }
+      }
+      views: {
+        badView: { all: { args: {}; result: string } }
+        goodView: { all: { args: {}; result: string } }
+      }
+    }
+    const resolver = (name: string): string => {
+      if (name === 'badThrow' || name === 'badSurf' || name === 'badView') throw new Error(`boom:${name}`)
+      if (name === 'badEmpty') return ''
+      if (name === 'badType') return 123 as unknown as string
+      return `pack/${name}`
+    }
+    const netState = forNet<Net>(resolver)
+
+    const goodTells: string[] = []
+    const goodBroadcasts: string[] = []
+    const goodSurfTells: string[] = []
+    const followedFeatures: string[] = []
+    const defects: Defect[] = []
+
+    const goodSvc = netState<{}, { type: 'GO' }, SvcAsks>()({
+      on: { GO: () => { goodTells.push('good') } },
+      answers: {
+        PING: () => 'pong',
+        SAVE: () => 'saved',
+      },
+    })
+    const broadcaster = netState<{}, { type: 'SEND_BOTH' }>()({
+      on: {
+        SEND_BOTH: (_, { broadcast }) => {
+          broadcast('badSurf', { type: 'HI' })
+          broadcast('goodSurf', { type: 'HI' })
+        },
+      },
+    })
+    const goodSurf = netState<{}, { type: 'HI' }>()({
+      on: { HI: () => { goodBroadcasts.push('HI'); goodSurfTells.push('HI') } },
+    })
+
+    let askOutcome: unknown
+    let capturedAsk: ((to: 'badThrow', name: 'PING', args: {}) => Promise<unknown>) | undefined
+    let brokenFollowUpdates = 0
+    let brokenLoadArgs = 0
+    let brokenLoadDone = 0
+    const panel = netState<{
+      data: { goodView: string; goodLoad: string; goodCall: string; rev: number }
+      calls: { badCall: 'one'; emptyCall: 'one'; goodCall: 'one' }
+    }, { type: 'FIRE' } | { type: 'BUMP' }>()({
+      data: { goodView: '', goodLoad: '', goodCall: '', rev: 0 },
+      follows: (follow) => ({
+        broken: follow('badView', 'all', { updated: () => { brokenFollowUpdates += 1; return undefined } }),
+        healthy: follow('goodView', 'all', { updated: (u) => (u.ok ? { data: { goodView: u.value } } : undefined) }),
+      }),
+      loads: (load) => ({
+        broken: load('badThrow', 'PING', { from: ['rev'], args: () => { brokenLoadArgs += 1; return {} }, done: () => { brokenLoadDone += 1; return undefined } }),
+        empty: load('badEmpty', 'PING', { from: ['rev'], args: () => { brokenLoadArgs += 1; return {} }, done: () => { brokenLoadDone += 1; return undefined } }),
+        healthy: load('good', 'PING', { from: ['rev'], done: (o) => (o.ok ? { data: { goodLoad: o.value } } : undefined) }),
+      }),
+      calls: ({ one }) => ({
+        badCall: one('badThrow', 'SAVE', { done: () => undefined }),
+        emptyCall: one('badEmpty', 'SAVE', { done: () => undefined }),
+        goodCall: one('good', 'SAVE', { done: (o) => (o.ok ? { data: { goodCall: o.value } } : undefined) }),
+      }),
+      run: async ({ ask }) => {
+        capturedAsk = ask as typeof capturedAsk
+        askOutcome = await ask('badThrow', 'PING', {})
+      },
+      failed: () => {},
+      on: {
+        FIRE: (_, { tell, call }) => {
+          tell('badThrow', { type: 'GO' })
+          tell('badEmpty', { type: 'GO' })
+          tell('badType', { type: 'GO' })
+          tell({ surface: 'badSurf' }, { type: 'HI' })
+          tell('good', { type: 'GO' })
+          tell({ surface: 'goodSurf' }, { type: 'HI' })
+          call('badCall')
+          call('emptyCall')
+          call('goodCall')
+        },
+        BUMP: (_, { data }) => ({ data: { rev: data.rev + 1 } }),
+      },
+    })
+
+    const backendSteps: StepLog[] = []
+    const winSteps: StepLog[] = []
+    const backend = system({
+      side: 'backend',
+      onDefect: (d) => defects.push(d),
+      log: (step) => backendSteps.push(step),
+      views: (feature, _view, _args, updated) => {
+        followedFeatures.push(feature)
+        updated({ ok: true, value: `v:${feature}` })
+        return () => {}
+      },
+    })
+    backend.start('pack/good', goodSvc)
+    const bH = backend.start('pack/broadcaster', broadcaster)
+
+    const win = system({
+      side: 'window',
+      onDefect: (d) => defects.push(d),
+      log: (step) => winSteps.push(step),
+    })
+    connect(win, backend)
+    win.start('pack/goodSurf', goodSurf)
+    const panelH = win.start('pack/panel', panel)
+    win.send(panelH, { type: 'FIRE' })
+    backend.send(bH, { type: 'SEND_BOTH' })
+    await rest()
+
+    // Healthy siblings all ran cleanly despite broken resolver targets alongside them.
+    deepStrictEqual(followedFeatures, ['pack/goodView'])
+    deepStrictEqual(goodTells, ['good'])
+    strictEqual(goodSurfTells.length, 2) // 1 surface tell + 1 broadcast
+    strictEqual(win.read(panelH).data.goodView, 'v:pack/goodView')
+    strictEqual(win.read(panelH).data.goodLoad, 'pong')
+    strictEqual(win.read(panelH).data.goodCall, 'saved')
+    // Failed resolutions never dispatched follow, load, broadcast, or surface-tell operations.
+    strictEqual(brokenFollowUpdates, 0)
+    strictEqual(brokenLoadArgs, 0)
+    strictEqual(brokenLoadDone, 0)
+    const allSent = [...backendSteps, ...winSteps].flatMap((s) => s.sent)
+    deepStrictEqual(allSent.filter((s) => 'to' in s && s.to === undefined), [])
+    deepStrictEqual(backendSteps.flatMap((s) => s.sent).filter((s) => s.kind === 'broadcast'), [
+      { kind: 'broadcast', to: 'pack/goodSurf', name: 'HI' },
+    ])
+    deepStrictEqual(winSteps.flatMap((s) => s.sent).filter((s) => s.kind === 'follow'), [
+      { kind: 'follow', to: 'pack/goodView', name: 'all' },
+    ])
+    const allHandled = [...backendSteps, ...winSteps].flatMap((s) => s.handled)
+    deepStrictEqual(allHandled.filter((h) => 'ref' in h && h.ref === undefined), [])
+    // Failed calls never poisoned pending state.
+    strictEqual(win.read(panelH).pending.badCall, false)
+    strictEqual(win.read(panelH).pending.emptyCall, false)
+    strictEqual(win.read(panelH).pending.goodCall, false)
+    // ask() with a failing resolver resolves cleanly to a failed outcome instead of throwing.
+    deepStrictEqual(askOutcome, { ok: false, failure: { kind: 'failed', message: 'Could not resolve badThrow' } })
+    // Structured defects were reported for throwing, empty, and non-string resolver outcomes.
+    ok(defects.some((d) => d.message.includes('boom:badThrow')), JSON.stringify(defects))
+    ok(defects.some((d) => d.message.includes('boom:badSurf')), JSON.stringify(defects))
+    ok(defects.some((d) => d.message.includes('boom:badView')), JSON.stringify(defects))
+    ok(defects.some((d) => d.message.includes('badEmpty') && d.message.includes('non-empty string')), JSON.stringify(defects))
+    ok(defects.some((d) => d.message.includes('badType') && d.message.includes('non-empty string')), JSON.stringify(defects))
+
+    // Triggering another match pass on loads still skips broken loads cleanly without corrupting awaiting.
+    win.send(panelH, { type: 'BUMP' })
+    await rest()
+    strictEqual(win.read(panelH).data.rev, 1)
+    strictEqual(win.read(panelH).data.goodLoad, 'pong')
+    win.stop()
+    // Calling a captured ask after work has aborted rejects with Cancelled without invoking the resolver or logging a defect.
+    const defectsBeforeCancelledAsk = defects.length
+    let cancelledError: unknown
+    try { await capturedAsk!('badThrow', 'PING', {}) } catch (error) { cancelledError = error }
+    ok(cancelledError instanceof Cancelled, String(cancelledError))
+    strictEqual(defects.length, defectsBeforeCancelledAsk)
+    backend.stop()
+  }],
+  ['forNet(resolve) memoizes resolved targets per running state instance for its lifetime', async () => {
+    type Net = {
+      systems: { svc: { events: { type: 'PING'; tag: string }; asks: { SAVE: { args: {}; answer: string } } } }
+      surfaces: { panel: { events: { type: 'NOTE'; tag: string } } }
+      views: { docs: { all: { args: {}; result: string } } }
+    }
+    let epoch = 1
+    const invocations = new Map<string, number>()
+    const unstable = (name: string): string => {
+      invocations.set(name, (invocations.get(name) ?? 0) + 1)
+      return `epoch${epoch}/${name}`
+    }
+    const netState = forNet<Net>(unstable)
+
+    const seen: string[] = []
+    const svc = (label: string) => netState<{}, { type: 'PING'; tag: string }, { SAVE: { args: {}; answer: string } }>()({
+      on: { PING: ({ tag }) => { seen.push(`${label}:${tag}`) } },
+      answers: { SAVE: () => label },
+    })
+    const caller = netState<{ data: { rev: number; saved: string[] }; calls: { save: 'many' } }, { type: 'STEP'; tag: string }>()({
+      data: { rev: 0, saved: [] },
+      follows: (follow) => ({
+        docs: follow('docs', 'all', { from: ['rev'], updated: () => undefined }),
+      }),
+      calls: ({ many }) => ({
+        save: many('svc', 'SAVE', { done: (o, { data }) => (o.ok ? { data: { saved: [...data.saved, o.value] } } : undefined) }),
+      }),
+      on: {
+        STEP: ({ tag }, { data, tell, broadcast, call }) => {
+          tell('svc', { type: 'PING', tag })
+          broadcast('panel', { type: 'NOTE', tag })
+          call('save')
+          return { data: { rev: data.rev + 1 } }
+        },
+      },
+    })
+
+    const followed: string[] = []
+    const sys = system({
+      side: 'backend',
+      views: (feature, _view, _args, updated) => {
+        followed.push(feature)
+        updated({ ok: true, value: feature })
+        return () => {}
+      },
+    })
+    sys.start('epoch1/svc', svc('epoch1'))
+    sys.start('epoch2/svc', svc('epoch2'))
+
+    const h1 = sys.start('caller1', caller)
+    sys.send(h1, { type: 'STEP', tag: 'one' })
+    await rest()
+
+    // Flip the unstable resolver's output: h1 must keep using its memoized epoch1 targets without re-invoking unstable.
+    epoch = 2
+    sys.send(h1, { type: 'STEP', tag: 'two' })
+    await rest()
+
+    deepStrictEqual(seen, ['epoch1:one', 'epoch1:two'])
+    deepStrictEqual(sys.read(h1).data.saved, ['epoch1', 'epoch1'])
+    deepStrictEqual(followed, ['epoch1/docs', 'epoch1/docs', 'epoch1/docs'])
+    strictEqual(invocations.get('svc'), 1)
+    strictEqual(invocations.get('panel'), 1)
+    strictEqual(invocations.get('docs'), 1)
+
+    // A fresh running state instance gets its own memo table and resolves under epoch2.
+    const h2 = sys.start('caller2', caller)
+    sys.send(h2, { type: 'STEP', tag: 'three' })
+    await rest()
+
+    deepStrictEqual(seen, ['epoch1:one', 'epoch1:two', 'epoch2:three'])
+    deepStrictEqual(sys.read(h2).data.saved, ['epoch2'])
+    strictEqual(invocations.get('svc'), 2)
+    sys.stop()
   }],
 ]
 

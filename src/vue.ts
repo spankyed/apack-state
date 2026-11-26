@@ -43,8 +43,21 @@ export type BoundTo<X> = X extends State<infer S, infer E, any, any> ? Bound<Val
  * `Top` is what the window runs at its outermost, by the name each is started under. In the app a pack's generated
  * facade would give it, so a name that is not running does not compile. Pass `resolve` to map bare own-pack surface
  * names to qualified runtime refs (applied to string `useState(name)` calls, never to `Started` child handles).
+ *
+ * `resolve` must be a pure, deterministic function returning a non-empty string (never dynamic runtime lookups).
+ * Valid results are memoized per binding instance; throwing or returning an empty/non-string value fails fast in `setup()`.
  */
 export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name: string) => string) {
+  const resolved = new Map<string, string>()
+  const resolveName = (name: string): string => {
+    if (!resolve) return name
+    const cached = resolved.get(name)
+    if (cached !== undefined) return cached
+    const target = resolve(name)
+    if (typeof target !== 'string' || !target) throw new Error(`vueBinding resolver for ${name} must return a non-empty string`)
+    resolved.set(name, target)
+    return target
+  }
   /** Reads a state the window runs, by name. */
   function useState<K extends keyof Top & string>(name: K): BoundTo<Top[K]>
   /**
@@ -56,7 +69,7 @@ export function vueBinding<Top extends Record<string, AnyState>>(resolve?: (name
     const system = inject(SYSTEM)
     if (!system) throw new Error('No system was provided to this app. Call `provide(app, system)` where the app is made')
     const all = mirrors(system)
-    const ref = computed(() => (typeof source === 'string' ? (resolve ? resolve(source) : source) : toValue(source).ref))
+    const ref = computed(() => (typeof source === 'string' ? resolveName(source) : toValue(source).ref))
 
     // One mirror is held at a time, taken before the one before is let go, so that a state both name is not dropped
     // and made again. It is swapped as the handle changes, before anything reads through it.

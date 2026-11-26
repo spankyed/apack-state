@@ -86,4 +86,143 @@ await run([
     const missingTsconfig = runCli('--tsconfig', 'no-such-tsconfig.json', 'checks/graphs/entered.mts')
     ok(missingTsconfig.status !== 0 && missingTsconfig.err.includes('No such tsconfig'), missingTsconfig.err)
   }],
+  ['recognizes scope.<verb>(...) and scope.child(...) without false positives on Function.prototype.call', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-scope-verbs-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'scope-verbs.ts')
+      writeFileSync(file, `
+import { forNet } from '${stateIndex}'
+type Net = {
+  systems: { svc: { events: { type: 'PING' }; asks: { GET: { args: {}; answer: string }; SAVE: { args: {}; answer: void } } } }
+  surfaces: { panel: { events: { type: 'UPDATED' } } }
+  views: {}
+}
+const state = forNet<Net>()
+const kid = state<{}, { type: 'HI' }>()({ on: { HI: () => {} } })
+type PanelShape = {
+  data: { flag: boolean }
+  starts: { kid: typeof kid }
+  calls: { save: 'one' }
+}
+export const panel = state<PanelShape, { type: 'GO' } | { type: 'STOP' }>()({
+  data: { flag: false },
+  starts: () => ({ kid }),
+  calls: ({ one }) => ({
+    save: one('svc', 'SAVE', { done: () => undefined }),
+  }),
+  async run(scope) {
+    await scope.ask('svc', 'GET', {})
+  },
+  failed: () => {},
+  on: {
+    GO: (_ev, scope) => {
+      void Object.prototype.hasOwnProperty.call(scope.data, 'flag')
+      const kidHandle = scope.child('kid')
+      scope.tell('svc', { type: 'PING' })
+      scope.tell(kidHandle, { type: 'HI' })
+      scope.broadcast('panel', { type: 'UPDATED' })
+      scope.call('save')
+    },
+    STOP: (_ev, scope) => {
+      scope.cancel('save')
+    },
+  },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 2, formatGraphs(graphs))
+      const panelGraph = graphs[1]!
+      deepStrictEqual(panelGraph.reaches, [
+        "ask 'svc'",
+        "tell 'svc'",
+        "tell its 'kid'",
+        "broadcast 'panel'",
+        "call 'save'",
+        "cancel 'save'",
+      ])
+      deepStrictEqual(panelGraph.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
+  ['emits explicit uncertainty findings for dynamic targets, non-inline definitions, and uninspectable declarations', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-uncertain-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'uncertain.ts')
+      writeFileSync(file, `
+import { forNet } from '${stateIndex}'
+type Net = {
+  systems: Record<string, { events: { type: 'PING' }; asks: { GET: { args: {}; answer: string } } }>
+  surfaces: {}
+  views: { docs: { all: { args: {}; result: string } } }
+  peers: Record<string, { events: { type: 'LOG' } }>
+}
+const state = forNet<Net>()
+
+type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'one' } }
+const nextTarget = (): string => 'b'
+const dynSys = (): string => 'svc'
+const dynPeer = (): string => 'audit'
+const buildFollows = (follow: any) => ({ docs: follow('docs', 'all', { updated: () => undefined }) })
+const calls = ({ one }: any) => ({ save: one('svc', 'GET', { done: () => undefined }) })
+const loadOpts = { done: () => undefined }
+const extraLoads = {}
+const subB = {}
+const c = {}
+
+export const dynamicState = state<DynShape, { type: 'GO' }>()({
+  initial: 'a',
+  follows: buildFollows,
+  calls,
+  loads: (load) => ({
+    ...extraLoads,
+    one: load('svc', 'GET', loadOpts),
+  }),
+  on: {
+    GO: (_ev, scope) => {
+      const target = dynSys()
+      const peer = dynPeer()
+      scope.tell(target, { type: 'PING' })
+      scope.tell({ peer }, { type: 'LOG' })
+      return { at: nextTarget() as 'a' | 'b' & string as string as any }
+    },
+  },
+  states: {
+    a: {},
+    b: subB,
+    c,
+  },
+})
+
+type BuiltShape = { data: { n: number } }
+const builtDef = { data: { n: 0 }, on: { INC: () => ({ data: { n: 1 } }) } }
+export const nonInlineState = state<BuiltShape, { type: 'INC' }>()(builtDef)
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 2, formatGraphs(graphs))
+
+      const dyn = graphs[0]!
+      ok(dyn.findings.some((f) => f.includes('dynamic move target in GO')), dyn.findings.join('; '))
+      ok(!dyn.stays.includes('GO'), `dynamic move should not be classified as stays: ${dyn.stays.join(', ')}`)
+      ok(dyn.findings.some((f) => f.includes('dynamic target in tell target')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('dynamic target in tell { peer }')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read follows')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read calls')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('spread in loads could not be statically read')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read loads.one')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read b')), dyn.findings.join('; '))
+      ok(dyn.findings.some((f) => f.includes('could not statically read c')), dyn.findings.join('; '))
+
+      const nonInline = graphs[1]!
+      strictEqual(nonInline.title, 'BuiltShape')
+      deepStrictEqual(nonInline.stays, ['INC'])
+      ok(nonInline.findings.some((f) => f.includes('definition is not an inline object literal')), nonInline.findings.join('; '))
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

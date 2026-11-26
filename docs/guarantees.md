@@ -57,6 +57,20 @@ incarnation token:
   addresses the new incarnation. Callers that need to distinguish incarnations should carry a domain/generation id in the
   event or data.
 
+## Name resolution (`forNet(resolve)` / `vueBinding(resolve)`)
+
+`resolve` is a static namespace prefixing hook (e.g., mapping bare own-pack names to `<packId>/<name>`), **not** a
+dynamic service locator:
+
+- **Purity and stability.** `resolve` must be pure, deterministic, and return a non-empty string. At runtime the kernel
+  memoizes each name's first valid resolution per running state instance for that instance's lifetime, so an unstable
+  resolver cannot drift mid-flight.
+- **Fault isolation.** If `resolve` throws or returns an empty/non-string value, the kernel reports a structured `Defect`
+  and skips the operation without corrupting state, `at.following`, `at.awaiting`, or `at.pending` (and `scope.ask()`
+  resolves to a `failed` outcome). In `vueBinding(resolve)`, valid results are memoized per binding instance and
+  non-empty-string validation runs inside `useState(name)` so a broken resolver fails fast in Vue `setup()` rather than
+  silently rendering `undefined`.
+
 ## Trusted-host boundary
 
 Every callback supplied to `system(...)` has a defined failure contract:
@@ -70,6 +84,7 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `PeerPort.tell(...)` | Yes (`safely` → defect, `outcome: 'failed'`) | Reported as a defect and logged; remaining peers and flush items still run |
 | `ViewHost` start/stop | Yes (`safely` → defect) | Reported as a defect; state continues running |
 | `Port.ask` / `Port.tell` | Yes (`safely` → defect / failure outcome) | Ask settles as `failed`; system continues running |
+| `forNet(resolve)` | Yes (`try/catch` + non-empty string check → defect) | Reported as a defect before mutating `following`/`awaiting`/`pending`; `ask()` resolves to `failed`; valid results memoized per running state |
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
 | `clock.now()` / `clock.after()` | `after` throw rejects `sleep()`; `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
