@@ -33,6 +33,18 @@ state<Shop, ShopEvent>()({
     price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
     // @ts-expect-error a view is followed from fields or for each key, not both at once
     both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), updated: () => {} }),
+    // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key
+    skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } : null), updated: () => {} }),
+  }),
+  states: { browsing: {}, away: {} },
+})
+
+// Conditional `follows` with `from` accepts `null | undefined | false`.
+state<Shop, ShopEvent>()({
+  data: { currency: '', total: null, watching: [], prices: {}, note: '', problem: null },
+  initial: 'browsing',
+  follows: (follow) => ({
+    maybe: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => (currency ? { currency } : null), updated: () => {} }),
   }),
   states: { browsing: {}, away: {} },
 })

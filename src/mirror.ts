@@ -21,7 +21,7 @@ import { reactive, readonly, shallowReactive, shallowReadonly } from '@vue/react
 import type { System } from './kernel.ts'
 import type { Asks, Handle, Started } from './types.ts'
 
-type Pending = Record<string, boolean | Record<string, boolean>>
+type Pending = Record<string, boolean | number | Record<string, boolean>>
 type Held = { at?: string; data: Record<string, unknown>; pending?: Pending }
 /** What a reader is handed: where the state is, its fields, and what calls are pending. None of it can be written. */
 type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<string, unknown>>; readonly pending?: Readonly<Pending> }
@@ -61,7 +61,7 @@ export function mirrors(sys: System): Mirrors {
   /** What the kernel says is in flight, written into a record of its own a key at a time. */
   const follow = (into: Pending, from: Pending): void => {
     for (const [name, now] of Object.entries(from)) {
-      if (typeof now === 'boolean') { if (into[name] !== now) into[name] = now; continue }
+      if (typeof now !== 'object') { if (into[name] !== now) into[name] = now; continue }
       const keys = (into[name] ??= {}) as Record<string, boolean>
       for (const key of Object.keys(keys)) if (!(key in now)) delete keys[key]
       for (const key of Object.keys(now)) if (!keys[key]) keys[key] = true

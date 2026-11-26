@@ -159,9 +159,9 @@ starts: (start) => ({
   thread: start(thread, { each: 'titles', given: (threadId) => ({ threadId }) }),
 }),
 
-// Views it follows: the detail of the open thread, and one for each open tab.
+// Views it follows: the detail of the open thread (or nothing when `id` is null), and one for each open tab.
 follows: (follow) => ({
-  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id }), updated: (update) => … }),
+  detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => (id ? { id } : null), updated: (update) => … }),
   tab:    follow('threads', 'tab',    { each: 'openTabs', args: (threadId) => ({ threadId }), updated: (update, { key }) => … }),
 }),
 ```
@@ -172,11 +172,17 @@ follows: (follow) => ({
 |---|---|
 | A value fetched for some arguments | `loads`, with `from` |
 | A value fetched for each of many things | `loads`, with `each` |
-| A write to fire, several at once | `calls`, with `each`, and `call(name, key)` |
-| A write to fire, one at a time | `calls`, with `one`, and `call(name)` |
+| A write to fire, one at a time | `calls`, with `one`, and `call(name, input?)` (`pending.<name>: boolean`) |
+| A write to fire, one per key | `calls`, with `each`, and `call(name, key, input?)` (`pending.<name>: Record<string, true>`) |
+| A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
+
+A call may declare a typed input in `Shape.calls` (`{ one: In }`, `{ each: In }`, `{ many: In }`). The frozen input is
+passed to `args`, `progress` (`scope.input`), and `done` (`scope.input`), and is never written to `StepLog`. When the
+ask takes `{}` — or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object already assignable to the
+ask's args — `args` may be omitted.
 
 ## Talking to other states
 
@@ -190,7 +196,7 @@ follows: (follow) => ({
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
-| `call(name, key?)`, `cancel(name, key?)` | A state | The kernel: fire a declared write, or cancel one in flight |
+| `call(name, ...)` / `cancel(name, key?)` | A state | The kernel: fire a declared write (with key and/or typed input), or cancel it (or all in flight for `many`) |
 
 A component reads and sends. It does not ask.
 
@@ -225,8 +231,11 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
 - **How it finished (`status`)**: `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it
   ran away.
-- **Never what any of it carried.** An event's fields, an ask's arguments, an answer, progress, a refusal's message and
+- **Never what any of it carried.** An event's fields, a call's input, an ask's arguments, an answer, progress, a refusal's message and
   data are none of them in a log. A log that throws is its own to answer for, and the system goes on.
+- **Structured defects (`onDefect`) and `using` cleanup.** `system({ onDefect })` receives each kernel defect as a
+  structured `{ message, ref?, error? }` record (preserving original `Error` stacks) in addition to `trace('DEFECT: …')`.
+  `System`, `Connected`, and `DefectGuard` implement `[Symbol.dispose]()` so tests and callers can clean up with `using`.
 
 ## What holds, always
 

@@ -8,7 +8,7 @@ import type { Lane } from './port.ts'
 import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
 import { sample, type Clock, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Handle, RootGiven, Shape, State, Value } from './types.ts'
-import { system as kernel, type System } from './kernel.ts'
+import { system as kernel, type Defect, type System } from './kernel.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type Scenario, type Schedule } from '@apackdev/orderings'
 
@@ -16,6 +16,7 @@ export { everyOrder, explore, replay, sample, type Clock, type Explored, type Sc
 export interface Connected {
   /** Closes the link: both ends see it end, as when a real connection closes. */
   close(): void
+  [Symbol.dispose](): void
   readonly window: Link
   readonly backend: Link
 }
@@ -40,7 +41,7 @@ export function connect(window: System, backend: System, schedule?: Pick<Schedul
   try { detachWindow = backend.attach(toWindow) } catch (error) { detachBackend(); windowLink.close(); throw error }
   windowLink.onEnd(detachBackend)
   backendLink.onEnd(detachWindow)
-  return { close: () => { windowLink.close() }, window: windowLink, backend: backendLink }
+  return { close: () => { windowLink.close() }, [Symbol.dispose]: () => { windowLink.close() }, window: windowLink, backend: backendLink }
 }
 
 /**
@@ -213,39 +214,50 @@ export function waitFor<V>(
   })
 }
 
-/** A `trace` listener that records every `DEFECT:` line and fails on any that were not explicitly allowed. */
+/** Records every structured kernel `Defect` and fails on any that were not explicitly allowed. */
 export interface DefectGuard {
-  /** Pass directly as `system({ trace: guard.trace })`. */
-  readonly trace: (line: string) => void
-  /** Every `DEFECT:` line recorded so far (in order). */
-  readonly defects: readonly string[]
-  /** Allows defects matching `pattern` (substring or regex) when `assertNone()` checks recorded defects. */
-  allow(pattern: string | RegExp): void
-  /** Throws if any unallowed `DEFECT:` line was traced. Call during test teardown. */
+  /** Pass directly as `system({ onDefect: guard.onDefect })`. */
+  readonly onDefect: (defect: Defect) => void
+  /** Every structured defect recorded so far (in order). */
+  readonly defects: readonly Defect[]
+  /** Allows defects matching `pattern` (substring or regex on `defect.message`, or a predicate on `Defect`). */
+  allow(pattern: string | RegExp | ((defect: Defect) => boolean)): void
+  /** Throws if any unallowed defect was reported. Also called automatically by `[Symbol.dispose]()`. */
   assertNone(): void
+  [Symbol.dispose](): void
 }
 
 /**
- * Watches a system's `trace` output for `DEFECT:` lines so tests cannot silently swallow handler throws or refused
- * changes. Pass `guard.trace` to `system(...)` and call `guard.assertNone()` during teardown.
+ * Watches a system's `onDefect` hook so tests cannot silently swallow handler throws or refused changes.
+ * Pair with `using` in LIFO order:
+ *
+ *   using guard = defectGuard()
+ *   using sys = system({ side: 'backend', onDefect: guard.onDefect })
+ *
+ * Disposing stops `sys` first (capturing any teardown defects) and then runs `guard.assertNone()`.
  */
-export function defectGuard(forward?: (line: string) => void): DefectGuard {
-  const defects: string[] = []
-  const allowed = new Set<string | RegExp>()
-  const matches = (line: string): boolean => {
-    for (const pattern of allowed) if (typeof pattern === 'string' ? line.includes(pattern) : line.search(pattern) >= 0) return true
+export function defectGuard(forward?: (defect: Defect) => void): DefectGuard {
+  const defects: Defect[] = []
+  const allowed = new Set<string | RegExp | ((defect: Defect) => boolean)>()
+  const matches = (defect: Defect): boolean => {
+    for (const pattern of allowed) {
+      if (typeof pattern === 'function') { if (pattern(defect)) return true }
+      else if (typeof pattern === 'string' ? defect.message.includes(pattern) : defect.message.search(pattern) >= 0) return true
+    }
     return false
   }
+  const assertNone = (): void => {
+    const unexpected = defects.filter((defect) => !matches(defect))
+    if (unexpected.length) throw new Error(`Unexpected kernel defect(s):\n${unexpected.map((d) => `DEFECT: ${d.message}`).join('\n')}`)
+  }
   return {
-    trace: (line) => {
-      if (line.startsWith('DEFECT:')) defects.push(line)
-      forward?.(line)
+    onDefect: (defect) => {
+      defects.push(defect)
+      forward?.(defect)
     },
     defects,
     allow: (pattern) => { allowed.add(pattern) },
-    assertNone: () => {
-      const unexpected = defects.filter((line) => !matches(line))
-      if (unexpected.length) throw new Error(`Unexpected kernel defect(s):\n${unexpected.join('\n')}`)
-    },
+    assertNone,
+    [Symbol.dispose]: assertNone,
   }
 }

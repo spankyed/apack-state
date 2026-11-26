@@ -26,9 +26,20 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `ADD: (_, { call }) => { call('run') },` | TS2554: Expected 2 arguments, but got 1. | a job is one of many, so calling one takes its key |
 | `STOP_SAVING: (_, { cancel }) => { cancel('save', 'a') },` | TS2554: Expected 1 arguments, but got 2. | there is one save at a time, so it takes no key |
 | `DROP: (_, { call }) => { call('print') },` | TS2345: Argument of type '"print"' is not assignable to parameter of type '"run" \| "save"'. | it declares no such call |
-| `run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),` | TS2322: Type 'CalledOne&lt;Jobs, "on", JobsEvent, App>' is not assignable to type 'CalledEach&lt;Jobs, "on", JobsEvent, App>'. | a job is one for each of many, so it is declared with `each` |
+| `run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),` | TS2322: Type 'CalledOne&lt;Jobs, "on", JobsEvent, App, never>' is not assignable to type 'CalledEach&lt;Jobs, "on", JobsEvent, App, never>'. | a job is one for each of many, so it is declared with `each` |
 | `save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) =>…` | TS2322: Type '{ data: { done: string; }; } \| undefined' is not assignable to type 'void \| Next&lt;Jobs, "on">'. | what a save answers is a string, so it cannot be put where the list goes |
 | `state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {…` | TS2322: Type '{}' is not assignable to type 'Def&lt;Jobs, { calls: { run: "each"; save: "one"; }; }, "on", JobsEvent, {}, App>'. | a state whose shape says it declares calls has to define them |
+| `B: (_, { call }) => { call('commitDirect') },` | TS2554: Expected 2 arguments, but got 1. | a typed `one` call requires its input argument |
+| `C: (_, { call }) => { call('hunk', 'a.ts') },` | TS2554: Expected 3 arguments, but got 2. | a typed `each` call requires both key and input |
+| `D: (_, { cancel }) => { cancel('uploadDirect', 'k') },` | TS2554: Expected 1 arguments, but got 2. | cancelling a `many` call takes no key (it cancels all in flight) |
+| `E: (_, { call }) => { call('pingOne', 'extra') },` | TS2554: Expected 1 arguments, but got 2. | a bare `one` call takes no extra argument |
+| `pingOne: one('svc', 'PING', { done: (_o, { input }) => { void input } }),` | TS2339: Property 'input' does not exist on type 'EventScope&lt;TypedShape, "", never, TypedNet>'. | a bare `one` call has no `input` on scope |
+| `pingMany: one('svc', 'PING', { done: () => {} }),` | TS2322: Type 'CalledOne&lt;TypedShape, "", never, TypedNet, never>' is not assignable to type 'CalledMany&lt;TypedShape, "", never, TypedNet, never>'. | `pingMany` is declared as `many`, so it must be built with `many` |
+| `commitMapped: one('svc', 'COMMIT', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (input: { readonly msg: string; }, data: { readonly prefix: string; }) => { readonly mes… | `args` is required because `{ msg: string }` is not assignable to `{ message: string }` |
+| `primOne: one('svc', 'PING', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (input: string, data: { readonly prefix: string; }) => {}; } &amp; { done: (outcome: Outcome… | `args` is required because a primitive input cannot pass through directly as ask args |
+| `hunk: each('svc', 'STAGE_HUNK', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (key: string, input: { readonly hunk: number; }, data: { readonly prefix: string; }) => … | `args` is required for a typed `each` call |
+| `uploadMapped: many('svc', 'UPLOAD', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (input: { readonly name: string; }, data: { readonly prefix: string; }) => { readonly fi… | `args` is required because `{ name: string }` is not assignable to `{ file: string }` |
+| `const _wrongManyPending: boolean = typedValue.pending.uploadDirect` | TS2322: Type 'number' is not assignable to type 'boolean'. | a `many` call exposes its in-flight count (`number`), not a `boolean` |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -77,12 +88,13 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | What was written | What TypeScript says | Why |
 |---|---|---|
 | `stock: follow('shop', 'stock', { from: [], args: () => ({}), updated: () => {} }),` | TS2345: Argument of type '"stock"' is not assignable to parameter of type '"total" \| "price"'. | there is no such view |
-| `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2741: Property 'currency' is missing in type '{ id: string; }' but required in type '{ readonly currency: string; }'. | the total is asked for a currency, not an id |
+| `total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ id: cur…` | TS2322: Type '{ id: string; }' is not assignable to type 'false \| { readonly currency: string; } \| null \| undefined'. | the total is asked for a currency, not an id |
 | `price: follow('shop', 'price', { each: 'currency', args: (id) => ({ id }), updated: () …` | TS2322: Type '"currency"' is not assignable to type 'KeysField&lt;{ currency: string; total: number \| null; watching: string[]; prices: Record&lt;string, number>; note: string; problem: strin… | a currency is neither a list nor keyed, so it cannot say which prices to follow |
 | `noted: follow('shop', 'total', { from: ['currency'], args: ({ note }) => ({ currency: n…` | TS2339: Property 'note' does not exist on type '{ readonly currency: string; }'. | it reads the note, which it did not name: a field it does not name is not there to read |
 | `missing: follow('shop', 'total', { from: ['locale'], args: () => ({ currency: '' }), up…` | TS2322: Type '"locale"' is not assignable to type '"problem" \| "total" \| "currency" \| "watching" \| "prices" \| "note"'. | the shop has no such field to read from |
 | `price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (up…` | TS2322: Type '{ data: { note: number; }; } \| undefined' is not assignable to type 'void \| Next&lt;Shop, "">'. | a price is a number, so it cannot be put where the note goes |
 | `both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ …` | TS2322: Type 'string[]' is not assignable to type 'undefined'. | a view is followed from fields or for each key, not both at once |
+| `skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } :…` | TS2322: Type '{ id: string; } \| null' is not assignable to type '{ readonly id: string; }'. | an `each` view is keyed by a field, so `args` cannot return null to skip a key |
 
 ## Who may send a state what: the events it sends itself, and the surfaces it tells.
 

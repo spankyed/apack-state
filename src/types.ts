@@ -29,8 +29,13 @@ export type Shape = {
    * `internal` handlers. What others may send it is the events it is declared with.
    */
   internal?: AnyEvent
-  /** The imperative asks it can call on demand, by name: `each` for one per key, `one` for one at a time. */
-  calls?: Record<string, 'each' | 'one'>
+  /**
+   * The imperative asks it can call on demand, by name:
+   * - `'one'` / `{ one: In }`: single-flight (deduped), `pending.<name>: boolean`
+   * - `'each'` / `{ each: In }`: keyed concurrent (one per key), `pending.<name>: Readonly<Record<string, true>>`
+   * - `'many'` / `{ many: In }`: unkeyed concurrent, `pending.<name>: number`
+   */
+  calls?: Record<string, 'one' | 'each' | 'many' | { readonly one: unknown } | { readonly each: unknown } | { readonly many: unknown }>
 }
 
 /** Any state, as something another can start. */
@@ -94,14 +99,27 @@ type Sub<S, K> = K extends keyof StatesOf<S> ? StatesOf<S>[K] : never
 type StartsOf<S> = S extends { starts: infer C extends object } ? C : {}
 type StartsBelow<S, P> = P extends `${infer H}.${infer T}` ? StartsOf<Sub<S, H>> & StartsBelow<Sub<S, H>, T> : StartsOf<Sub<S, P>>
 /** Everything started where a handler sits: by its own state and by every state around it. */
+type CallKind<C> = C extends 'each' | { readonly each: unknown } ? 'each' : C extends 'many' | { readonly many: unknown } ? 'many' : 'one'
+type CallInput<C> = C extends { readonly one: infer I } | { readonly each: infer I } | { readonly many: infer I } ? I : never
+type InputScope<I> = [I] extends [never] ? {} : { readonly input: Read<I> }
+type CallParams<C> =
+  CallKind<C> extends 'each'
+    ? ([CallInput<C>] extends [never] ? [key: string] : [key: string, input: Read<CallInput<C>>])
+    : ([CallInput<C>] extends [never] ? [] : [input: Read<CallInput<C>>])
+type CancelParams<C> = CallKind<C> extends 'each' ? [key: string] : []
 type CallsOf<S> = S extends { calls: infer M extends object } ? M : {}
 type CallsBelow<S, P> = P extends `${infer H}.${infer T}` ? CallsOf<Sub<S, H>> & CallsBelow<Sub<S, H>, T> : CallsOf<Sub<S, P>>
 /** The asks that can be called where a handler sits: its own state's and those of every state around it. */
 type CallsAt<S, P extends string> = P extends '' ? CallsOf<S> : CallsOf<S> & CallsBelow<S, P>
 /** Every imperative ask a state declares, whichever of its states declares it: what is read from outside it. */
 type AllCalls<S> = CallsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllCalls<StatesOf<S>[K]> }[Names<S>]>)
-/** Which of them are in flight: by key, for one per key, and whether, for one at a time. */
-type PendingOf<M> = { readonly [K in keyof M]: M[K] extends 'each' ? Readonly<Record<string, true>> : boolean }
+/** Which of them are in flight: by key for `each`, in-flight count for `many`, and boolean for `one`. */
+type PendingOf<M> = {
+  readonly [K in keyof M]:
+    CallKind<M[K]> extends 'each' ? Readonly<Record<string, true>>
+    : CallKind<M[K]> extends 'many' ? number
+    : boolean
+}
 type StartsAt<S, P extends string> = P extends '' ? StartsOf<S> : StartsOf<S> & StartsBelow<S, P>
 type ReportsOf<S> = S extends { reports: infer P extends AnyEvent } ? P : never
 type InternalOf<S> = S extends { internal: infer P extends AnyEvent } ? P : never
@@ -269,13 +287,13 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   report(event: Read<ReportsOf<R>>): void
 
   /**
-   * Fires an ask this state declares under `calls`, once. It runs when the step commits, with the data as the
-   * handler left it. One that is already in flight, or in flight for that key, is the same one and is not started
-   * twice. How it finishes goes to the `done` handler it was declared with.
+   * Fires an ask this state declares under `calls`. It runs when the step commits, with the data as the handler left
+   * it. For `one` and `each`, one already in flight (or in flight for that key) is deduped and not started twice; for
+   * `many`, each call runs concurrently. How each finishes goes to its declared `done` handler.
    */
-  call<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CallsAt<R, H>[K] extends 'each' ? [key: string] : []): void
-  /** Cancels an in-flight call: the responder is aborted, and `done` is not called. */
-  cancel<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CallsAt<R, H>[K] extends 'each' ? [key: string] : []): void
+  call<K extends keyof CallsAt<R, H> & string>(name: K, ...rest: CallParams<CallsAt<R, H>[K]>): void
+  /** Cancels an in-flight call (`one`/`each`), or all in-flight instances (`many`): the responder is aborted and `done` is not called. */
+  cancel<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CancelParams<CallsAt<R, H>[K]>): void
 
   /** A state this one started, as it is now: nothing while it is not running. */
   read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined
@@ -404,7 +422,12 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
    * The imperative asks fired when a handler calls `call(name)`. A read is loaded because the data says so, for as
    * long as it does. A write is not like that: it is fired once on demand, and its in-flight state lives on `pending`.
    */
-  calls: (calls: { one: CallOne<R, H, E, N>; each: CallEach<R, H, E, N> }) => { [K in keyof CallsOf<S>]: CallsOf<S>[K] extends 'each' ? CalledEach<R, H, E, N> : CalledOne<R, H, E, N> }
+  calls: (calls: { one: CallOne<R, H, E, N>; each: CallEach<R, H, E, N>; many: CallMany<R, H, E, N> }) => {
+    [K in keyof CallsOf<S>]:
+      CallKind<CallsOf<S>[K]> extends 'each' ? CalledEach<R, H, E, N, CallInput<CallsOf<S>[K]>>
+      : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>>
+      : CalledOne<R, H, E, N, CallInput<CallsOf<S>[K]>>
+  }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /** The state inside it that it enters first when whoever enters it does not say. */
   initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
@@ -461,7 +484,8 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
 }
 /**
  * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
- * one of them changes. With `each`, one is followed for each key of that field. What it delivers goes to `updated`,
+ * one of them changes; where `args` returns nothing (`null`, `undefined`, or `false`), nothing is followed and any
+ * previous view stops. With `each`, one is followed for each key of that field. What it delivers goes to `updated`,
  * which returns what happens next as any handler does.
  */
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
@@ -472,26 +496,46 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   from?: [Many] extends [string] ? never : readonly K[]
   /** A field with one to follow for each of its keys, in place of `from`. */
   each?: Many
-  args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']>
+  args: (given: Given_<R, H, K, Many>) => Read<N['views'][F][V]['args']> | ([Many] extends [string] ? never : null | undefined | false)
   updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
+type OneArgsOpt<D, A, I> =
+  [I] extends [never]
+    ? ({} extends Read<A> ? { args?: (data: Read<D>) => Read<A> } : { args: (data: Read<D>) => Read<A> })
+    : ([Read<I>] extends [readonly unknown[]]
+        ? { args: (input: Read<I>, data: Read<D>) => Read<A> }
+        : [Read<I>] extends [object]
+          ? ([Read<I>] extends [Read<A>]
+              ? { args?: (input: Read<I>, data: Read<D>) => Read<A> }
+              : { args: (input: Read<I>, data: Read<D>) => Read<A> })
+          : { args: (input: Read<I>, data: Read<D>) => Read<A> })
+type EachArgsOpt<D, A, I> =
+  [I] extends [never]
+    ? ({} extends Read<A> ? { args?: (key: string, data: Read<D>) => Read<A> } : { args: (key: string, data: Read<D>) => Read<A> })
+    : { args: (key: string, input: Read<I>, data: Read<D>) => Read<A> }
+
 /** An imperative ask called one at a time, as `one` builds it. */
-export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
+export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
 /** An imperative ask called per key, as `each` builds it. */
-export interface CalledEach<R, H extends string, E extends AnyEvent, N extends Net> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N } }
-/** Declares an imperative ask called one at a time. Its args are computed from the data when `call` runs. */
-export type CallOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-  args: (data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
-  done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
-  progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N>) => Next<R, H> | void
-}) => CalledOne<R, H, E, N>
-/** Declares an imperative ask called per key. Its args are computed from its key and the data when `call` runs. */
-export type CallEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string>(of: S, ask: Q, options: {
-  args: (key: string, data: Read<DataAt<R, H>>) => Read<AskOf<N, S, Q>['args']>
-  done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
-  progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
-}) => CalledEach<R, H, E, N>
+export interface CalledEach<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
+/** An imperative ask called concurrently without keys, as `many` builds it. */
+export interface CalledMany<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'many'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
+/** Declares an imperative ask called one at a time (deduped). `args` may be omitted when the ask accepts `{}` or `input` directly. */
+export type CallOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+  done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
+  progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
+}) => CalledOne<R, H, E, N, I>
+/** Declares an imperative ask called per key. `args` may be omitted for bare `'each'` when the ask accepts `{}`. */
+export type CallEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: EachArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+  done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string } & InputScope<NoInfer<I>>) => Next<R, H> | void
+  progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string } & InputScope<NoInfer<I>>) => Next<R, H> | void
+}) => CalledEach<R, H, E, N, I>
+/** Declares an unkeyed concurrent imperative ask. `args` may be omitted when the ask accepts `{}` or `input` directly. */
+export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+  done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
+  progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
+}) => CalledMany<R, H, E, N, I>
 
 /** A standing ask a state loads, as `load` makes it. */
 export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> {

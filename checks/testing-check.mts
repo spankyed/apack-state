@@ -6,8 +6,8 @@ import { given, forNet } from '../src/index.ts'
 
 /** What seed 7 draws: four events of one type, each handed `int(1000)`. */
 const DRAWS_FROM_SEVEN = ['ADD 61', 'ADD 699', 'ADD 405', 'ADD 239']
-import { defectGuard, everyOrder, explore, fromEvents, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
-import { system } from '../src/kernel.ts'
+import { connect, defectGuard, everyOrder, explore, fromEvents, onSchedule, replay, waitFor, type Scenario } from '../src/testing.ts'
+import { system, type Defect } from '../src/kernel.ts'
 
 const state = forNet()
 type CounterEvent = { type: 'ADD'; by: number } | { type: 'RESET' }
@@ -515,48 +515,98 @@ await run([
     await rejects(lp1, /c stopped before waitFor matched/)
     await rejects(lp2, /c stopped before waitFor matched/)
   }],
-  ['defectGuard captures DEFECT lines, forwards all trace output, and fails on unallowed defects', () => {
+  ['defectGuard captures structured Defects, supports string/RegExp/predicate allow, and disposes via Symbol.dispose', () => {
     // Works with no forward listener as well.
     const quiet = defectGuard()
-    quiet.trace('plain info')
     quiet.assertNone()
     strictEqual(quiet.defects.length, 0)
+    // Calling `onDefect` with no `forward` callback does not throw.
+    quiet.onDefect({ message: 'no forward' })
+    strictEqual(quiet.defects.length, 1)
+    quiet.allow('no forward')
+    quiet.assertNone()
 
-    const forwarded: string[] = []
-    const guard = defectGuard((line) => forwarded.push(line))
+    const forwarded: Defect[] = []
+    const guard = defectGuard((d) => forwarded.push(d))
+    const boomError = new Error('boom!')
     const faulty = state<{ data: { count: number } }, { type: 'BOOM' } | { type: 'BAD_MOVE' } | { type: 'OK' }>()({
       data: { count: 0 },
       on: {
-        BOOM: () => { throw new Error('boom!') },
+        BOOM: () => { throw boomError },
         BAD_MOVE: () => ({ at: 'nope' }) as never,
         OK: (_, { data }) => ({ data: { count: data.count + 1 } }),
       },
     })
-    const sys = system({ side: 'window', trace: guard.trace })
+    const sys = system({ side: 'window', onDefect: guard.onDefect })
     const h = sys.start('f', faulty)
     sys.send(h, { type: 'OK' })
-    // Unhandled event produces a non-DEFECT trace line: forwarded, not recorded as a defect.
+    // Unhandled event is not a defect.
     sys.send(h, { type: 'IGNORED' } as never)
     guard.assertNone()
     strictEqual(guard.defects.length, 0)
-    ok(forwarded.some((line) => !line.startsWith('DEFECT:')))
+    strictEqual(forwarded.length, 0)
 
     sys.send(h, { type: 'BOOM' })
     sys.send(h, { type: 'BOOM' })
     sys.send(h, { type: 'BAD_MOVE' })
     strictEqual(guard.defects.length, 3)
+    strictEqual(forwarded.length, 3)
+    strictEqual(guard.defects[0]!.ref, 'f')
+    strictEqual(guard.defects[0]!.error, boomError)
+    strictEqual(guard.defects[2]!.ref, 'f')
+    strictEqual(guard.defects[2]!.error, undefined)
     throws(() => guard.assertNone(), /Unexpected kernel defect\(s\):\n.*boom!.*\n.*boom!.*\n.*has no state nope/)
 
     // A global `/g` regex matching at index 0 matches every occurrence without stateful `lastIndex` drift.
-    guard.allow(/^DEFECT:.*boom!/g)
+    guard.allow(/^f threw.*boom!/g)
     throws(() => guard.assertNone(), /has no state nope/)
 
     // String patterns match literally (even with regex metacharacters like `+`).
-    guard.trace('DEFECT: bad a+b')
+    guard.onDefect({ message: 'bad a+b' })
     guard.allow('has no state nope')
     throws(() => guard.assertNone(), /bad a\+b/)
     guard.allow('a+b')
     guard.assertNone()
+
+    // Predicate allow matches on structured Defect fields (ref / error) and still rejects non-matching defects.
+    const specific = new RangeError('out of bounds')
+    guard.onDefect({ message: 'range issue', ref: 'r', error: specific })
+    throws(() => guard.assertNone(), /range issue/)
+    guard.allow((d) => d.ref === 'r' && d.error === specific)
+    guard.assertNone()
+    guard.onDefect({ message: 'unmatched issue', ref: 'other' })
+    throws(() => guard.assertNone(), /unmatched issue/)
     sys.stop()
+  }],
+  ['Symbol.dispose tears down System, Connected, and DefectGuard in LIFO order and catches teardown defects', () => {
+    let exited = false
+    let linkEnded = false
+    const tracked = state<{ data: { n: number } }, never>()({
+      data: { n: 0 },
+      run: ({ onExit }) => { onExit(() => { exited = true }) },
+    })
+    {
+      using guard = defectGuard()
+      using backend = system({ side: 'backend', onDefect: guard.onDefect })
+      using window = system({ side: 'window', onDefect: guard.onDefect })
+      using link = connect(window, backend)
+      link.window.onEnd(() => { linkEnded = true })
+      backend.start('t', tracked)
+      strictEqual(exited, false)
+      strictEqual(linkEnded, false)
+    }
+    strictEqual(exited, true)
+    strictEqual(linkEnded, true)
+
+    // Teardown defect during `sys.stop()` is captured before `guard[Symbol.dispose]()` runs `assertNone()`.
+    const badExit = state<{ data: { n: number } }, never>()({
+      data: { n: 0 },
+      run: ({ onExit }) => { onExit(() => { throw new Error('release exploded') }) },
+    })
+    throws(() => {
+      using guard = defectGuard()
+      using sys = system({ side: 'backend', onDefect: guard.onDefect })
+      sys.start('bad', badExit)
+    }, /release exploded/)
   }],
 ])

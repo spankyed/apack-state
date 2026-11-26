@@ -20,8 +20,10 @@ export {
   type AskShape,
   type Asks,
   type CallEach,
+  type CallMany,
   type CallOne,
   type CalledEach,
+  type CalledMany,
   type CalledOne,
   type Def,
   type Each,
@@ -50,7 +52,7 @@ export {
 } from './types.ts'
 
 // What runs it: a system, its steps, and what it is given.
-export { Cancelled, system, type Changes, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
+export { Cancelled, system, type Changes, type Defect, type Handled, type Sent, type StepLog, type System, type Transact } from './kernel.ts'
 export type { Clock, Failure, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // What a frame is in a window.

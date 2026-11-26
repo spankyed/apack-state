@@ -118,8 +118,9 @@ function analyse(title: string, shape: Type, events: string[], asks: string[], d
         const valueOf = (property: any): any => property && (property.initializer ?? property.name)
         const each = valueOf(option('each'))
         const from = valueOf(option('from'))
-        // An imperative ask is called when a handler says so: with `each` for one of many keys, with `one` for one at a time.
-        const depends = name === 'calls' ? (entry.initializer.expression.getText() === 'each' ? 'for each key it is told' : 'one at a time')
+        // An imperative ask is called when a handler says so: `each` per key, `many` concurrently, `one` at a time.
+        const helper = entry.initializer.expression.getText()
+        const depends = name === 'calls' ? (helper === 'each' ? 'for each key it is told' : helper === 'many' ? 'many at once' : 'one at a time')
           : each ? `one for each key of ${text(each)}`
           : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
           : from ? `from what ${text(from)} names` : 'from nothing: once'

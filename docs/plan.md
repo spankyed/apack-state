@@ -278,7 +278,8 @@ points at.
     It arrives as an event like any other, with `from` saying which one told it.
 
     **A view delivers to a handler**, `updated`, which returns what happens next as every handler does, so data still
-    changes only by what a handler returns.
+    changes only by what a handler returns. With `from`, where `args` returns `null`, `undefined`, or `false`, nothing
+    is followed (stopping any active view until a named field changes again).
 
     **An ask that is loaded is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
     asked again when one of them changes, the one before cancelled. Where `args` gives nothing, nothing is asked. A
@@ -287,25 +288,33 @@ points at.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
     says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
-    declared apart, under `calls`, and fired with a verb, as a state tells or broadcasts:
+    declared apart, under `calls`, in three cardinalities (`one`, `each`, `many`), with an optional typed input
+    (`{ one: In }`, `{ each: In }`, `{ many: In }`), and fired with a verb, as a state tells or broadcasts:
 
     ```ts
-    calls: ({ one, each }) => ({
-      stage: each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), done: (outcome, { key }) => … }),
-      push:  one('code', 'commit.PUBLISH_BRANCH', { args: () => ({}), progress: (updates) => …, done: (outcome) => … }),
+    calls: ({ one, each, many }) => ({
+      stage:  each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), done: (outcome, { key }) => … }),
+      push:   one('code', 'commit.PUBLISH_BRANCH', { progress: (updates) => …, done: (outcome) => … }),
+      revert: many('code', 'commit.REVERT_FILES', { done: (outcome, { input }) => … }),
     }),
     on: {
-      'commit.STAGE_FILE':  ({ path }, { call }) => { call('stage', path) },
-      'commit.STOP_PUSH':   (_, { cancel }) => { cancel('push') },
+      'commit.STAGE_FILE':   ({ path }, { call }) => { call('stage', path) },
+      'commit.REVERT_FILES': ({ paths }, { call }) => { call('revert', { paths }) },
+      'commit.STOP_PUSH':    (_, { cancel }) => { cancel('push') },
     },
     ```
 
-    It is fired when the step commits, with the data as the handler left it. One that is in flight, or in flight for
-    that key, is the same one and is not started twice. `cancel` cancels one: the one answering is told, and `done`
-    is not called. Leaving the state that declares it cancels all of its in-flight calls.
+    It is fired when the step commits, with the data as the handler left it (and its frozen `input`, if declared, which
+    is also passed as `scope.input` to `progress` and `done` and never logged in `StepLog`). When an ask accepts `{}` —
+    or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object assignable to the ask's args — `args` may
+    be omitted. For `one` and `each`, one that is already in flight (or in flight for that key) is deduplicated and not
+    started twice; for `many`, every call starts a new ask tracked under a kernel-assigned monotonic id. `cancel`
+    cancels the in-flight call (or all in-flight calls for `many`): the one answering is told, and `done` is not called.
+    Leaving the state that declares it cancels all of its in-flight calls.
 
     **Which writes are in flight is the kernel's to keep**, and is read beside `at` and `data`, as `pending`:
-    `pending.stage[path]` for one of many, `pending.push` for one at a time. Nothing else writes it. So the kernel
+    `pending.push` (`boolean`) for `one`, `pending.stage[path]` (`Readonly<Record<string, true>>`) for `each`, and
+    `pending.revert` (`number` in-flight count) for `many`. Nothing else writes it. So the kernel
     never changes a state's data, the record has one writer, and a state that is restored reads again and does not
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
     by hand, and no event for how one finished.
