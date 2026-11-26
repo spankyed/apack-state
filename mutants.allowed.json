@@ -530,7 +530,7 @@
     "why": "A run always makes its system, as sample runs the scenario at least once before it returns, so there is always one to stop"
   },
   {
-    "key": "src/testing.ts | StringLiteral | sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window') }) | \"\"",
+    "key": "src/testing.ts | StringLiteral | sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window'), ...hooks }) | \"\"",
     "original": "'the window'",
     "why": "Two mutants on this line share this key. 'window' as the side is killed: the state is run in a window, and a surface it tells there is told. 'the window' names that system's frames in a list of what was run, and fromEvents reports a failure by its seed and the events it sent, not by what was run, so the name is never seen"
   },

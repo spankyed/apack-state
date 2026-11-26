@@ -59,6 +59,8 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/rows-property.mts` | The same rule as a property: runs of handlers made from a seed, held against a model of a few lines, one after another and under way together. Runs, for about 25 seconds, and names the seed of a run that differs |
 | `checks/views-check.mts` | A window hears of a step after its views show it: views over the link, and what a step sends windows held until they have been sent its rows. Under every ordering in memory, and on elmdb. Runs, for about 10 seconds |
 | `src/graph.ts` | `@apackdev/state/graph`: static TypeScript graph analyser (`analyseGraphs`, `formatGraphs`, `runGraphCli`) supporting `--tsconfig` and return-type `State` detection |
+| `src/inspect.ts` | `@apackdev/state/inspect`: zero-dependency, browser- and Node-compatible unified causal inspector (`createInspector`, `formatCausalTrace`) over `StepLog`, `Defect`, and `StateGraph` |
+| `checks/inspect-check.mts` | The causal inspector held to cross-system stitching, `explain()`, `inFlight()`, `whyIgnored()`, `coverage()`, ring-buffer eviction, snapshots, formatting, and payload-free JSON export |
 | `bin/apack-state-graph.mjs` | Packaged CLI entrypoint (`apack-state-graph [--tsconfig <path>] <file...>`) |
 | `checks/graph-check.mts` | The graph tool (`@apackdev/state/graph` and `tools/graph.mts`) run on hard-to-read states, non-`state` aliases (`hostState`, inline `forNet`), custom `--tsconfig` path aliases, and CLI errors |
 | `checks/graphs/*.mts` | Small state fixtures for `checks/graph-check.mts` (`child-entered-first.mts`, `written-short.mts`) |
