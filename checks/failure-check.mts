@@ -5,7 +5,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { system as unlimited } from '../src/index.ts'
-import { given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
+import { Cancelled, given, forNet, type Defect, type Each, type StepLog } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 type SlowAsks = { WAIT: { args: { turns: number }; answer: string }; BREAK: { args: {}; answer: string } }
@@ -526,6 +526,146 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     // Subsequent asks still resolve normally.
     deepStrictEqual(await sys.ask(h, 'PING', {}), { ok: true, value: 'pong' })
+  }],
+  ['local ask call-chain cycles fail with a defect without false positives on distinct asks, parallel asks, cross-link asks, or post-abort calls', async () => {
+    type CycleNet = {
+      systems: {
+        a: {
+          events: never
+          asks: {
+            SELF: { args: {}; answer: string }
+            PING: { args: {}; answer: string }
+            OUTER: { args: {}; answer: string }
+            READ: { args: {}; answer: string }
+            FAN: { args: {}; answer: string }
+            THREE: { args: {}; answer: string }
+          }
+        }
+        b: {
+          events: never
+          asks: {
+            PONG: { args: {}; answer: string }
+            HELP: { args: {}; answer: string }
+            STEP: { args: { id: string }; answer: string }
+            TWO: { args: {}; answer: string }
+          }
+        }
+        c: { events: never; asks: { ONE: { args: {}; answer: string } } }
+        svc: { events: never; asks: { PING: { args: {}; answer: string } } }
+      }
+      surfaces: {}
+      views: {}
+    }
+    const net = forNet<CycleNet>()
+    const defects: Defect[] = []
+    let capturedSelfAsk: ((to: 'a', name: 'SELF', args: {}) => Promise<unknown>) | undefined
+
+    const a = net<{}, never, CycleNet['systems']['a']['asks']>()({
+      answers: {
+        SELF: async (_, { ask }) => {
+          capturedSelfAsk = ask as typeof capturedSelfAsk
+          const res = await ask('a', 'SELF', {})
+          return res.ok ? res.value : `${res.failure.kind}:${res.failure.message}`
+        },
+        PING: async (_, { ask }) => {
+          const res = await ask('b', 'PONG', {})
+          return res.ok ? res.value : `${res.failure.kind}:${res.failure.message}`
+        },
+        OUTER: async (_, { ask }) => {
+          const res = await ask('b', 'HELP', {})
+          return res.ok ? res.value : res.failure.kind
+        },
+        READ: () => 'ok-read',
+        FAN: async (_, { ask }) => {
+          const [r1, r2] = await Promise.all([ask('b', 'STEP', { id: '1' }), ask('b', 'STEP', { id: '2' })])
+          const r3 = await ask('b', 'STEP', { id: '3' })
+          return [r1, r2, r3].map((r) => (r.ok ? r.value : r.failure.kind)).join(',')
+        },
+        THREE: async (_, { ask }) => {
+          const res = await ask('b', 'TWO', {})
+          return res.ok ? res.value : res.failure.kind
+        },
+      },
+    })
+    const b = net<{}, never, CycleNet['systems']['b']['asks']>()({
+      answers: {
+        PONG: async (_, { ask }) => {
+          const res = await ask('a', 'PING', {})
+          return res.ok ? res.value : `${res.failure.kind}:${res.failure.message}`
+        },
+        HELP: async (_, { ask }) => {
+          const res = await ask('a', 'READ', {})
+          return res.ok ? `helped:${res.value}` : res.failure.kind
+        },
+        STEP: ({ id }) => `s${id}`,
+        TWO: async (_, { ask }) => {
+          const res = await ask('c', 'ONE', {})
+          return res.ok ? res.value : res.failure.kind
+        },
+      },
+    })
+    const c = net<{}, never, CycleNet['systems']['c']['asks']>()({
+      answers: {
+        ONE: async (_, { ask }) => {
+          const res = await ask('a', 'THREE', {})
+          return res.ok ? res.value : `${res.failure.kind}:${res.failure.message}`
+        },
+      },
+    })
+    const backendSvc = net<{}, never, CycleNet['systems']['svc']['asks']>()({
+      answers: { PING: () => 'backend-pong' },
+    })
+    const windowSvc = net<{}, never, CycleNet['systems']['svc']['asks']>()({
+      answers: {
+        PING: async (_, { ask }) => {
+          const res = await ask('svc', 'PING', {})
+          return res.ok ? `win->${res.value}` : res.failure.kind
+        },
+      },
+    })
+
+    const sys = system({ side: 'backend', onDefect: (d) => defects.push(d) })
+    const aH = sys.start('a', a)
+    sys.start('b', b)
+    sys.start('c', c)
+    sys.start('svc', backendSvc)
+
+    // 1. Direct self-cycle: a SELF -> a SELF
+    deepStrictEqual(await sys.ask(aH, 'SELF', {}), { ok: true, value: 'failed:Ask cycle: a SELF -> a SELF' })
+    strictEqual(defects.at(-1)?.ref, 'a')
+    strictEqual(defects.at(-1)?.message, 'Ask cycle: a SELF -> a SELF')
+
+    // 2. 2-hop mutual cycle: a PING -> b PONG -> a PING
+    deepStrictEqual(await sys.ask(aH, 'PING', {}), { ok: true, value: 'failed:Ask cycle: a PING -> b PONG -> a PING' })
+    strictEqual(defects.at(-1)?.ref, 'b')
+    strictEqual(defects.at(-1)?.message, 'Ask cycle: a PING -> b PONG -> a PING')
+
+    // 3. 3-hop cycle: a THREE -> b TWO -> c ONE -> a THREE
+    deepStrictEqual(await sys.ask(aH, 'THREE', {}), { ok: true, value: 'failed:Ask cycle: a THREE -> b TWO -> c ONE -> a THREE' })
+    strictEqual(defects.at(-1)?.ref, 'c')
+
+    const defectsAfterCycles = defects.length
+    // 4. Non-cyclic re-entry to a different ask on the same state (a OUTER -> b HELP -> a READ) succeeds with no defect.
+    deepStrictEqual(await sys.ask(aH, 'OUTER', {}), { ok: true, value: 'helped:ok-read' })
+    // 5. Parallel and sequential asks from the same answering handler succeed with no defect.
+    deepStrictEqual(await sys.ask(aH, 'FAN', {}), { ok: true, value: 's1,s2,s3' })
+    strictEqual(defects.length, defectsAfterCycles)
+
+    // 6. Cross-link ask to the same (ref, name) on backend from window succeeds without false local cycle detection.
+    const win = system({ side: 'window', onDefect: (d) => defects.push(d) })
+    connect(win, sys)
+    const winSvcH = win.start('svc', windowSvc)
+    deepStrictEqual(await win.ask(winSvcH, 'PING', {}), { ok: true, value: 'win->backend-pong' })
+    strictEqual(defects.length, defectsAfterCycles)
+
+    // 7. Captured ask called after the handler finished (workSignal aborted) rejects with Cancelled and logs no defect.
+    let postAbortError: unknown
+    try { await capturedSelfAsk!('a', 'SELF', {}) } catch (error) { postAbortError = error }
+    ok(postAbortError instanceof Cancelled, String(postAbortError))
+    strictEqual(defects.length, defectsAfterCycles)
+
+    win.stop()
+    sys.stop()
   }],
 ]
 

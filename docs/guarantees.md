@@ -102,10 +102,17 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
 | `clock.now()` / `clock.after()` | `after` throw rejects `sleep()`; `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
-## What the kernel does not detect
+## Cycle and deadlock boundaries
 
-- **Async request deadlocks.** The kernel catches synchronous tell loops (`RUNAWAY`) and reactive `follows`/`loads` data
-  cycles, and `@apackdev/state/graph` checks static state graphs, but the kernel does not maintain a runtime wait-for graph
-  for async `A awaits B awaits A` ask cycles.
+- **Detected by the kernel:**
+  - **Synchronous tell loops (`RUNAWAY`)** and **reactive `follows`/`loads` data cycles**.
+  - **Local in-system ask call-chain cycles:** Each answering handler carries its causal `(ref, askName)` chain. If a local
+    `ask()` closes a cycle (`a PING -> b PONG -> a PING`, self-asks, or longer hops), the cycle-closing ask immediately
+    resolves to `{ ok: false, failure: { kind: 'failed', message: 'Ask cycle: ...' } }` and reports a structured `Defect`
+    instead of hanging. Non-cyclic re-entry to a different ask on the same state (`a OUTER -> b HELP -> a READ`),
+    concurrent independent asks, and cross-link asks are unaffected.
+- **Not detected by the kernel:**
+  - **Cross-link or external deadlocks:** Call chains are local to one system (they do not cross `@apackdev/link` ports),
+    and the kernel cannot inspect deadlocks inside arbitrary external non-kernel promises or locks.
 - **Durability outside `transact`.** State snapshots live in memory; durability comes from the database rows written inside
   `transact` and the transport contract (`@apackdev/link`).
