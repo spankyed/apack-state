@@ -348,19 +348,38 @@ points at.
     name a state around it declares: the two could be under way at once, and the entry would say one while `cancel`
     or `disarm` ended the other. Both are refused where the definition is written and where it is started. States
     beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
-    reaches the wait its own state or the nearest state around it declares, and a wait counts as armed only if
-    something that can run without it arms it, so one armed only from its own `done`, or from the `done` of waits
-    nothing arms, is reported with which. An `arm` counts only where it can run: one written in a state the graph
-    finds is never entered arms nothing, and a wait armed only there is reported with the state. A wait declared in
-    such a state is not reported of its own: that the state is never entered says it. What the graph
-    cannot read hides only what it could arm: a handler not written in the definition, an `arm` of a name that is
-    not known, and an `arm` or a scope handed to other code each leave unreported the waits their own state and the
-    states around it declare, and no others, and hide nothing from a state never entered. What cannot be placed
-    hides every wait: a definition, a spread, a state or a table of declarations that could not be read, and a move
-    to a state that is not known. Where a way into a state could not be read (a handler that returns `any` or is not
-    one function, one written as anything but a function or the name of one, handlers not each written out under a
-    name of their own, what a read or a call hears with where its options are spread in, an `initial` that is not
-    one name), an `arm` counts wherever it is written.
+    reaches the wait its own state or the nearest state around it declares.
+
+    **What can happen is one analysis, and what cannot is said by its cause.** A state that can be the case lets
+    the handlers written in it run: its `on`, `internal` and `answers`, its `run` and `listen`, what its calls,
+    reads and views come back to, and its `failed` where it has a `run` or a `listen` to fail. A handler that can
+    run can enter the states it moves to, with each state around them and what the target starts at, and arm the
+    waits it arms. A wait that can be armed lets its `done` run. It begins with the state everything is in and what
+    that starts at, and takes the least of what follows; whether anyone sends an event is not asked. What it never
+    gets to is dead: a state never entered, a wait nothing arms. So a state entered only from a handler that cannot
+    run is never entered, and a wait armed only there is not armed.
+
+    Each dead thing is said once. A cause is one nothing dead leads to, or only what it leads to itself, and it is
+    said with what is dead because of it: `dead is never entered, so nothing arms keepalive; nothing enters
+    dead.sub`, `nothing arms first, so nothing arms second`, `nothing arms poll except its own done`. Of a circle the
+    first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A wait
+    declared in a state never entered is not named: the state says it.
+
+    Where a handler goes is read from the type it returns, and, where that type is written by hand, from each value
+    it returns as well: a type given to a return may say less than the values do, and a move it leaves out is still
+    made.
+    What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
+    written in the definition may arm any wait its own state or a state around it declares, and so may an `arm` of a
+    name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
+    that returns `any`, is not one function, is written as anything but a function or the name of one, is named by
+    something whose type may say less than it returns (a `const` given a type, a function declared without its
+    body), is under a name worked out, or moves to a state that is not known, may enter any state; an `initial` that
+    is not one name enters each it may be. A table of handlers not written out, what a read, a view or a call hears
+    with where its options are not all read, and a declaration made by anything but what its table is handed (`one`,
+    `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
+    in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
+    what is unread in a state never entered hides nothing, and the unread `done` of a wait hides nothing until the
+    wait is armed.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.

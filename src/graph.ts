@@ -141,39 +141,16 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const stays: string[] = []
     const answers: string[] = []
     const takes = new Set<string>()
-    const entered = new Set<string>()
-    const starts = new Map<string, string>()
     const follows: string[] = []
     const loads: string[] = []
     const calls: string[] = []
     const waits: string[] = []
     const reachesSet = new Set<string>()
     const uncertain = new Set<string>()
-    // What could arm a wait and cannot be read is kept by where it is, since an `arm` reaches only the waits its own
-    // state and the states around it declare: `unreadArms` holds the state each is written in. What cannot be placed
-    // (a part of the definition that could not be read, a move to a state that is not known) sets `unplaced`, and
-    // then no wait is said to be unarmed.
-    const unreadArms = new Set<string>()
-    let unplaced = false
-    const unread = (note: string): void => { uncertain.add(note); unplaced = true }
-    // Whether every way into a state has been read. A handler whose return could not be read, or an `initial` that
-    // is not one name, may enter a state nothing else is seen to enter, and then an `arm` counts wherever it is.
-    let entryKnown = true
-    const returnedBy = (handler: Type | undefined): Type[] | undefined => {
-      if (!handler) return undefined
-      const signatures = handler.getCallSignatures()
-      const values = signatures.length ? unwrap(signatures[0].getReturnType()) : undefined
-      if (signatures.length !== 1 || values!.some((value: Type) => value.flags & ts.TypeFlags.Any)) entryKnown = false
-      return values
-    }
-    /** The one function a handler is. One that may be either of two is read as its first, and the other may enter anything. */
-    const handlerOf = (property: any): Type | undefined => {
-      const kinds = real(typeOf(property))
-      if (kinds.length !== 1) entryKnown = false
-      return kinds[0]
-    }
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
     const waitKey = (within: string, name: string): string => `${within}\n${name}`
+    /** Whether `outer` is `inner` or a state around it. The state everything is in is around every state. */
+    const around = (outer: string, inner: string): boolean => !outer || inner === outer || inner.startsWith(`${outer}.`)
 
     const declared: string[] = []
     const startsStates: string[] = []
@@ -206,16 +183,103 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       }
     }
 
-    const rawArms: Array<{ statePath: string; targetKey: string; fromWaitKey?: string }> = []
-    const scan = (inner: any, statePath: string, fromWaitKey?: string): void => {
+    // What can happen is one graph. A state that can be the case lets the handlers written in it run; a handler that
+    // can run can enter the states it moves to and arm the waits it arms; a wait that can be armed lets its `done`
+    // run. A `Site` is where handlers are written that can run on the same condition, with all they can do. What
+    // could not be read is what it may do, not a fact about the whole definition: `anywhere` is a move to a state
+    // that is not known, `armsAround` an `arm` that is not known (it reaches the waits its own state and the states
+    // around it declare), and `armsWithin` one written in a state inside this one.
+    type Site = {
+      /** The state it is written in. */
+      readonly state: string
+      /** The wait whose `done` it is: it runs once that is armed, and not otherwise. */
+      readonly wait?: string
+      /** A `failed`, which runs only where there is work to fail. */
+      readonly ofWork?: true
+      readonly moves: Set<string>
+      readonly arms: Set<string>
+      anywhere: boolean
+      armsAround: boolean
+      armsWithin: boolean
+    }
+    const sites = new Map<string, Site>()
+    const siteAt = (key: string, made: Pick<Site, 'state' | 'wait' | 'ofWork'>): Site => {
+      let found = sites.get(key)
+      if (!found) { found = { ...made, moves: new Set(), arms: new Set(), anywhere: false, armsAround: false, armsWithin: false }; sites.set(key, found) }
+      return found
+    }
+    /** What a state takes, hears and does while it is the case: its tables, `run`, `listen`, and what its calls, reads and views come back to. */
+    const handlersIn = (path: string): Site => siteAt(`in\n${path}`, { state: path })
+    const failedIn = (path: string): Site => siteAt(`failed\n${path}`, { state: path, ofWork: true })
+    const doneOf = (key: string): Site => siteAt(`done\n${key}`, { state: key.slice(0, key.indexOf('\n')), wait: key })
+    /** A part of a state that could not be read may hold anything a state holds, in it and in every state inside it. */
+    const hidden = (path: string): void => {
+      const all = handlersIn(path)
+      all.anywhere = true
+      all.armsAround = true
+      all.armsWithin = true
+    }
+    const unreadHandler = (at: Site): void => { at.anywhere = true; at.armsAround = true }
+    /** The states with work that can fail: a `run` or a `listen`. */
+    const working = new Set<string>()
+    /** What each state starts at: the names `initial` may be, or `'any'` where it is not names. */
+    const initialOf = new Map<string, readonly string[] | 'any'>()
+
+    /**
+     * What a handler returns, by its type. One with more than one way to be called, or that may be either of two
+     * functions, is read as its first, and one that is no function as nothing: none of them is a function written
+     * out, so how it is written already leaves where it goes unread (`unreadBy`).
+     */
+    const returnedBy = (handler: Type | undefined, at: Site): Type[] | undefined => {
+      if (!handler) return undefined
+      const signatures = handler.getCallSignatures()
+      const values = signatures.length ? unwrap(signatures[0].getReturnType()) : undefined
+      if (values?.some((value: Type) => value.flags & ts.TypeFlags.Any)) at.anywhere = true
+      return values
+    }
+
+    /**
+     * Where a function written out goes by what it returns, for one whose return is given a type: that type may say
+     * less than the values do, and a move it leaves out is still made. Each value returned is read for itself.
+     */
+    const readWritten = (fn: any, at: Site): void => {
+      const returned: any[] = []
+      const gather = (node: any): void => {
+        if (ts.isReturnStatement(node)) { if (node.expression) returned.push(node.expression); return }
+        if (ts.isFunctionLike(node)) return
+        ts.forEachChild(node, gather)
+      }
+      if (ts.isBlock(fn.body)) ts.forEachChild(fn.body, gather); else returned.push(fn.body)
+      for (const expression of returned) {
+        for (const value of unwrap(checker.getTypeAtLocation(expression))) {
+          if (value.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+          // An answer that comes with a change goes where the change does.
+          const change = value.getProperty?.('next') && value.getProperty?.('answer') ? real(typeOf(value.getProperty('next'))) : [value]
+          for (const each of change) {
+            if (each.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+            const next = each.getProperty?.('at')
+            if (!next) continue
+            for (const member of real(typeOf(next))) { if (member.isStringLiteral()) at.moves.add(member.value as string); else at.anywhere = true }
+          }
+        }
+      }
+    }
+
+    const scan = (inner: any, at: Site): void => {
+      // A handler is written as an entry of a table or handed to what makes one; a function kept under a name of its
+      // own inside one is not what the handler returns.
+      if (inner.type && inner.body && (ts.isMethodDeclaration(inner) || ((ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) && !ts.isVariableDeclaration(inner.parent)))) readWritten(inner, at)
       if (!isDeclName(inner)) {
         const p = inner.parent
         if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
-          unreadArms.add(statePath)
+          at.armsAround = true
+        } else if (ts.isBindingElement(inner) && inner.dotDotDotToken && ts.isObjectBindingPattern(p) && isScopeReceiver(p)) {
+          // The rest of a scope taken apart holds whatever of it was not named, `arm` among it.
+          at.armsAround = true
         } else if (ts.isIdentifier(inner) && isScopeReceiver(inner)
           && !(p && ts.isPropertyAccessExpression(p) && p.expression === inner)
           && !(p && ts.isVariableDeclaration(p) && p.initializer === inner && ts.isObjectBindingPattern(p.name))) {
-          unreadArms.add(statePath)
+          at.armsAround = true
         }
       }
       if (ts.isCallExpression(inner) && inner.arguments[0]) {
@@ -226,65 +290,72 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           reachesSet.add(`${verb} ${isChildCall(resolvedTarget) ? `its ${resolvedTarget.arguments[0].getText()}` : target.getText()}`)
           if (!hasStaticTarget(target)) {
             uncertain.add(`dynamic target in ${verb} ${target.getText()}`)
-            if (verb === 'arm') unreadArms.add(statePath)
+            if (verb === 'arm') at.armsAround = true
           } else if (verb === 'arm') {
             const names: string[] = []
             if (ts.isStringLiteralLike(resolvedTarget)) names.push(resolvedTarget.text)
             else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) names.push(m.value as string)
             for (const armedName of names) {
-              const targetKey = resolveWait(statePath, armedName)
-              if (targetKey) rawArms.push({ statePath, targetKey, fromWaitKey })
+              const targetKey = resolveWait(at.state, armedName)
+              if (targetKey) at.arms.add(targetKey)
             }
           }
         }
       }
-      ts.forEachChild(inner, (child: any) => scan(child, statePath, fromWaitKey))
+      ts.forEachChild(inner, (child: any) => scan(child, at))
     }
 
-    const read = (returned: Type[], path: string, on: string): void => {
+    const read = (returned: Type[], path: string, on: string, at: Site): void => {
       const to = new Set<string>()
       let dynamicAt: string | undefined
       for (const value of returned) {
-        const at = value.getProperty?.('at')
-        if (!at) continue
-        const atType = typeOf(at)
+        const next = value.getProperty?.('at')
+        if (!next) continue
+        const atType = typeOf(next)
         for (const member of real(atType)) {
           if (member.isStringLiteral()) to.add(member.value as string)
           else dynamicAt = checker.typeToString(atType)
         }
       }
-      if (dynamicAt !== undefined) unread(`dynamic move target in ${where(path, on)} (at is ${dynamicAt})`)
+      if (dynamicAt !== undefined) { uncertain.add(`dynamic move target in ${where(path, on)} (at is ${dynamicAt})`); at.anywhere = true }
+      for (const target of to) at.moves.add(target)
       if (to.size) moves.push({ from: path || 'anywhere', on, to: [...to] })
       else if (dynamicAt === undefined) stays.push(where(path, on))
     }
 
     const walk = (level: Type, path: string): void => {
+      const here = handlersIn(path)
       for (const property of level.getProperties()) {
-        const type = real(typeOf(property))[0]
+        const kinds = real(typeOf(property))
+        const type = kinds[0]
         if (!type) continue
         if (property.name === 'on' || property.name === 'internal') {
           for (const handler of type.getProperties()) {
             takes.add(handler.name)
-            const returned = returnedBy(handlerOf(handler))
-            if (returned) read(returned, path, handler.name)
+            const returned = returnedBy(real(typeOf(handler))[0], here)
+            if (returned) read(returned, path, handler.name, here)
           }
         } else if (property.name === 'answers') {
           for (const handler of type.getProperties()) {
             takes.add(handler.name)
             answers.push(where(path, handler.name))
-            const changes = (returnedBy(handlerOf(handler)) ?? []).filter((value: Type) => value.getProperty?.('next') && value.getProperty?.('answer'))
-            if (changes.length) read(changes.flatMap((value: Type) => real(typeOf(value.getProperty('next')))), path, `${handler.name} (answering)`)
+            const changes = (returnedBy(real(typeOf(handler))[0], here) ?? []).filter((value: Type) => value.getProperty?.('next') && value.getProperty?.('answer'))
+            const nexts = changes.flatMap((value: Type) => real(typeOf(value.getProperty('next'))))
+            if (nexts.some((next: Type) => next.flags & ts.TypeFlags.Any)) here.anywhere = true
+            if (changes.length) read(nexts, path, `${handler.name} (answering)`, here)
           }
         } else if (property.name === 'run') {
-          const returned = returnedBy(type) ?? []
-          if (returned.length) read(returned, path, '(its work ends)')
+          working.add(path)
+          const returned = returnedBy(type, here) ?? []
+          if (returned.length) read(returned, path, '(its work ends)', here)
         } else if (property.name === 'failed') {
-          const returned = returnedBy(type)
-          if (returned) read(returned, path, '(its work fails)')
+          const failed = failedIn(path)
+          const returned = returnedBy(type, failed)
+          if (returned) read(returned, path, '(its work fails)', failed)
+        } else if (property.name === 'listen') {
+          working.add(path)
         } else if (property.name === 'initial') {
-          const named = real(typeOf(property))
-          if (named.length !== 1 || !named[0].isStringLiteral()) entryKnown = false
-          for (const at of literalsOf(type)) starts.set(path, at)
+          initialOf.set(path, kinds.every((kind: Type) => kind.isStringLiteral()) ? kinds.map((kind: Type) => kind.value as string) : 'any')
         } else if (property.name === 'states') {
           for (const inner of type.getProperties()) { const innerType = real(typeOf(inner))[0]; if (innerType) walk(innerType, join(path, inner.name)) }
         }
@@ -312,108 +383,162 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       const cur = unwrapParens(node)
       return Boolean(cur && (ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)))
     }
-    const isInlineHandlerProp = (prop: any): boolean =>
-      ts.isMethodDeclaration(prop) || (ts.isPropertyAssignment(prop) && isInlineFn(prop.initializer))
+    /**
+     * Whether a name is one function whose type is read off its own code: a function declared with its body, or a
+     * `const` given no type that is a function written out, or the name of one. A type written beside a function may
+     * say less than the function returns, and so may the type of one chosen between two.
+     */
+    const saysItsReturn = (symbol: any, seen = new Set<any>()): boolean => {
+      const named = symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
+      const decl = named?.valueDeclaration
+      if (!decl || seen.has(decl)) return false
+      seen.add(decl)
+      if (ts.isFunctionDeclaration(decl)) return Boolean(decl.body)
+      if (!ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || decl.type || !decl.initializer) return false
+      const made = unwrapParens(decl.initializer)
+      return isInlineFn(made) || (ts.isIdentifier(made) && saysItsReturn(checker.getSymbolAtLocation(made), seen))
+    }
+    /**
+     * What a handler leaves unread by how it is written. One written out here leaves nothing. The name of a function
+     * leaves what it arms, since its code is elsewhere. Anything else (either of two, what a call gives back), and a
+     * name whose type may say less than its function returns, leaves where it goes as well.
+     */
+    const unreadBy = (written: any, at: Site, moves = true): void => {
+      if (ts.isMethodDeclaration(written)) return
+      const value = ts.isShorthandPropertyAssignment(written) ? written.name : unwrapParens(ts.isPropertyAssignment(written) ? written.initializer : written)
+      if (isInlineFn(value)) return
+      at.armsAround = true
+      const symbol = ts.isShorthandPropertyAssignment(written) ? checker.getShorthandAssignmentValueSymbol(written) : ts.isIdentifier(value) ? checker.getSymbolAtLocation(value) : undefined
+      if (moves && !saysItsReturn(symbol)) at.anywhere = true
+    }
+    /**
+     * Whether an entry of a table of declarations is made by what the table is handed: `one(...)` or `helpers.one(...)`
+     * of the table's own parameter. One made by anything else holds what that made of it, which is not read.
+     */
+    const madeByHelper = (callee: any, table: any): boolean => {
+      const named = unwrapParens(callee)
+      const from = ts.isPropertyAccessExpression(named) ? unwrapParens(named.expression) : named
+      if (!ts.isIdentifier(from)) return false
+      let decl = checker.getSymbolAtLocation(from)?.valueDeclaration
+      if (decl && ts.isBindingElement(decl) && !decl.dotDotDotToken && ts.isObjectBindingPattern(decl.parent) && !ts.isPropertyAccessExpression(named)) decl = decl.parent.parent
+      return Boolean(decl && ts.isParameter(decl) && decl.parent === table)
+    }
     const declarations = (object: any, path: string): void => {
+      const here = handlersIn(path)
       for (const property of object.properties) {
         if (ts.isSpreadAssignment(property)) {
-          unread(`spread in ${path || 'definition'} could not be statically read`)
-          scan(property.expression, path)
+          uncertain.add(`spread in ${path || 'definition'} could not be statically read`)
+          hidden(path)
+          scan(property.expression, here)
           continue
         }
         if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property) && !ts.isMethodDeclaration(property)) {
-          scan(property, path)
+          hidden(path)
+          scan(property, here)
           continue
         }
         const name = propName(property.name)
         if (name === undefined) {
-          unread(`computed property ${property.name.getText()} in ${path || 'definition'} could not be statically read`)
-          scan(property, path)
+          uncertain.add(`computed property ${property.name.getText()} in ${path || 'definition'} could not be statically read`)
+          hidden(path)
+          scan(property, here)
           continue
         }
         const made = ts.isPropertyAssignment(property) ? unwrapParens(property.initializer) : undefined
         if (name === 'on' || name === 'internal' || name === 'answers') {
-          if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) unreadArms.add(path)
-          // Handlers that are not each written out under a name of their own are not all read, and one written as
-          // anything but a function or the name of one (either of two, what a call gives back) has a type that says
-          // less than it does: each may enter anything.
-          const named = (p: any): boolean => ts.isMethodDeclaration(p) || ts.isShorthandPropertyAssignment(p)
-            || (ts.isPropertyAssignment(p) && !ts.isComputedPropertyName(p.name) && (isInlineFn(p.initializer) || ts.isIdentifier(unwrapParens(p.initializer))))
-          if (!made || !ts.isObjectLiteralExpression(made) || !made.properties.every(named)) entryKnown = false
-          scan(property, path)
+          // Handlers that are not each written out under a name of their own are not all read.
+          if (!made || !ts.isObjectLiteralExpression(made)) unreadHandler(here)
+          else for (const handler of made.properties) {
+            unreadBy(handler, here)
+            if (handler.name && propName(handler.name) === undefined) here.anywhere = true
+          }
+          scan(property, here)
           continue
         }
         if (name === 'listen' || name === 'run' || name === 'failed') {
-          if (!isInlineHandlerProp(property)) unreadArms.add(path)
-          scan(property, path)
+          const at = name === 'failed' ? failedIn(path) : here
+          unreadBy(property, at, name !== 'listen')
+          scan(property, at)
           continue
         }
         if (name === 'states') {
           if (!made || !ts.isObjectLiteralExpression(made)) {
-            unread(`could not statically read ${where(path, 'states')}`)
-            scan(property, path)
+            uncertain.add(`could not statically read ${where(path, 'states')}`)
+            hidden(path)
+            scan(property, here)
             continue
           }
           for (const inner of made.properties) {
             if (ts.isSpreadAssignment(inner)) {
-              unread(`spread in ${where(path, 'states')} could not be statically read`)
-              scan(inner, path)
+              uncertain.add(`spread in ${where(path, 'states')} could not be statically read`)
+              hidden(path)
+              scan(inner, here)
             } else if (ts.isPropertyAssignment(inner)) {
               const subName = propName(inner.name)
               const subInit = unwrapParens(inner.initializer)
               if (subName === undefined) {
-                unread(`could not statically read ${where(path, inner.name.getText())}`)
-                scan(inner, path)
+                uncertain.add(`could not statically read ${where(path, inner.name.getText())}`)
+                hidden(path)
+                scan(inner, here)
               } else if (ts.isObjectLiteralExpression(subInit)) {
                 declarations(subInit, join(path, subName))
               } else {
-                unread(`could not statically read ${join(path, subName)}`)
-                scan(inner, path)
+                uncertain.add(`could not statically read ${join(path, subName)}`)
+                hidden(join(path, subName))
+                scan(inner, handlersIn(join(path, subName)))
               }
             } else if (ts.isShorthandPropertyAssignment(inner)) {
-              unread(`could not statically read ${join(path, inner.name.text)}`)
-              scan(inner, path)
+              uncertain.add(`could not statically read ${join(path, inner.name.text)}`)
+              hidden(join(path, inner.name.text))
+              scan(inner, handlersIn(join(path, inner.name.text)))
             } else {
-              scan(inner, path)
+              hidden(path)
+              scan(inner, here)
             }
           }
           continue
         }
         if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') {
-          scan(property, path)
+          scan(property, here)
           continue
         }
+        // What a table of declarations hears with, where it is not read: the `done` of each wait the state declares,
+        // which runs once that wait is armed, and for the rest what the state hears while it is the case.
+        const unreadEntries = (): void => {
+          if (name !== 'waits') unreadHandler(here)
+          else for (const wait of declaredWaits) if (wait.within === path) unreadHandler(doneOf(wait.key))
+        }
         if (!made || !ts.isArrowFunction(made)) {
-          unread(`could not statically read ${where(path, name)}`)
-          scan(property, path)
+          uncertain.add(`could not statically read ${where(path, name)}`)
+          unreadEntries()
+          scan(property, here)
           continue
         }
         const body = unwrapParens(made.body)
         if (!ts.isObjectLiteralExpression(body)) {
-          unread(`could not statically read ${where(path, name)}`)
-          scan(property, path)
+          uncertain.add(`could not statically read ${where(path, name)}`)
+          unreadEntries()
+          scan(property, here)
           continue
         }
         for (const entry of body.properties) {
           if (ts.isSpreadAssignment(entry)) {
-            unread(`spread in ${where(path, name)} could not be statically read`)
-            scan(entry, path)
+            uncertain.add(`spread in ${where(path, name)} could not be statically read`)
+            unreadEntries()
+            scan(entry, here)
             continue
           }
-          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) {
-            const rawEntry = entry.name ? (propName(entry.name) ?? entry.name.getText()) : '?'
-            unread(`could not statically read ${where(path, `${name}.${rawEntry}`)}`)
-            scan(entry, path)
-            continue
-          }
-          const entryName = propName(entry.name)
-          if (entryName === undefined) {
-            unread(`could not statically read ${where(path, `${name}.${entry.name.getText()}`)}`)
-            scan(entry, path)
+          const entryName = entry.name ? propName(entry.name) : undefined
+          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer) || entryName === undefined || !madeByHelper(entry.initializer.expression, made)) {
+            uncertain.add(`could not statically read ${where(path, `${name}.${entryName ?? (entry.name ? entry.name.getText() : '?')}`)}`)
+            if (name === 'waits' && entryName !== undefined && byWaitKey.has(waitKey(path, entryName))) unreadHandler(doneOf(waitKey(path, entryName)))
+            else unreadEntries()
+            scan(entry, here)
             continue
           }
           if (name === 'waits') {
-            scan(entry.initializer, path, waitKey(path, entryName))
+            const done = doneOf(waitKey(path, entryName))
+            scan(entry.initializer, done)
             const [first, second] = entry.initializer.arguments
             const helper = entry.initializer.expression.getText()
             const hasMs = Boolean(first && (checker.getTypeAtLocation(first).flags & ts.TypeFlags.NumberLike))
@@ -421,39 +546,42 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             let noReset = false
             if (rest && ts.isObjectLiteralExpression(rest)) {
               if (rest.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
-                unread(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
+                uncertain.add(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
+                unreadHandler(done)
               }
               const resetProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'reset')
               const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
               if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
               const doneProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'done')
-              if (doneProp && !isInlineHandlerProp(doneProp)) unreadArms.add(path)
-              const returned = returnedBy(doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp))
-              if (returned) read(returned, path, `${entryName} (done)`)
+              if (doneProp) unreadBy(doneProp, done)
+              const returned = returnedBy(doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp), done)
+              if (returned) read(returned, path, `${entryName} (done)`, done)
             } else if (rest) {
-              if (!isInlineFn(rest)) unreadArms.add(path)
+              unreadBy(rest, done)
               const restType = checker.getTypeAtLocation(rest)
               if (restType.getCallSignatures().length) {
-                read(returnedBy(restType)!, path, `${entryName} (done)`)
+                read(returnedBy(restType, done)!, path, `${entryName} (done)`, done)
               } else {
+                // Options written elsewhere: what is read of them is what their type says, for the moves listed.
                 const doneProp = restType.getProperty?.('done')
-                const returned = returnedBy(doneProp && real(typeOf(doneProp))[0])
-                if (returned) read(returned, path, `${entryName} (done)`)
-                else if (restType.flags & ts.TypeFlags.Any) unread(`could not statically read ${where(path, `waits.${entryName}`)}`)
+                const returned = returnedBy(doneProp && real(typeOf(doneProp))[0], done)
+                if (returned) read(returned, path, `${entryName} (done)`, done)
+                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entryName}`)}`)
               }
             }
             const msLabel = hasMs ? (ts.isNumericLiteral(first) ? `${first.text}ms` : text(first)) : 'ms at arm'
             waits.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
             continue
           }
-          scan(entry.initializer, path)
+          scan(entry.initializer, here)
           const [first, second, opts] = entry.initializer.arguments
           if (!first || !second || !opts || !ts.isObjectLiteralExpression(opts)) {
-            unread(`could not statically read ${where(path, `${name}.${entryName}`)}`)
+            uncertain.add(`could not statically read ${where(path, `${name}.${entryName}`)}`)
+            unreadHandler(here)
             continue
           }
           // What is spread into its options, or put there under a name worked out, may be what it hears with.
-          if (opts.properties.some((each: any) => ts.isSpreadAssignment(each) || (each.name && ts.isComputedPropertyName(each.name)))) { entryKnown = false; unreadArms.add(path) }
+          if (opts.properties.some((each: any) => ts.isSpreadAssignment(each) || (each.name && propName(each.name) === undefined))) unreadHandler(here)
           const option = (key: string): any => opts.properties.find((each: any) => each.name && propName(each.name) === key)
           const valueOf = (prop: any): any => prop && (prop.initializer ?? prop.name)
           const each = valueOf(option('each'))
@@ -467,9 +595,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entryName}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
           for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
             const handler = option(hears)
-            if (handler && !isInlineHandlerProp(handler)) unreadArms.add(path)
-            const returned = returnedBy(handler && checker.getTypeAtLocation(handler.initializer ?? handler))
-            if (returned) read(returned, path, `${entryName} (${hears})`)
+            if (handler) unreadBy(handler, here)
+            const returned = returnedBy(handler && checker.getTypeAtLocation(handler.initializer ?? handler), here)
+            if (returned) read(returned, path, `${entryName} (${hears})`, here)
           }
         }
       }
@@ -477,90 +605,124 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     if (literal && ts.isObjectLiteralExpression(literal)) {
       declarations(literal, '')
     } else {
-      unread('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
+      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
+      hidden('')
     }
 
-    const gone = new Set<string>()
-    const enter = (path: string): void => {
-      for (let at = path; ; ) {
-        if (gone.has(at)) break
-        gone.add(at)
-        if (at) { entered.add(at); for (let cut = at.lastIndexOf('.'); cut > 0; cut = at.lastIndexOf('.', cut - 1)) entered.add(at.slice(0, cut)) }
-        const next = starts.get(at)
-        if (next === undefined) break
-        at = join(at, next)
+    // The least set closed under what can happen, from the state everything is in and what it starts at. A state is
+    // live when it can be the case, and a wait when it can be armed.
+    const liveStates = new Set<string>()
+    const liveWaits = new Set<string>()
+    /**
+     * Entering a state is entering each state around it, and then what it starts at, and what that starts at. A state
+     * around the one entered is not entered at what it starts at.
+     */
+    const enter = (target: string): void => {
+      for (let cut = target.indexOf('.'); cut > 0; cut = target.indexOf('.', cut + 1)) liveStates.add(target.slice(0, cut))
+      const next = [target]
+      while (next.length) {
+        const at = next.pop()!
+        liveStates.add(at)
+        const initial = initialOf.get(at)
+        if (initial === 'any') next.push(...declared.filter((name) => name.startsWith(at ? `${at}.` : '') && !name.slice(at ? at.length + 1 : 0).includes('.')))
+        else for (const name of initial ?? []) next.push(join(at, name))
       }
     }
+    const canRun = (at: Site): boolean => (at.wait !== undefined ? liveWaits.has(at.wait) : liveStates.has(at.state) && (!at.ofWork || working.has(at.state)))
+    const ran = new Set<Site>()
     enter('')
-    for (const move of moves) for (const target of move.to) enter(target)
-
-    // An `arm` counts where it can run: in the state everything is in, and in a state that can be entered.
-    const canRun = (path: string): boolean => !entryKnown || !path || entered.has(path)
-    const around = (outer: string, inner: string): boolean => !outer || inner === outer || inner.startsWith(`${outer}.`)
-    const rootArmed = new Set<string>()
-    const waitEdges = new Map<string, Set<string>>()
-    const armedByWait = new Map<string, Set<string>>()
-    const armedWhereNeverEntered = new Map<string, Set<string>>()
-    for (const { statePath, targetKey, fromWaitKey } of rawArms) {
-      if (!canRun(statePath)) {
-        let dead = armedWhereNeverEntered.get(targetKey)
-        if (!dead) { dead = new Set(); armedWhereNeverEntered.set(targetKey, dead) }
-        dead.add(statePath)
-        continue
-      }
-      if (fromWaitKey === undefined) {
-        rootArmed.add(targetKey)
-      } else {
-        let out = waitEdges.get(fromWaitKey)
-        if (!out) { out = new Set(); waitEdges.set(fromWaitKey, out) }
-        out.add(targetKey)
-        let inc = armedByWait.get(targetKey)
-        if (!inc) { inc = new Set(); armedByWait.set(targetKey, inc) }
-        inc.add(fromWaitKey)
-      }
-    }
-
-    const liveWaits = new Set<string>(rootArmed)
-    const queue = [...rootArmed]
-    while (queue.length) {
-      const cur = queue.shift()!
-      for (const next of waitEdges.get(cur) ?? []) {
-        if (!liveWaits.has(next)) {
-          liveWaits.add(next)
-          queue.push(next)
+    for (let more = true; more; ) {
+      more = false
+      for (const at of sites.values()) {
+        if (ran.has(at) || !canRun(at)) continue
+        ran.add(at)
+        more = true
+        for (const target of at.anywhere ? declared : at.moves) enter(target)
+        for (const key of at.arms) liveWaits.add(key)
+        for (const wait of declaredWaits) {
+          if ((at.armsAround && around(wait.within, at.state)) || (at.armsWithin && around(at.state, wait.within))) liveWaits.add(wait.key)
         }
       }
+    }
+
+    // What is dead is said by its cause. One dead thing leads to another where it is read to: a state to the states
+    // inside it and the waits it declares, a handler's state to what the handler enters and arms, a wait to what its
+    // `done` does. What may be, unread, leads nowhere here: it is not known to. A cause is a dead thing nothing dead
+    // leads to but what it leads to itself, and the first of those declared speaks for them.
+    const stateId = (path: string): string => `state\n${path}`
+    const waitId = (key: string): string => `wait\n${key}`
+    const dead = [
+      ...declared.filter((name) => !liveStates.has(name)).map(stateId),
+      ...declaredWaits.filter((wait) => !liveWaits.has(wait.key)).map((wait) => waitId(wait.key)),
+    ]
+    const order = new Map(dead.map((id, index) => [id, index]))
+    const leadsTo = new Map<string, Set<string>>(dead.map((id) => [id, new Set()]))
+    const ledBy = new Map<string, Set<string>>(dead.map((id) => [id, new Set()]))
+    const lead = (from: string, to: string): void => {
+      if (!order.has(from) || !order.has(to)) return
+      leadsTo.get(from)!.add(to)
+      ledBy.get(to)!.add(from)
+    }
+    for (const name of declared) lead(stateId(name.slice(0, Math.max(0, name.lastIndexOf('.')))), stateId(name))
+    for (const wait of declaredWaits) lead(stateId(wait.within), waitId(wait.key))
+    for (const at of sites.values()) {
+      const from = at.wait !== undefined ? waitId(at.wait) : stateId(at.state)
+      for (const key of at.arms) lead(from, waitId(key))
+      // A move enters the states around its target that the handler is not already in.
+      for (const target of at.moves) {
+        for (const name of declared) if (around(name, target) && !around(name, at.state)) lead(from, stateId(name))
+      }
+    }
+    const reached = new Map<string, Set<string>>()
+    for (const id of dead) {
+      const seen = new Set<string>()
+      const next = [...leadsTo.get(id)!]
+      while (next.length) {
+        const to = next.pop()!
+        if (seen.has(to)) continue
+        seen.add(to)
+        next.push(...leadsTo.get(to)!)
+      }
+      reached.set(id, seen)
+    }
+    const causes = dead.filter((id) => dead.every((other) => other === id || !reached.get(other)!.has(id) || (reached.get(id)!.has(other) && order.get(other)! > order.get(id)!)))
+    const said = (id: string): string => {
+      const name = id.slice(id.indexOf('\n') + 1)
+      if (id.startsWith('state\n')) return name
+      const wait = byWaitKey.get(name)!
+      return where(wait.within, wait.name)
+    }
+    const isState = (id: string): boolean => id.startsWith('state\n')
+    const spoken = new Set<string>(causes)
+    const caused: string[] = []
+    for (const cause of causes) {
+      const by = [...ledBy.get(cause)!]
+      const fromWaits = by.filter((id) => !isState(id) && id !== cause).map(said)
+      const except: string[] = []
+      let subject: string
+      if (isState(cause)) {
+        const fromStates = by.filter(isState).map(said)
+        if (fromStates.length) except.push(`from ${fromStates.join(', ')}`)
+        if (fromWaits.length) except.push(`by the done of ${fromWaits.join(', ')}`)
+        subject = `${said(cause)} is never entered`
+      } else {
+        if (by.includes(cause)) except.push('its own done')
+        if (fromWaits.length) except.push(`the done of ${fromWaits.join(', ')}`)
+        subject = `nothing arms ${said(cause)}`
+      }
+      const after = dead.filter((id) => !spoken.has(id) && reached.get(cause)!.has(id))
+      for (const id of after) spoken.add(id)
+      // A wait declared in a state never entered is said by that state: nothing in it happens at all.
+      const unarmed = after.filter((id) => !isState(id) && liveStates.has(byWaitKey.get(id.slice(id.indexOf('\n') + 1))!.within)).map(said)
+      const unentered = after.filter(isState).map(said)
+      const so = [unarmed.length ? `nothing arms ${unarmed.join(', ')}` : '', unentered.length ? `nothing enters ${unentered.join(', ')}` : ''].filter(Boolean)
+      caused.push(`${subject}${except.length ? ` except ${except.join(' and ')}` : ''}${so.length ? `, so ${so.join('; ')}` : ''}`)
     }
 
     const reaches = [...reachesSet]
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
-    for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
-    if (!unplaced) {
-      const hiding = [...unreadArms].filter(canRun)
-      for (const w of declaredWaits) {
-        if (liveWaits.has(w.key)) continue
-        // One declared in a state never entered is said already, by that state: nothing in it happens at all.
-        if (!canRun(w.within)) continue
-        if (hiding.some((path) => around(w.within, path))) continue
-        const sources = [...(armedByWait.get(w.key) ?? [])]
-        const others = sources
-          .filter((source) => source !== w.key)
-          .map((source) => {
-            const from = byWaitKey.get(source)
-            return from ? where(from.within, from.name) : source.slice(source.indexOf('\n') + 1)
-          })
-        const label = where(w.within, w.name)
-        const dead = [...(armedWhereNeverEntered.get(w.key) ?? [])]
-        // What does arm it and cannot: first the `done` of waits that cannot fire, then the states never entered. An
-        // `arm` in a state never entered is named by that state, whether or not it is in a `done` there.
-        const except: string[] = []
-        if (others.length) except.push(`the done of ${[...(sources.includes(w.key) ? [label] : []), ...others].join(', ')}, which cannot fire`)
-        else if (sources.length) except.push('its own done')
-        if (dead.length) except.push(`in ${dead.join(', ')}, which ${dead.length > 1 ? 'are' : 'is'} never entered`)
-        findings.push(except.length ? `nothing arms ${label} except ${except.join(', and ')}` : `nothing arms ${label}`)
-      }
-    }
+    findings.push(...caused)
     for (const note of uncertain) findings.push(note)
 
     const lines: string[] = [title]
