@@ -300,11 +300,6 @@
     "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }), | \"\"",
-    "original": "'one'",
-    "why": "A call declared one at a time is told from one for each key only by being each or not, so the name of its kind is never read"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (!found) { | true",
     "original": "!found",
     "why": "Declarations read afresh each time are the same ones, made by the same functions from the same definition: only what it costs differs"
