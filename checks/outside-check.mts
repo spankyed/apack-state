@@ -346,6 +346,43 @@ await run([
     strictEqual(sys.idle(), true)
   }],
 
+  ['an ask is not given that way: one that was answered is not taken back, and its work goes on to its next wait', async () => {
+    const saw: string[] = []
+    const asked = held<void>()
+    const answer = held<string>()
+    const next = held<string>()
+    type Asks = { FIND: { args: {}; answer: string } }
+    type AskerNet = { systems: { finder: { events: never; asks: Asks } }; surfaces: {}; views: {} }
+    const finder = state<{}, never, Asks>()({ answers: { FIND: () => { asked.resolve(); return answer.promise } } })
+    const asker = forNet<AskerNet>()<{ states: { asking: {}; done: {}; left: {} } }, { type: 'LEAVE' }>()({
+      initial: 'asking',
+      states: {
+        asking: {
+          on: { LEAVE: () => ({ at: 'left' }) },
+          async run({ ask, outside }) {
+            const found = await ask('finder', 'FIND', {})
+            saw.push(`went on with ${found.ok && found.value}`)
+            try { await outside(next.promise) } catch (error) { saw.push(error instanceof Cancelled ? 'Cancelled at the next wait' : String(error)); throw error }
+            return { at: 'done' }
+          },
+          failed: () => { saw.push('failed') },
+        },
+        done: {},
+        left: {},
+      },
+    })
+    const sys = system({ side: 'backend' })
+    sys.start('finder', finder)
+    const asking = sys.start('asker', asker)
+    await asked.promise
+    answer.resolve('thread')
+    // A leaving sent from a promise callback queued behind the answer, and ahead of the work going on.
+    await Promise.resolve().then(() => { sys.send(asking, { type: 'LEAVE' }) })
+    await rest()
+    deepStrictEqual(saw, ['went on with thread', 'Cancelled at the next wait'])
+    strictEqual(sys.read(asking).at, 'left')
+  }],
+
   ['a thenable that throws as it is read is the failure of the work, as one that rejects is', async () => {
     const saw: string[] = []
     const broken = new Proxy({}, { get: () => { throw new Error('no then') } }) as PromiseLike<string>

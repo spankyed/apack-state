@@ -66,7 +66,16 @@ network) that already ran.
   else was queued in that turn still to run, and any of it may leave the state. So `outside()` does not end its wait
   there: it ends it on the system's next turn, by itself, when the only thing queued behind it is its work going on.
   A state left in between is `Cancelled` where it waited, and its work does not go on. The cost is one turn for each
-  wait.
+  wait. It holds where the host's `later` is a later turn, as the default and a schedule are: one that runs what it is
+  given in a microtask puts the ending back among whatever else is queued.
+- **An `ask()` that has been answered is not taken back.** An answer is given as the step that carries it commits,
+  and that step may run in a microtask, when what it waited on was a promise. A state left after its ask was answered
+  and before its work went on (a leaving sent from a promise callback in that same turn) lets the work run to its next
+  wait, where it is `Cancelled`. Until then what it says through its scope does nothing and what it returns is
+  dropped, and what it does outside the kernel happens. An answer is not put off a turn as outside work is: an ask
+  taken back with its step ends as taken back and not as `Cancelled`, which a later turn would lose, and every ask
+  would be one more thing for a schedule to order. A `sleep()` ends on the clock's own turn, with nothing queued
+  behind it.
 - **Detached external promises.** JavaScript cannot forcibly cancel arbitrary non-kernel promises. If a losing branch of
   `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `raise`, `tell`, `progress`, and
   `onExit` calls from that closed scope are ignored, and cooperative code should check `scope.signal.aborted`.

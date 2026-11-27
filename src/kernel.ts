@@ -311,7 +311,9 @@ export function system<N extends Net = Net>(host: {
   transact?: Transact
   /**
    * Runs something later, after whatever is ahead of it in its lane. The default is the next turn of the event loop.
-   * A check gives a schedule here, which decides the order between lanes and can run every one of them.
+   * A check gives a schedule here, which decides the order between lanes and can run every one of them. It is a later
+   * turn and never a microtask: what `outside` gives is given by it, so that nothing is queued behind a wait's ending
+   * but its work going on.
    */
   later?(lane: Lane, run: () => void): void
   /** Runs something once per frame. A window gives `requestAnimationFrame`; the default is the next turn of the event loop. */
