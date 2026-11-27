@@ -27,6 +27,10 @@ The state primitive apack is to be built on. `README.md` says what it is; this i
 ## Rules
 
 - **One primitive.** A state. What looks like a second kind of thing is a state, or is not built.
+- **Zero-export bias.** Do not add a new top-level export (`xxxFor<Net>()`, wrapper helper) when an existing export (`system<N>()`, `Def`, `Scope`) can carry it via an optional generic or option. Every new symbol in `etc/*.api.md` must justify why an existing entry cannot hold it.
+- **Zero false positives on valid programs.** Never add a runtime heuristic that rejects valid programs to approximate a bug check. Follow established systems precedent (Erlang/Orleans/gRPC) and match the kernel's existing mechanisms (`RUNAWAY`-style depth/step caps over membership heuristics; static `tools/graph.mts` checks over runtime bans).
+- **Standing and imperative stay apart.** Never mix standing declarations (`starts`, `follows`, `loads`) with imperative ones (`calls`). Keep `Def`'s grammar strict: a singular base verb is a single function (`run`, `listen`), and a plural `-s` verb is a named map (`starts`, `follows`, `loads`, `calls`, `answers`).
+- **Consumer-first.** Before widening `src/index.ts`, `Def`, or `src/kernel.ts`, name the concrete `apack` call sites and net glue it deletes — no speculative abstractions. Check `docs/deferred/` so previously declined patterns are not re-proposed.
 - **A step is one unit.** Data, rows and what was said are kept together or not at all. The kernel is given
   `transact` and names no database.
 - **Every ordering, not a likely one.** What depends on order is checked under the schedule, exhaustively where

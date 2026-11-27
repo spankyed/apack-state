@@ -22,7 +22,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ interface Running {
 
 type Item =
   | { kind: 'event'; ref: string; event: AnyEvent; /** Sent by the state to itself. */ own?: true }
-  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; progress?: (update: unknown) => void; gone?: AbortSignal }
+  | { kind: 'ask'; ref: string; name: string; args: object; question: Question; progress?: (update: unknown) => void; gone?: AbortSignal; chain?: readonly string[] }
   | { kind: 'result'; of: Active; value: unknown }
   | { kind: 'failure'; of: Active; error: unknown }
   | { kind: 'view'; of: Active; name: string; id: string; key: string | undefined; live: Live; update: ViewUpdate<unknown>; opId: number }
@@ -221,7 +221,12 @@ export interface Defect {
   readonly step?: number
 }
 
-export interface System {
+/** A typed named-peer handler: either a direct event callback or a `PeerPort`-shaped object. */
+export type TypedPeer<E = unknown> =
+  | ((event: [AnyEvent] extends [E] ? unknown : Read<E>) => void)
+  | { tell(peer: string, event: [AnyEvent] extends [E] ? unknown : Read<E>): void }
+
+export interface System<N extends Net = Net> {
   start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
   /**
    * A state that this one starts, by the name it is declared under, and by key where there is one for each. This is
@@ -245,9 +250,13 @@ export interface System {
   attach(peer: Port): () => void
   /**
    * Attaches a named non-window peer to this system, and returns what detaches it. `tell({ peer: name }, event)`
-   * delivers `port.tell(name, event)` after the step commits, with no view hold. Duplicate names throw.
+   * delivers the event after the step commits, with no view hold. Accepts either a direct event callback or a
+   * `PeerPort`-shaped object. Duplicate names throw.
    */
-  attach(name: string, peer: PeerPort): () => void
+  attach<K extends NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? keyof NonNullable<N['peers']> & string : never>(
+    name: K,
+    peer: TypedPeer<NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? NonNullable<N['peers']>[K]['events'] : never>,
+  ): () => void
   /**
    * Whether nothing is under way here: no work a state is doing, no ask being answered or waited on, nothing put off
    * and nothing gathered. For a check, to wait until what it did has come to rest and not for a count of turns.
@@ -265,10 +274,13 @@ export interface System {
 /** More than this handled in one step is states telling each other without end: the step is cut short and reported. */
 const RUNAWAY = 10_000
 
+/** More than this many nested local asks in one call chain is cut short and reported. */
+const MAX_ASK_DEPTH = 64
+
 /** A data field holding more items than this is reported: a collection that large belongs in a view. */
 const LARGE = 10_000
 
-export function system(host: {
+export function system<N extends Net = Net>(host: {
   side: 'backend' | 'window'
   /** What this system is called in a lane's label and nowhere else. */
   name?: string
@@ -305,7 +317,7 @@ export function system(host: {
    * heard from. The app gives none: one thing leading to the next for as long as it runs is what an agent's loop is.
    */
   limit?: number
-}): System {
+}): System<N> {
   const trace = (line: string): void => { try { host.trace?.(line) } catch {} }
   let activeStep: number | undefined
   const defect = (message: string, ref?: string, error?: unknown): void => {
@@ -527,7 +539,7 @@ export function system(host: {
 
   /** An ask is under way from when it is made until it ends, however it ends. */
   const asked = <T,>(made: Promise<T>): Promise<T> => { under(made, () => {}, () => {}); return made }
-  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, onProgress: ((updates: unknown[]) => void) | undefined, opId = ++causalSeq): Promise<never> => asked(new Promise((resolve, reject) => {
+  const ask = (to: string | { ref: string }, name: string, args: object, signal: AbortSignal | undefined, onProgress: ((updates: unknown[]) => void) | undefined, opId = ++causalSeq, chain?: readonly string[]): Promise<never> => asked(new Promise((resolve, reject) => {
     const ref = refOf(to)
     const progress = onProgress && gather(onProgress, signal)
     // Whoever asked has gone: the ask ends where it is awaited, with `Cancelled`, so the code that asked unwinds.
@@ -539,7 +551,7 @@ export function system(host: {
     if (signal?.aborted) { left(); return }
     signal?.addEventListener('abort', left, { once: true })
     // In the same system the asker's own signal tells the answerer; across a link, the port does.
-    if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, progress, gone: signal }); return }
+    if (!isAcross(to)) { enqueue({ kind: 'ask', ref, name, args, question, progress, gone: signal, chain }); return }
     const peer = up
     if (!peer) { question.end(refusal('disconnected', `Not connected, so ${ref} cannot be asked`)); return }
     // Only a state asks across a link, so it always has a signal.
@@ -670,12 +682,21 @@ export function system(host: {
     }
     return key === undefined ? scope : Object.assign(scope, { key })
   }
-  const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal, workSignal: AbortSignal) => Object.assign(eventScopeOf(mine, undefined, own), {
+  const workScopeOf = (mine: Active, signal: AbortSignal, own: AbortSignal, workSignal: AbortSignal, chain?: readonly string[]) => Object.assign(eventScopeOf(mine, undefined, own), {
     signal,
     ask: (to: string | { ref: string }, name: string, args: object, hears?: (updates: unknown[]) => void) => {
       const target = typeof to === 'string' && !workSignal.aborted ? resolveFor(mine.top, to) : to
       if (target === undefined) return Promise.resolve(refusal('failed', `Could not resolve ${to as string}`))
-      const asked = ask(target, name, args, workSignal, hears)
+      if (!workSignal.aborted && chain && !isAcross(target) && chain.length >= MAX_ASK_DEPTH) {
+        const edge = `${refOf(target)} ${name}`
+        const repeat = chain.lastIndexOf(edge)
+        const message = repeat !== -1
+          ? `Ask cycle (depth ${MAX_ASK_DEPTH}): ${[...chain.slice(repeat), edge].join(' -> ')}`
+          : `Ask depth exceeded (${MAX_ASK_DEPTH}): ${[...chain.slice(-4), edge].join(' -> ')}`
+        defect(message, mine.top.ref)
+        return Promise.resolve(refusal('failed', message))
+      }
+      const asked = ask(target, name, args, workSignal, hears, undefined, chain)
       // An ask that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the process.
       asked.catch(() => {})
       return asked
@@ -1393,8 +1414,9 @@ export function system(host: {
       trace(`${item.ref} failed answering ${name}: ${message}`)
       return refusal('failed', message)
     }
+    const nextChain = [...(item.chain ?? []), `${item.ref} ${name}`]
     try {
-      const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, own.signal, workSignal), {
+      const made = found.handler(args, Object.assign(workScopeOf(found.of, signal, own.signal, workSignal, nextChain), {
         refuse: (kind: string, message: string, data?: object) => new Refusal(kind, message, data),
         progress: (update: unknown) => { if (!workSignal.aborted) out(() => progress?.(update), { kind: 'progress', to: item.ref, name, id: askId }) },
       }))
@@ -1653,9 +1675,11 @@ export function system(host: {
       listeners.push(listener)
       return () => { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1) }
     },
-    attach: ((peerOrName: Port | string, peer?: PeerPort) => {
+    attach: ((peerOrName: Port | string, peer?: PeerPort | ((event: AnyEvent) => void)) => {
       if (typeof peerOrName === 'string') {
-        const port = peer!
+        const port: PeerPort = typeof peer === 'function'
+          ? { tell: (_peer, event) => peer(event as AnyEvent) }
+          : peer!
         if (peers.has(peerOrName)) throw new Error(`${called} already has a peer named ${peerOrName}`)
         peers.set(peerOrName, port)
         return () => { if (peers.get(peerOrName) === port) peers.delete(peerOrName) }
@@ -1696,5 +1720,5 @@ export function system(host: {
     },
     [Symbol.dispose]: () => { self.stop() },
   }
-  return self
+  return self as System<N>
 }

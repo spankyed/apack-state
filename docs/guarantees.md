@@ -102,10 +102,19 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
 | `clock.now()` / `clock.after()` | `after` throw rejects `sleep()`; `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
-## What the kernel does not detect
+## Cycle and deadlock boundaries
 
-- **Async request deadlocks.** The kernel catches synchronous tell loops (`RUNAWAY`) and reactive `follows`/`loads` data
-  cycles, and `@apackdev/state/graph` checks static state graphs, but the kernel does not maintain a runtime wait-for graph
-  for async `A awaits B awaits A` ask cycles.
+- **Detected by the kernel:**
+  - **Synchronous tell loops (`RUNAWAY`)** and **reactive `follows`/`loads` data cycles**.
+  - **Local in-system ask depth cap (`MAX_ASK_DEPTH = 64`):** Each answering handler carries its local `(ref, askName)`
+    call chain. Because `answers` handlers are concurrent and reentrant, finite recursion on the same `(ref, askName)`
+    with different `args` (depth `< 64`) completes cleanly with no defect. Once a local call chain reaches 64 nested asks,
+    the next local `ask()` immediately resolves to `{ ok: false, failure: { kind: 'failed', message } }` and reports a
+    structured `Defect` — extracting and formatting the repeating cycle slice (`Ask cycle (depth 64): a PING -> b PONG -> a PING`)
+    when the target repeats in the chain, or the trailing frames (`Ask depth exceeded (64): ...`) for a non-repeating chain.
+    Concurrent independent asks and cross-link asks are unaffected.
+- **Not detected by the kernel:**
+  - **Cross-link or external deadlocks:** Call chains are local to one system (they do not cross `@apackdev/link` ports),
+    and the kernel cannot inspect deadlocks inside arbitrary external non-kernel promises or locks.
 - **Durability outside `transact`.** State snapshots live in memory; durability comes from the database rows written inside
   `transact` and the transport contract (`@apackdev/link`).

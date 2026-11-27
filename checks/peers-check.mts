@@ -9,7 +9,7 @@ import { forNet, type Lane, type PeerPort, type StepLog, type ViewHost, type Vie
 import { explore, onSchedule } from '../src/testing.ts'
 
 type HistoryEvent = { type: 'STEP_RECORDED'; id: string; detail: string } | { type: 'RUN_ENDED'; id: string }
-type AppNet = {
+export type AppNet = {
   systems: { runner: { events: { type: 'RECORD'; id: string; detail: string } | { type: 'FAIL'; id: string } | { type: 'ASYNC_RECORD'; id: string }; asks: {} } }
   surfaces: { panel: { events: { type: 'RUN_CHANGED'; id: string } } }
   views: { runs: { list: { args: {}; result: readonly string[] } } }
@@ -519,6 +519,44 @@ await run([
     // The entire first flush (primary peer, secondary peer, and first step log) completes before FOLLOW_UP or STATUS runs.
     deepStrictEqual(order, ['handle:FIRST', 'peer:primary', 'peer:secondary', 'log:2', 'handle:FOLLOW_UP', 'log:3', 'answer:STATUS:11', 'log:4'])
     strictEqual(logs.length, 3)
+  }],
+  ['system<Net>() type-checks named peers and accepts both direct event callbacks and PeerPort objects', async () => {
+    const historyEvents: HistoryEvent[] = []
+    const auditNotes: Array<{ peer: string; text: string }> = []
+    const backend = system<AppNet>({ side: 'backend' })
+    const detachHistory = backend.attach('runHistory', (event) => {
+      historyEvents.push(event)
+    })
+    const detachAudit = backend.attach('audit', {
+      tell: (peer, event) => { auditNotes.push({ peer, text: event.text }) },
+    })
+    throws(() => backend.attach('runHistory', () => {}), /already has a peer named runHistory/)
+
+    const emitter = state<{}, { type: 'GO'; id: string; text: string }>()({
+      on: {
+        GO: ({ id, text }, { tell }) => {
+          tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id, detail: text })
+          tell({ peer: 'audit' }, { type: 'NOTE', text })
+        },
+      },
+    })
+    const h = backend.start('emitter', emitter)
+    backend.send(h, { type: 'GO', id: 'g1', text: 'typed' })
+    await rest()
+    deepStrictEqual(historyEvents, [{ type: 'STEP_RECORDED', id: 'g1', detail: 'typed' }])
+    deepStrictEqual(auditNotes, [{ peer: 'audit', text: 'typed' }])
+
+    // Detaching a callback peer stops delivery; a stale detach does not remove a newly attached callback peer.
+    detachHistory()
+    const replacement: HistoryEvent[] = []
+    backend.attach('runHistory', (event) => { replacement.push(event) })
+    detachHistory()
+    detachAudit()
+    backend.send(h, { type: 'GO', id: 'g2', text: 'after-detach' })
+    await rest()
+    strictEqual(historyEvents.length, 1)
+    deepStrictEqual(replacement, [{ type: 'STEP_RECORDED', id: 'g2', detail: 'after-detach' }])
+    strictEqual(auditNotes.length, 1)
   }],
 ], async (tally) => {
   await tally.every('under every ordering over @apackdev/link, a peer receives tells with no view hold while a window waits for its view', () => {

@@ -157,6 +157,11 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `tell({ peer: 'runHistory' }, { type: 'NOTE', text: 'wrong peer' })` | TS2769: No overload matches this call. | the peer does not declare this event |
 | `tell({ peer: 'runHistory' }, { type: 'STEP_RECORDED', id: '1' })` | TS2769: No overload matches this call. | missing required field on the peer's event |
 | `tell({ peer: 'runHistory' }, { type: 'ANY' })` | TS2769: No overload matches this call. | this Net declares no peers at all |
+| `event.detail = 'mutated'` | TS2540: Cannot assign to 'detail' because it is a read-only property. | peer events are readonly |
+| `typedSys.attach('unknown', () => {})` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"runHistory" \| "audit"'. | unknown peer name is rejected at attach time |
+| `typedSys.attach('audit', (_event: { type: 'STEP_RECORDED'; id: string; detail: string }…` | TS2345: Argument of type '(_event: { type: "STEP_RECORDED"; id: string; detail: string; }) => void' is not assignable to parameter of type 'TypedPeer&lt;{ type: "NOTE"; text: string; }>'. | wrong event union for the named peer |
+| `noPeersSys.attach('runHistory', () => {})` | TS2345: Argument of type '"runHistory"' is not assignable to parameter of type 'never'. | Net with no peers rejects every peer name |
+| `optionalPeersSys.attach('unknown', () => {})` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"audit"'. | optional peers still reject unknown peer names |
 
 ## A refusal's data is part of the ask's declaration.
 

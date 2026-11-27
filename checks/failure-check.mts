@@ -527,6 +527,174 @@ const checks: Array<[string, () => Promise<void>]> = [
     // Subsequent asks still resolve normally.
     deepStrictEqual(await sys.ask(h, 'PING', {}), { ok: true, value: 'pong' })
   }],
+
+  ['local in-system ask depth cap allows finite same-ask recursion and fails fast with cycle slice or trailing chain at depth 64', async () => {
+    type DepthNet = {
+      systems: {
+        rec: { events: never; asks: { SUM: { args: { n: number }; answer: number } } }
+        entry: { events: never; asks: { START: { args: {}; answer: string } } }
+        a: { events: never; asks: { PING: { args: {}; answer: string }; SELF: { args: {}; answer: string } } }
+        b: { events: never; asks: { PONG: { args: {}; answer: string } } }
+      }
+      surfaces: {}
+      views: {}
+    }
+    const netState = forNet<DepthNet>()
+    const defects: Defect[] = []
+    const sys = system({ side: 'backend', onDefect: (d) => { defects.push(d) } })
+
+    // 1. Finite recursion on the same (ref, askName) with different args succeeds up to 63 nested hops (64 frames total).
+    const rec = netState<{}, never, DepthNet['systems']['rec']['asks']>()({
+      answers: {
+        SUM: async ({ n }, { ask }) => {
+          if (n === 0) return 0
+          const inner = await ask('rec', 'SUM', { n: n - 1 })
+          if (!inner.ok) throw new Error(inner.failure.message)
+          return n + inner.value
+        },
+      },
+    })
+    const rh = sys.start('rec', rec)
+    deepStrictEqual(await sys.ask(rh, 'SUM', { n: 63 }), { ok: true, value: (63 * 64) / 2 })
+    // Parallel & sequential asks on the same (ref, askName) also succeed with zero defects.
+    deepStrictEqual(await Promise.all([sys.ask(rh, 'SUM', { n: 5 }), sys.ask(rh, 'SUM', { n: 5 })]), [
+      { ok: true, value: 15 },
+      { ok: true, value: 15 },
+    ])
+    strictEqual(defects.length, 0)
+
+    // 2. Exceeding depth 64 on self-recursion (64 nested hops -> 65th frame) fails fast with the self-cycle slice.
+    const selfOver = await sys.ask(rh, 'SUM', { n: 64 })
+    strictEqual(selfOver.ok, false)
+    if (!selfOver.ok) {
+      strictEqual(selfOver.failure.kind, 'failed')
+      strictEqual(selfOver.failure.message, 'Ask cycle (depth 64): rec SUM -> rec SUM')
+    }
+    strictEqual(defects.length, 1)
+    strictEqual(defects[0]!.ref, 'rec')
+    strictEqual(defects[0]!.message, 'Ask cycle (depth 64): rec SUM -> rec SUM')
+
+    // 3. Entry prefix + unbounded 2-hop loop (entry START -> a PING -> b PONG -> a PING -> ...) extracts only the repeating cycle slice.
+    let innerTwoHop: unknown
+    const entry = netState<{}, never, DepthNet['systems']['entry']['asks']>()({
+      answers: { START: async (_, { ask }) => { const r = await ask('a', 'PING', {}); return r.ok ? r.value : r.failure.message } },
+    })
+    const a = netState<{}, never, DepthNet['systems']['a']['asks']>()({
+      answers: {
+        PING: async (_, { ask }) => {
+          const r = await ask('b', 'PONG', {})
+          if (!r.ok) { innerTwoHop = r; return r.failure.message }
+          return r.value
+        },
+        SELF: async (_, { ask }) => { const r = await ask('a', 'SELF', {}); return r.ok ? r.value : r.failure.message },
+      },
+    })
+    const b = netState<{}, never, DepthNet['systems']['b']['asks']>()({
+      answers: {
+        PONG: async (_, { ask }) => { const r = await ask('a', 'PING', {}); return r.ok ? r.value : r.failure.message },
+      },
+    })
+    const eh = sys.start('entry', entry)
+    const ah = sys.start('a', a)
+    sys.start('b', b)
+
+    defects.length = 0
+    const twoHop = await sys.ask(eh, 'START', {})
+    deepStrictEqual(twoHop, { ok: true, value: 'Ask cycle (depth 64): b PONG -> a PING -> b PONG' })
+    deepStrictEqual(innerTwoHop, { ok: false, failure: { kind: 'failed', message: 'Ask cycle (depth 64): b PONG -> a PING -> b PONG' } })
+    strictEqual(defects.length, 1)
+    strictEqual(defects[0]!.ref, 'a')
+    strictEqual(defects[0]!.message, 'Ask cycle (depth 64): b PONG -> a PING -> b PONG')
+
+    // 4. Direct unbounded self-loop (a SELF -> a SELF) reports the self-cycle slice.
+    defects.length = 0
+    deepStrictEqual(await sys.ask(ah, 'SELF', {}), { ok: true, value: 'Ask cycle (depth 64): a SELF -> a SELF' })
+    strictEqual(defects.length, 1)
+    strictEqual(defects[0]!.ref, 'a')
+    strictEqual(defects[0]!.message, 'Ask cycle (depth 64): a SELF -> a SELF')
+
+    // 5. Deep acyclic chain (s0 -> s1 -> ... -> s63 -> s64) reports Ask depth exceeded with trailing frames only.
+    const acyclicDefects: Defect[] = []
+    const acyclicSys = system({ side: 'backend', onDefect: (d) => { acyclicDefects.push(d) } })
+    type ChainAsks = { CALL: { args: {}; answer: string } }
+    let leafOutcome: unknown
+    for (let i = 0; i <= 64; i++) {
+      const nextName = i < 64 ? `s${i + 1}` : undefined
+      const node = state<{}, never, ChainAsks>()({
+        answers: {
+          CALL: async (_, { ask }) => {
+            if (!nextName) return 'leaf'
+            const r = await (ask as (to: string, name: string, args: object) => Promise<{ ok: true; value: string } | { ok: false; failure: { kind: string; message: string } }>)(nextName, 'CALL', {})
+            if (!r.ok) { leafOutcome = r; return r.failure.message }
+            return r.value
+          },
+        },
+      })
+      const h = acyclicSys.start(`s${i}`, node)
+      if (i === 0) {
+        // Start remaining nodes before invoking s0.
+        void h
+      }
+    }
+    const acyclicRes = await acyclicSys.ask({ ref: 's0' } as never, 'CALL' as never, {} as never)
+    deepStrictEqual(acyclicRes, { ok: true, value: 'Ask depth exceeded (64): s60 CALL -> s61 CALL -> s62 CALL -> s63 CALL -> s64 CALL' })
+    deepStrictEqual(leafOutcome, { ok: false, failure: { kind: 'failed', message: 'Ask depth exceeded (64): s60 CALL -> s61 CALL -> s62 CALL -> s63 CALL -> s64 CALL' } })
+    strictEqual(acyclicDefects.length, 1)
+    strictEqual(acyclicDefects[0]!.ref, 's63')
+    strictEqual(acyclicDefects[0]!.message, 'Ask depth exceeded (64): s60 CALL -> s61 CALL -> s62 CALL -> s63 CALL -> s64 CALL')
+
+    // 6. Cross-link ask at local depth 64 succeeds cleanly, and post-abort ask at depth 64 rejects with Cancelled without reporting a defect.
+    type BridgeNet = {
+      systems: { remote: { events: never; asks: { PING: { args: {}; answer: string } } } }
+      surfaces: {}
+      views: {}
+    }
+    const bridgeState = forNet<BridgeNet>()
+    const winDefects: Defect[] = []
+    const be = system({ side: 'backend' })
+    const win = system({ side: 'window', onDefect: (d) => { winDefects.push(d) } })
+    connect(win, be)
+    be.start('remote', bridgeState<{}, never, BridgeNet['systems']['remote']['asks']>()({
+      answers: { PING: () => 'remote-pong' },
+    }))
+    let localHandle!: { readonly ref: string }
+    let abortGate!: () => void
+    const abortWait = new Promise<void>((resolve) => { abortGate = resolve })
+    let postAbortError: unknown
+    const localRec = bridgeState<{}, never, { GO: { args: { n: number; mode: 'link' | 'abort' }; answer: string } }>()({
+      answers: {
+        GO: async ({ n, mode }, { ask }) => {
+          if (n > 0) {
+            const inner = await (ask as (to: { readonly ref: string }, name: string, args: object) => Promise<{ ok: true; value: string } | { ok: false; failure: { kind: string; message: string } }>)(localHandle, 'GO', { n: n - 1, mode })
+            return inner.ok ? inner.value : inner.failure.message
+          }
+          if (mode === 'link') {
+            const across = await ask('remote', 'PING', {})
+            return across.ok ? across.value : across.failure.message
+          }
+          await abortWait
+          try {
+            await (ask as (to: { readonly ref: string }, name: string, args: object) => Promise<unknown>)(localHandle, 'GO', { n: 0, mode })
+          } catch (error) {
+            postAbortError = error
+          }
+          return 'aborted'
+        },
+      },
+    })
+    localHandle = win.start('local', localRec)
+    deepStrictEqual(await win.ask(localHandle as never, 'GO' as never, { n: 63, mode: 'link' } as never), { ok: true, value: 'remote-pong' })
+    strictEqual(winDefects.length, 0)
+
+    const abortedAsk = win.ask(localHandle as never, 'GO' as never, { n: 63, mode: 'abort' } as never)
+    await new Promise<void>((r) => { setTimeout(r, 10) })
+    win.stop()
+    abortGate()
+    await abortedAsk
+    await rest()
+    ok(postAbortError instanceof Error && postAbortError.name === 'Cancelled', String(postAbortError))
+    strictEqual(winDefects.length, 0)
+  }],
 ]
 
 await run(checks)
