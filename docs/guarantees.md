@@ -55,11 +55,12 @@ network) that already ran.
   absent, matching synchronous `run()`).
 - **Imperative timers (`waits`).** `arm` and `disarm` enqueue onto the step's internal queue so they obey exact FIFO
   ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the handler throws or
-  returns a refused edit. Armed timers belong to the state that declared them (disarming automatically when that state
-  exits or the system stops), never block `sys.idle()`, and never deliver stale expirations after disarm, re-arm, or
-  exit. Arming with a non-finite or negative `ms` (or without a `clock` on the system) reports a structured `Defect`
-  without arming; a throwing `done` handler reports a `Defect` and rolls back its own sayings while still clearing the
-  expired timer from `waiting`.
+  returns a refused edit. Armed timers belong to the active state instance that declared them (disarming automatically
+  when that state exits, self-re-enters, or the system stops; to arm a timer on entry or self-transition, call `arm`
+  from that state's `listen` or `run`), never block `sys.idle()`, and never deliver stale expirations after disarm,
+  re-arm, or exit. Arming an `each` timer without a string key, with a non-finite or negative `ms`, or without a `clock`
+  on the system reports a structured `Defect` without arming; a throwing `done` handler reports a `Defect` and rolls
+  back its own sayings while still clearing the expired timer from `waiting`.
 
 ## Handle semantics
 

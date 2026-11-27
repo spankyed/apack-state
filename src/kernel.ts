@@ -1404,6 +1404,10 @@ export function system<N extends Net = Net>(host: {
         waitingChanged(top)
         return MADE
       }
+      if (declared.kind === 'each' && typeof key !== 'string') {
+        defect(`${top.ref} cannot arm ${name} without a string key`, top.ref)
+        return NOT_MADE
+      }
       const id = key === undefined ? name : `${name}/${key}`
       const duration = item.ms ?? declared.ms
       if (!Number.isFinite(duration) || (duration as number) < 0) {

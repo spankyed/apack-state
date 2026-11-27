@@ -435,15 +435,22 @@ const checks: Array<[string, () => Promise<void>]> = [
     const order: string[] = []
     type Shape = {
       data: { ran: number }
-      waits: { zero: 'one'; dyn: { one: 'ms' }; keyed: { each: 'ms' } }
+      waits: { zero: 'one'; dyn: { one: 'ms' }; keyed: { each: 'ms' }; fixedKeyed: 'each' }
     }
-    type Ev = { type: 'ZERO' } | { type: 'BAD'; ms: number } | { type: 'MISSING_MS' } | { type: 'BAD_KEYED'; ms: number }
+    type Ev =
+      | { type: 'ZERO' }
+      | { type: 'BAD'; ms: number }
+      | { type: 'MISSING_MS' }
+      | { type: 'BAD_KEYED'; ms: number }
+      | { type: 'MISSING_KEY' }
+      | { type: 'NON_STRING_KEY' }
     const m = state<Shape, Ev>()({
       data: { ran: 0 },
       waits: ({ one, each }) => ({
         zero: one(0, ({ data }) => { order.push('done'); return { data: { ran: data.ran + 1 } } }),
         dyn: one(() => { order.push('dyn') }),
         keyed: each(() => { order.push('keyed') }),
+        fixedKeyed: each(100),
       }),
       on: {
         ZERO: (_, { arm }) => {
@@ -454,6 +461,8 @@ const checks: Array<[string, () => Promise<void>]> = [
         BAD: ({ ms }, { arm }) => { arm('dyn', ms) },
         MISSING_MS: (_, { arm }) => { (arm as (n: string) => void)('dyn') },
         BAD_KEYED: ({ ms }, { arm }) => { arm('keyed', 'x', ms) },
+        MISSING_KEY: (_, { arm }) => { (arm as (n: string) => void)('fixedKeyed') },
+        NON_STRING_KEY: (_, { arm }) => { (arm as (n: string, k: unknown, ms: number) => void)('keyed', 42, 100) },
       },
     })
 
@@ -477,20 +486,24 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(h).data.ran, 2)
     strictEqual(defects.length, 0)
 
-    // Invalid durations: NaN, -1, Infinity, -Infinity, undefined (via cast).
+    // Invalid durations and missing/non-string keys for `each` waits report exact defects without corrupting `waiting`.
     sys.send(h, { type: 'BAD', ms: Number.NaN })
     sys.send(h, { type: 'BAD', ms: -1 })
     sys.send(h, { type: 'BAD', ms: Number.POSITIVE_INFINITY })
     sys.send(h, { type: 'BAD_KEYED', ms: Number.NEGATIVE_INFINITY })
     sys.send(h, { type: 'MISSING_MS' })
+    sys.send(h, { type: 'MISSING_KEY' })
+    sys.send(h, { type: 'NON_STRING_KEY' })
     deepStrictEqual(defects.map((d) => ({ message: d.message, ref: d.ref })), [
       { message: 'm cannot arm dyn with invalid duration NaN', ref: 'm' },
       { message: 'm cannot arm dyn with invalid duration -1', ref: 'm' },
       { message: 'm cannot arm dyn with invalid duration Infinity', ref: 'm' },
       { message: 'm cannot arm keyed/x with invalid duration -Infinity', ref: 'm' },
       { message: 'm cannot arm dyn with invalid duration undefined', ref: 'm' },
+      { message: 'm cannot arm fixedKeyed without a string key', ref: 'm' },
+      { message: 'm cannot arm keyed without a string key', ref: 'm' },
     ])
-    deepStrictEqual(sys.read(h).waiting, { zero: false, dyn: false, keyed: {} })
+    deepStrictEqual(sys.read(h).waiting, { zero: false, dyn: false, keyed: {}, fixedKeyed: {} })
 
     // Missing clock reports exact defect without arming.
     const noClockDefects: Defect[] = []
