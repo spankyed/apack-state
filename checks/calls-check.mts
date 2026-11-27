@@ -240,7 +240,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(defects.length, 1)
     deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: {}, save: false } })
   }],
-  ['typed calls (one, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
+  ['typed calls (single, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
     type SvcAsks = {
       PING: { args: {}; answer: string }
       COMMIT: { args: { message: string; amend?: boolean }; progress: string; answer: string }
@@ -403,7 +403,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('panel', panel)
     const held = mirror(sys, h)
 
-    // Initial pending values: boolean for one, {} for each, 0 for many.
+    // Initial pending values: boolean for single, {} for each, 0 for many.
     deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: {}, commit: false, hunk: {}, upload: 0, uploadMapped: 0 })
 
     // Reactive mirror tracks `pending.upload` (number) independently of `pending.commit` (boolean).

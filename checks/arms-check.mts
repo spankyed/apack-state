@@ -69,7 +69,7 @@ type SvcNet = {
 const netState = forNet<SvcNet>()
 
 const checks: Array<[string, () => Promise<void>]> = [
-  ['one and each timers arm, expose frozen armed, fire done (transitions, data, raise, tell, call), and keep idle() true', async () => {
+  ['single and each timers arm, expose frozen armed, fire done (transitions, data, raise, tell, call), and keep idle() true', async () => {
     const manual = manualClock()
     const svcEvents: string[] = []
     const svcCalls: string[] = []
@@ -155,7 +155,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(svcEvents, ['debounced'])
     deepStrictEqual(svcCalls, ['doc'])
 
-    // StepLog records arm and expired with key for each and without key for one, never ms payload.
+    // StepLog records arm and expired with key for each and without key for single, never ms payload.
     const allHandled = logs.flatMap((l) => l.handled)
     ok(allHandled.some((x) => x.kind === 'arm' && x.ref === 'form' && x.name === 'debounce' && !('key' in x)))
     ok(allHandled.some((x) => x.kind === 'arm' && x.ref === 'form' && x.name === 't' && x.key === 'a'))
