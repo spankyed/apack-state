@@ -648,7 +648,6 @@ export const shorthandScopeArmEscape = state<{ waits: { viaBox: 'one' } }, { typ
       deepStrictEqual(graphs[7]!.findings, [
         'dead is never entered',
         'nothing arms keepalive except in dead, which is never entered',
-        'nothing arms inner in dead except in dead, which is never entered',
       ])
       // An unrelated event/data field named `arm` does not suppress unused-wait findings,
       // while escaping `scope.arm` via `{ arm }` shorthand still suppresses them.
@@ -704,7 +703,6 @@ export const mixed = state<MixedShape, { type: 'GO' }>()({
     deepStrictEqual(fromDeadDone, [
       'dead is never entered',
       'nothing arms keep except in dead, which is never entered',
-      'nothing arms b in dead',
     ])
     deepStrictEqual(mixed, [
       'dead is never entered',
@@ -775,13 +773,12 @@ export const byCallDone = forNet<Net>()<Waits & { calls: { save: 'one' } }, neve
 export const written = state<Waits, never>()({ waits: ({ one }) => ({ t: one(100, () => {}) }), listen: () => () => {} })
 `), [[], [], [], [], ['nothing arms t']])
   }],
-  ['what cannot be read in a state never entered hides nothing', () => {
+  ['what cannot be read in a state never entered hides nothing, and a wait declared there is said by the state alone', () => {
     deepStrictEqual(findingsIn(twoBranches('', `GO: () => {}`, `on: { GO: quiet }`)), [[
       'nothing takes NEXT',
       'b is never entered',
       'nothing arms top',
       'nothing arms mine in a',
-      'nothing arms side in b',
     ]])
   }],
   ['who is told, when it is not known, hides no wait', () => {

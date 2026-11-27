@@ -525,6 +525,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       const hiding = [...unreadArms].filter(canRun)
       for (const w of declaredWaits) {
         if (liveWaits.has(w.key)) continue
+        // One declared in a state never entered is said already, by that state: nothing in it happens at all.
+        if (!canRun(w.within)) continue
         if (hiding.some((path) => around(w.within, path))) continue
         const sources = [...(armedByWait.get(w.key) ?? [])]
         const others = sources
