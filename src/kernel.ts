@@ -728,6 +728,19 @@ export function system<N extends Net = Net>(host: {
       waiting.catch(() => {})
       return waiting
     },
+    outside: <T,>(work: PromiseLike<T>): Promise<T> => {
+      const waiting = new Promise<T>((resolve, reject) => {
+        const gone = (): void => { reject(new Cancelled('outside work')) }
+        // What the work ends with is always taken, so that one that fails after its owner has gone is not a failure of the process.
+        const ended = <V,>(settle: (with_: V) => void) => (with_: V): void => { workSignal.removeEventListener('abort', gone); settle(with_) }
+        Promise.resolve(work).then(ended(resolve), ended(reject))
+        if (workSignal.aborted) gone()
+        else workSignal.addEventListener('abort', gone)
+      })
+      // One that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the process.
+      waiting.catch(() => {})
+      return waiting
+    },
   })
   /** Aborts a handler's own signal after `unsay` has ended any taken-back asks, so taken-back asks resolve before aborting. */
   const abortAfterUnsay = (own: AbortController): void => {

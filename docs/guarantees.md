@@ -55,6 +55,10 @@ network) that already ran.
 - **Kernel-owned `ask()` / `sleep()`.** Any `ask()` or `sleep()` started from `run()` or an ask handler is bound to the
   work lifetime: when `run()` returns or throws (for example, when one branch of `Promise.race()` wins), unfinished losing
   `ask()` / `sleep()` calls reject with `Cancelled`.
+- **`outside(work)`.** A promise the kernel did not make, waited for through the scope, is bound to the work lifetime
+  as `ask()` and `sleep()` are: it rejects with `Cancelled` when the state is left, the asker goes, or the work
+  finishes, and gives what the promise ends with otherwise. The promise itself is not stopped, and what it ends with
+  after its owner has gone is taken and dropped, so its late failure is not an unhandled rejection.
 - **Detached external promises.** JavaScript cannot forcibly cancel arbitrary non-kernel promises. If a losing branch of
   `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `raise`, `tell`, `progress`, and
   `onExit` calls from that closed scope are ignored, and cooperative code should check `scope.signal.aborted`.

@@ -1,7 +1,7 @@
 # Nested work scopes and generator-based work
 
 Status: deferred, 2026-11-27. Surveyed, not designed. This records what they are, what apack's work looks like today,
-why neither is built, the one smaller thing the survey does support, and what would make either worth starting. It is
+why neither is built, the one smaller thing the survey supported and that is built, and what would make either worth starting. It is
 left out of [the plan](../plan.md) on purpose.
 
 ## What they are
@@ -22,18 +22,18 @@ the state is left, and the work's own, which also aborts when `run` returns or t
 
 | What the body does after its state was left | What happens |
 |---|---|
-| Awaits `ask` or `sleep` | Throws `Cancelled` there. `finally` runs, and the kernel discards it at the top of `run` |
+| Awaits `ask`, `sleep` or `outside` | Throws `Cancelled` there. `finally` runs, and the kernel discards it at the top of `run` |
 | Calls `raise`, `tell`, `broadcast`, `call`, `cancel`, `arm`, `disarm`, `report` | Nothing: each checks that its owner is alive |
 | Calls `onExit(release)` | Runs `release` at once |
 | Returns `{ at, data }` | Dropped: a result arrives only while the state is still the case |
 | Throws | Traced as failed after it was left. `failed` is not called |
 | Writes rows | Refused: a write outside a step is refused |
-| Awaits a promise the kernel did not make | **Resumes when it settles, and runs on** |
+| Awaits a promise the kernel did not make, bare | **Resumes when it settles, and runs on** |
 | Does something outside the kernel: a toast, a file, a module-level variable | **Happens** |
 
-`checks/leaving-check.mts` and `checks/clock-check.mts` hold the first six rows. The last two are the whole of what
-the kernel does not own: a body that awaits outside work is resumed after its state was left, and until its next
-`ask`, `sleep` or return it runs as if it had not been.
+`checks/leaving-check.mts`, `checks/clock-check.mts` and `checks/outside-check.mts` hold the first six rows. The last
+two are the whole of what the kernel does not own: a body that awaits outside work bare is resumed after its state
+was left, and until its next wait through its scope, or its return, it runs as if it had not been.
 
 ## What apack's work looks like
 
@@ -69,7 +69,7 @@ what is left in `run` is outside work.
 one is a read, which `loads` declares; one is a `raise`. They are written as `run` because apack is pinned to a
 kernel from before `arms`. Moving the pin removes them, and with them every `sleep` apack calls.
 
-**The guards are one pattern.** The `signal.aborted` reads follow a wait on outside work, which is the row the kernel
+**The guards are one pattern.** At that pin, before `outside`, the `signal.aborted` reads follow a wait on outside work, which is the row the kernel
 does not own. More than half are before a `report`, a `raise` or a `return`, where the table above says the kernel
 already does nothing, so they can be deleted today. The rest keep an outside effect from happening (a toast in entity
 opening, an error page in `unreachable`) or keep the body from starting more outside work (the next pack's frontend).
@@ -101,20 +101,20 @@ it, as pack frontends' loop has; `return()` runs no `catch`. A body that catches
 `Cancelled` at its next wait, and every scope call it makes in between does nothing, so the cost is wasted work and
 not a wrong effect.
 
-## What the survey does support
+## What the survey supported, and is built
 
-One method on the work scope, written here as `outside`. Not built; whether to build it is the open question below.
+One method on the work scope, `outside` ([the design](../design.md), Talking to other states).
 
 ```ts
-// Proposed. Ends with `Cancelled` where it is awaited when the work's owner goes, as `ask` and `sleep` do.
-outside<T>(work: Promise<T>): Promise<T>
+// Ends with `Cancelled` where it is awaited when the work's owner goes, as `ask` and `sleep` do.
+outside<T>(work: PromiseLike<T>): Promise<T>
 ```
 
 It makes an outside promise a wait the kernel owns: every row of the first table then holds at every `await` that
 goes through the scope. It adds no export, no kind of thing and no state: it is `sleep` with a promise where the
 clock was.
 
-The shell's entity opening, as it is and as it would be:
+The shell's entity opening, as it is at that pin and as it reads with `outside`:
 
 ```ts
 const exists = await client.entityExists(request.id, signal);
@@ -147,9 +147,6 @@ undo what that work already did.
 
 ## Open
 
-- Whether `outside` is built. Four sites and one helper with nine callers use it; the alternative is to leave the
-  guards and delete the half that are already redundant.
-- Its name, and whether it takes a promise or `(signal) => Promise` so that handing the signal on is the easy thing
-  to write.
+- Whether `outside` should also take `(signal) => Promise`, so that handing the signal on is the easy thing to write.
 - Whether the graph check should say where work awaits something that did not come from its scope. It reads `run`
   already, and it would make the one row the kernel does not own a finding.

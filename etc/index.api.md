@@ -331,7 +331,7 @@ export interface EachOf<D, X> {
 }
 
 // @public
-export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep'>;
+export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep' | 'outside'>;
 
 // @public
 export type EventsOf<T> = T extends State<any, infer E, any, any> ? E : never;
@@ -553,6 +553,7 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
     disarm<K extends keyof ArmsAt<R, H> & string>(name: K, ...key: DisarmParams<ArmsAt<R, H>[K]>): void;
     readonly now: number;
     onExit(release: () => void): void;
+    outside<T>(work: PromiseLike<T>): Promise<T>;
     raise(event: Read<E | InternalOf<R>>): void;
     read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined;
     read<V2>(of: Handle<V2, never, Asks>): V2;
@@ -768,24 +769,24 @@ export function within<V extends {
 //
 // .temp/api-types/types.d.ts:286:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:288:5 - (ae-forgotten-export) The symbol "ArmedOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:519:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:524:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:526:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:538:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:549:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:570:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:570:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:584:5 - (ae-forgotten-export) The symbol "ArmKind" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:584:5 - (ae-forgotten-export) The symbol "ArmNeedsMs" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:602:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:711:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:792:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:792:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:880:5 - (ae-forgotten-export) The symbol "ArmExpired" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:885:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:885:5 - (ae-forgotten-export) The symbol "ArmEachExpired" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:885:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:885:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:525:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:530:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:532:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:544:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:555:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:576:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:576:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:590:5 - (ae-forgotten-export) The symbol "ArmKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:590:5 - (ae-forgotten-export) The symbol "ArmNeedsMs" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:608:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:717:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:798:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:798:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:886:5 - (ae-forgotten-export) The symbol "ArmExpired" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:891:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:891:5 - (ae-forgotten-export) The symbol "ArmEachExpired" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:891:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:891:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

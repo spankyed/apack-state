@@ -265,6 +265,11 @@
     "why": "When the asker's signal is aborted the ask has already been rejected with Cancelled (the abort listener runs first), so resolving it after does nothing"
   },
   {
+    "key": "src/kernel.ts | StringLiteral | const ended = <V,>(settle: (with_: V) => void) => (with_: V): void => { workSignal.removeEventListener('abort', gone); settle(with_) } | \"\"",
+    "original": "'abort'",
+    "why": "The listener is taken off only so that work which waits many times does not keep one for each: once the wait has settled, the listener rejecting it again does nothing, so leaving it on is seen by nothing"
+  },
+  {
     "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', left, { once: true }) | {}",
     "original": "{ once: true }",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"

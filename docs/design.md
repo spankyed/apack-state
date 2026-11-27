@@ -221,6 +221,7 @@ ask's args — `args` may be omitted.
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
 | `tell({ peer }, event)` | A state | A non-window peer named with `sys.peer(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
+| `outside(work)` | A state's `run`, or an ask's handler | Work the kernel did not start: a promise, waited for as an ask is |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
@@ -290,12 +291,16 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and everything it started without touching sibling top-level states; `stop()` ends them all. `listen` keeps a
   state-lifetime scope until the state exits without blocking `idle()`, unsubscribes automatically on exit, and ignores
   late callbacks after exit. When `run` or an ask's handler finishes (returns or throws),
-  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`raise`, `tell`,
+  the kernel cancels any `ask`, `sleep` or `outside` it started and ignores any later calls on its scope (`raise`, `tell`,
   `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
   stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
   when `run` or an ask returns.
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
-- **An ask or `sleep` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
+- **An ask, a `sleep` or an `outside` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
+- **Work waits through its scope.** A promise the kernel did not make is waited for with `outside(work)`, and then
+  nothing after it runs for a state that was left. Awaited bare, it resumes the work whenever it settles: what the
+  work then says through its scope does nothing, and what it does outside the kernel happens. `outside` does not stop
+  the work it waits for, which is what handing it `signal` is for.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
 - **What is no longer held is not heard from.** What a view delivers, how a read or a write ended, what it said
   before it ended, and a timer's expiry reach a handler only while the state holds the very one they belong to. One

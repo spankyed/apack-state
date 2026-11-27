@@ -18,3 +18,13 @@ state<Timer, TimerEvent>()({
   },
   states: { idle: {}, waiting: {} },
 })
+
+// Nor `outside`, for the same reason: a wait it only started would end with nothing around it.
+state<Timer, TimerEvent>()({
+  initial: 'idle',
+  on: {
+    // @ts-expect-error waiting for outside work is for `run` and for an ask's handler
+    START: (_, { outside }) => { void outside },
+  },
+  states: { idle: {}, waiting: {} },
+})
