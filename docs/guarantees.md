@@ -28,6 +28,14 @@ network) that already ran.
 - **Commit-time ordering.** Nothing leaves until the step commits. Commit flush runs with reentrancy deferred (`flushing`):
   if a subscriber or named peer synchronously calls `send()` or `ask()`, that call queues behind the current flush and runs
   as a separate subsequent step.
+- **A stale delivery takes no step.** A view's update, how a load or a call ended, a batch of its progress, and a
+  timer's expiry each belong to one thing a state holds: the view it follows, the ask it awaits or has pending, the
+  timer it armed. One is stale when, as its turn comes, the state no longer holds that thing: it left, stopped
+  following or awaiting it, cancelled or disarmed it, or began it again, so that what is held under the name is
+  another. A stale delivery is dropped before a step opens: no handler runs, no `StepLog` is written, the step numbers
+  have no gap for it, and it does not count against `limit`. That holds whether it went stale before it arrived or
+  while it waited behind the step that made it so. An answer that crosses a link to an ask already given up is not one
+  of these: it is taken in a step, logged as `answer`, and reaches nobody.
 - **Windows vs. named peers.** Broadcasts and answers to windows wait for any affected views' `caughtUp()` hold (when wired
   through `@apackdev/link` or a `ViewHost`) so a window never sees a message ahead of the rows it reflects. Named peer tells
   (`tell({ peer }, event)`) are delivered after commit with no view hold.

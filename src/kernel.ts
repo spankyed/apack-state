@@ -157,6 +157,9 @@ type Item =
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
   | { kind: 'out'; leave: () => void; said?: Said }
 
+/** What comes of something a state holds: a view it follows, an ask it loads or called, a timer it armed. */
+type Delivery = Extract<Item, { kind: 'view' | 'done' | 'progress' | 'wait' }>
+
 type Queued = Item | { kind: 'run'; fn: () => void; stopping: boolean }
 
 /**
@@ -1337,8 +1340,7 @@ export function system<N extends Net = Net>(host: {
     if (item.kind === 'result') return apply(item.of, item.value)
     if (item.kind === 'failure') return fail(item.of, item.error)
     if (item.kind === 'view') {
-      const followed = declaredBy(item.of.def).follows[item.name]
-      if (!followed || item.of.following.get(item.id) !== item.live) return MADE
+      const followed = declaredBy(item.of.def).follows[item.name]!
       hearing = { id: `${item.of.top.ref}#${item.id}`, because: item.live.because }
       try { return apply(item.of, followed.updated(item.update, eventScopeOf(item.of, item.key))) } catch (error) {
         defect(`${item.of.top.ref} threw in ${item.id} updated, and nothing changed: ${said(error)}`, item.of.top.ref, error)
@@ -1486,8 +1488,7 @@ export function system<N extends Net = Net>(host: {
     if (item.kind === 'done' || item.kind === 'progress') {
       const table = item.made ? declaredBy(item.of.def).calls : declaredBy(item.of.def).loads
       const live = item.made ? item.of.pending : item.of.awaiting
-      const declared = table[item.name]
-      if (!declared || live.get(item.id) !== item.live) return MADE
+      const declared = table[item.name]!
       const top = item.of.top
       const baseScope = eventScopeOf(item.of, item.key)
       const given = item.hasInput ? Object.assign(baseScope, { input: item.input }) : baseScope
@@ -1745,10 +1746,20 @@ export function system<N extends Net = Net>(host: {
   const held: Array<Extract<Item, { ref: string }>> = []
   let settling = false
   const starting = new Set<string>()
+  /**
+   * Whether what a delivery belongs to is no longer held: the state has stopped following, awaiting, calling or
+   * waiting on it, or has begun it again, so that what is held under its name is another.
+   */
+  const isStale = (item: Delivery): boolean => {
+    const held: ReadonlyMap<string, Live | Armed> = item.kind === 'view' ? item.of.following : item.kind === 'wait' ? item.of.waiting : item.made ? item.of.pending : item.of.awaiting
+    return held.get(item.id) !== item.live
+  }
   const pump = (): void => {
     while (!stepping && !flushing && outside.any) {
       const next = outside.peek()
-      if (next.kind === 'wait' && next.of.waiting.get(next.id) !== next.live) { outside.shift(); continue }
+      // A delivery only ever arrives from outside a step, so this is where each has its turn: one that is stale by
+      // then takes no step, is not logged, and counts for nothing against the limit.
+      if ('live' in next && isStale(next)) { outside.shift(); continue }
       if (next.kind === 'run') { outside.shift(); step(next.fn, next.stopping) }
       else step(() => { outside.shift(); handle(next) })
     }

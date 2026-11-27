@@ -5,8 +5,9 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
-import { sample, type Schedule } from '@apackdev/orderings'
-import { forNet } from '../src/index.ts'
+import { explore, sample, type Schedule } from '@apackdev/orderings'
+import { forNet, type PortOutcome, type StepLog } from '../src/index.ts'
+import { onSchedule } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
@@ -245,6 +246,213 @@ const checks: Array<[string, () => Promise<void>]> = [
   }],
 ]
 
+// ── what a read delivers once it is no longer the one awaited ───────────────────────────────────────────────────────
+
+type DeskAsks = {
+  DETAIL: { args: { query: string }; progress: string; answer: string }
+  /** Each thing it says before it ends is a better query. */
+  SUGGEST: { args: { seed: string }; progress: string; answer: null }
+}
+type DeskNet = { systems: { desk: { events: never; asks: DeskAsks } }; surfaces: {}; views: {} }
+const desked = forNet<DeskNet>()
+
+type FinderEvent = { type: 'QUERY'; query: string } | { type: 'SEED'; seed: string } | { type: 'NOTE'; note: string } | { type: 'TURN'; on: boolean }
+type Finder = {
+  data: { seed: string; query: string; note: string; found: string | null; ended: string[]; heard: string[]; astray: string[] }
+  states: { on: {}; off: {} }
+}
+/** Shows the detail of a query. What is being suggested from a seed becomes the query, so the detail is asked again. */
+const finder = desked<Finder, FinderEvent>()({
+  data: { seed: '', query: '', note: '', found: null, ended: [], heard: [], astray: [] },
+  initial: 'on',
+  on: {
+    QUERY: ({ query }) => ({ data: { query } }),
+    SEED: ({ seed }) => ({ data: { seed } }),
+    NOTE: ({ note }) => ({ data: { note } }),
+    TURN: ({ on }) => ({ at: on ? 'on' : 'off' }),
+  },
+  states: {
+    on: {
+      loads: (load) => ({
+        suggest: load('desk', 'SUGGEST', {
+          from: ['seed'],
+          args: ({ seed }) => seed !== '' && { seed },
+          progress: (updates) => ({ data: (d) => { d.query = updates[updates.length - 1]!; d.heard.push(...updates) } }),
+          done: () => undefined,
+        }),
+        detail: load('desk', 'DETAIL', {
+          from: ['query'],
+          args: ({ query }) => query !== '' && { query },
+          progress: (updates, { data }) => ({ data: (d) => { for (const update of updates) (update.startsWith(`${data.query}:`) ? d.heard : d.astray).push(update) } }),
+          // The desk answers with the query it was asked, so one that is not the query now came from a read given up.
+          done: (outcome, { data }) => ({ data: (d) => {
+            const value = outcome.ok ? outcome.value : outcome.failure.kind
+            if (value !== data.query) { d.astray.push(value); return }
+            d.ended.push(value)
+            d.found = value
+          } }),
+        }),
+      }),
+    },
+    off: {},
+  },
+})
+
+interface Asked { readonly name: string; readonly args: { query?: string; seed?: string }; says(update: string): void; ends(outcome: PortOutcome): void }
+/**
+ * A window whose backend is this check's: each ask across is kept, to be heard from when the check says, and is
+ * heard from whether or not it was given up. Its frames are the check's to run too.
+ */
+const atDesk = (host: { limit?: number } = {}) => {
+  const asked: Asked[] = []
+  const logs: StepLog[] = []
+  const defects: string[] = []
+  const frames: Array<() => void> = []
+  const sys = system({ side: 'window', ...host, frame: (run) => { frames.push(run) }, log: (step) => { logs.push(step) }, onDefect: (defect) => { defects.push(defect.message) } })
+  sys.attach({
+    tell: () => {},
+    follow: () => ({ stop: () => {} }),
+    ask: (_to, name, args, says, ends) => { asked.push({ name, args: args as Asked['args'], says, ends }); return () => {} },
+  })
+  const it = sys.start('finder', finder)
+  return {
+    sys, it, asked, defects,
+    send: (event: FinderEvent): void => sys.send(it, event),
+    now: () => sys.read(it).data,
+    frame: (): void => { for (const run of frames.splice(0)) run() },
+    /** What began each step, and what it handled after. */
+    steps: (): string[] => logs.map((step) => step.handled.map((one) => `${one.kind} ${one.name}`).join(', ')),
+    numbers: (): number[] => logs.map((step) => step.number),
+  }
+}
+type Desk = ReturnType<typeof atDesk>
+const ok1 = (value: string | null): PortOutcome => ({ ok: true, value })
+
+/** A read heard from while it is awaited, after it was asked again, behind the step that asks it again, and after its state was left. */
+const read = async (it: Desk): Promise<void> => {
+  const { send, asked } = it
+  send({ type: 'QUERY', query: 'one' })
+  // Awaited: what it says is a step, and how it ends is one.
+  asked[0]!.says('one: half')
+  it.frame()
+  asked[0]!.ends(ok1('one'))
+  await turns(1)
+  // Asked again twice over: the one in between is heard from when it is no longer awaited.
+  send({ type: 'QUERY', query: 'two' })
+  send({ type: 'QUERY', query: 'three' })
+  asked[1]!.says('two: half')
+  it.frame()
+  asked[1]!.ends(ok1('two'))
+  await turns(1)
+  // In one read from the backend: the detail ends, and a suggestion is made. The suggestion is handed over first, and
+  // has the detail asked again, so how the detail ended has its turn once it is no longer awaited.
+  send({ type: 'SEED', seed: 's' })
+  asked[2]!.ends(ok1('three'))
+  asked[3]!.says('four')
+  await turns(1)
+  it.frame()
+  // The state is left, and behind that in one read comes what the detail said, and how it ended.
+  let once = true
+  const stop = it.sys.subscribe(() => {
+    if (!once) return
+    once = false
+    send({ type: 'TURN', on: false })
+    asked[4]!.says('four: half')
+    asked[4]!.ends(ok1('four'))
+  })
+  send({ type: 'NOTE', note: 'leaving' })
+  stop()
+  await turns(1)
+  it.frame()
+  // Left: nothing it was awaiting is heard from.
+  asked[3]!.says('five')
+  it.frame()
+  asked[3]!.ends(ok1(null))
+  await turns(1)
+  // Back, it asks afresh, and that one is awaited.
+  send({ type: 'TURN', on: true })
+  asked[6]!.says('four: all')
+  it.frame()
+  asked[6]!.ends(ok1('four'))
+  asked[5]!.ends(ok1(null))
+  await turns(1)
+  it.frame()
+}
+/** Every step `read` takes: one for each event, each answer from the backend, and each delivery of a read awaited. */
+const READ_STEPS = [
+  '',
+  'event QUERY', 'progress detail', 'answer DETAIL', 'done detail',
+  'event QUERY', 'event QUERY', 'answer DETAIL',
+  'event SEED', 'answer DETAIL', 'progress suggest',
+  'event NOTE', 'event TURN', 'answer DETAIL',
+  'answer SUGGEST',
+  'event TURN', 'progress detail', 'answer DETAIL', 'answer SUGGEST', 'done detail', 'done suggest',
+]
+
+const staleChecks: Array<[string, () => Promise<void>]> = [
+  ['what a read delivers once it is no longer awaited takes no step, and what one awaited delivers takes one', async () => {
+    const it = atDesk()
+    await read(it)
+    deepStrictEqual(it.asked.map((one) => `${one.name} ${one.args.query ?? one.args.seed}`), ['DETAIL one', 'DETAIL two', 'DETAIL three', 'SUGGEST s', 'DETAIL four', 'SUGGEST s', 'DETAIL four'])
+    deepStrictEqual(it.steps(), READ_STEPS)
+    deepStrictEqual(it.numbers(), READ_STEPS.map((_, at) => at + 1))
+    deepStrictEqual(it.now(), { seed: 's', query: 'four', note: 'leaving', found: 'four', ended: ['one', 'four'], heard: ['one: half', 'four', 'four: all'], astray: [] })
+    deepStrictEqual(it.defects, [])
+    strictEqual(it.sys.idle(), true)
+  }],
+  ['what a read delivers once it is no longer awaited counts for nothing against the limit', async () => {
+    // Exactly as many steps as it takes: one more, and the last delivery would be turned away.
+    const it = atDesk({ limit: READ_STEPS.length })
+    await read(it)
+    deepStrictEqual(it.steps(), READ_STEPS)
+    deepStrictEqual({ found: it.now().found, ended: it.now().ended }, { found: 'four', ended: ['one', 'four'] })
+    deepStrictEqual(it.defects, [])
+    // And it was the limit: the next thing is not taken.
+    it.send({ type: 'NOTE', note: 'one too many' })
+    strictEqual(it.now().note, 'leaving')
+    strictEqual(it.defects.length, 1)
+  }],
+]
+
+/**
+ * The finder across a socket a schedule reads: each thing the backend sends waits to be read, and one read takes
+ * everything waiting, in the order it was sent. It has been asked for one thing, and to suggest a better.
+ */
+const suggesting = (schedule: Schedule): (() => void) => {
+  const logs: StepLog[] = []
+  const window = system({ side: 'window', ...onSchedule(schedule, 'the window'), log: (step) => { logs.push(step) } })
+  const waiting: Array<() => void> = []
+  const socket = { label: 'the socket' }
+  const sends = (lane: { label: string }, message: () => void): void => {
+    schedule.later(lane, () => { waiting.push(message); schedule.later(socket, () => { for (const each of waiting.splice(0)) each() }) })
+  }
+  let asks = 0
+  window.attach({
+    tell: () => {},
+    follow: () => ({ stop: () => {} }),
+    // It answers whether or not whoever asked has gone: what was sent before it heard so is on its way.
+    ask: (_to, name, args, says, ends) => {
+      const lane = { label: `${name} ${++asks}` }
+      if (name === 'SUGGEST') { sends(lane, () => says('better')); sends(lane, () => ends({ ok: true, value: null })) }
+      else sends(lane, () => ends({ ok: true, value: (args as { query: string }).query }))
+      return () => {}
+    },
+  })
+  const it = window.start('finder', finder)
+  window.send(it, { type: 'QUERY', query: 'one' })
+  window.send(it, { type: 'SEED', seed: 's' })
+  return () => {
+    const { data } = window.read(it)
+    // Whichever way it went, the detail shown is of the query there is, and nothing given up was heard from.
+    deepStrictEqual({ query: data.query, found: data.found, astray: data.astray }, { query: 'better', found: 'better', astray: [] })
+    strictEqual(window.idle(), true)
+    // Each delivery that took a step was one awaited: its handler ran, once.
+    const took = (kind: string, name: string): number => logs.filter((step) => step.handled[0]?.kind === kind && step.handled[0].name === name).length
+    strictEqual(took('done', 'detail'), data.ended.length)
+    strictEqual(took('progress', 'suggest'), 1)
+  }
+}
+
 /** The commit surface's reads, on a backend whose work a schedule decides. */
 const selecting = (schedule: Schedule): (() => void) => {
   const backend = system({ side: 'backend', later: schedule.later })
@@ -257,6 +465,7 @@ const selecting = (schedule: Schedule): (() => void) => {
   return () => { deepStrictEqual({ diff: window.read(surface).data.gitDiff, error: window.read(surface).data.gitError }, { diff: 'diff of c.ts', error: null }) }
 }
 
-await run(checks, async (tally) => {
+await run([...checks, ...staleChecks], async (tally) => {
+  await tally.every('a read asked again while it and what asks it again are on their way shows the last, and takes a step only for what it awaits', () => explore(suggesting))
   await tally.every('the diff shown is of the file selected last, whichever read ends first', () => sample(selecting, { seed: 1, runs: 5_000 }), 'sampled')
 })

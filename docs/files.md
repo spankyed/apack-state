@@ -34,7 +34,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `src/window-frame.ts` | What a frame is in a window: the next paint while it shows, the next turn while it is hidden |
 | `checks/progress-check.mts` | That progress is gathered and nothing else is, and that what a state hears keeps the order it was sent in. Runs |
 | `src/testing.ts` | `@apackdev/state/testing`: the schedule of `@apackdev/orderings` (`everyOrder`, `explore`, `sample`, `replay`, its clock), `connect(window, backend, schedule?)` over `@apackdev/link`, a system on a schedule (`onSchedule`), and scenarios made from the events a state declares (`fromEvents`) |
-| `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, and that nothing carried is in it |
+| `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, that nothing carried is in it, and that what was stale when its turn came is not in it |
 | `checks/clock-check.mts` | A system's clock: step-stamped `now` in handlers and logs, live `now` after an `await` in work, monotonic clamping, no-clock refusals, and `sleep(ms)` cancellation under every ordering. Runs |
 | `checks/peers-check.mts` | Named non-window peers: `attach(name, peer)`, `tell({ peer }, event)` commit-time delivery, `outcome: 'dropped'` logging, `safely` isolation, and no view hold over `@apackdev/link` under every ordering. Runs |
 | `checks/brain-check.mts` | A slice of apack's brain: dynamic trigger nodes via one declared `TRIGGER` event, recursive subflows, commit-time `runHistory` peer facts with `now`, `sleep(ms)` delays, and `KILL_BRAIN` cancellation under every ordering. Runs |
@@ -43,13 +43,13 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/interleaving-check.mts` | Scenarios run under every ordering: a search over a search, a cancel, a click among progress, a window closing. Runs, for about 7 seconds |
 | `examples/commit.mts` | A slice of the app's commit surface ported: its status and a diff as reads it loads, staging and a push as writes it calls. Runs, and checks what each step leaves |
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |
-| `checks/loads-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field. Runs |
-| `checks/calls-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel. Runs, for about 10 seconds |
+| `checks/loads-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field; and that what one delivers once it is no longer awaited takes no step, under every ordering of a read asked again. Runs |
+| `checks/calls-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel; and that what one delivers once it is no longer pending takes no step. Runs, for about 10 seconds |
 | `checks/waits-check.mts` | Imperative timers declared under `waits`: `one` and keyed `each`, default and runtime `ms`, `reset: true`/`false`, optional `done`, `arm`/`disarm` rollback, exit cleanup, Vue mirror reactivity, and `explore` determinism. Runs |
 | `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
 | `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |
-| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data. Runs |
+| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data; and that an update of one no longer followed takes no step. Runs |
 | `checks/answer-check.mts` | An ask that changes something as it answers: the change is there with the answer, a refused change fails the ask, nothing is lost across a wait. Runs |
 | `checks/unsaid-check.mts` | What a handler said when it was not made: one that threw, refused, or returned a change that could not be made has told, sent, asked and broadcast nothing, on a backend and in a window. Runs |
 | `checks/failure-check.mts` | What happens when a state's work or a handler throws: where the state goes, and that the kernel goes on. Runs |

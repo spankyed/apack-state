@@ -4,7 +4,7 @@
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { forNet, type ViewHost, type ViewUpdate } from '../src/index.ts'
+import { forNet, type StepLog, type ViewHost, type ViewUpdate } from '../src/index.ts'
 
 type App = {
   systems: {}
@@ -630,4 +630,119 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
   }],
 ]
 
-await run([...checks, ...moreChecks])
+// ── what a view delivers once it is no longer the one followed ──────────────────────────────────────────────────────
+
+type BoardEvent = { type: 'CURRENCY'; currency: string } | { type: 'WATCH'; ids: string[] } | { type: 'NOTE'; note: string } | { type: 'TURN'; on: boolean }
+type Board = {
+  data: { currency: string; watching: string[]; note: string; total: number | null; prices: Record<string, number>; shown: number[] }
+  states: { on: {}; off: {} }
+}
+/** Follows a total and a price for each thing watched, while it is on. `amid` is run by each handler, as its step is open. */
+const board = (amid: { run?: () => void }) => state<Board, BoardEvent>()({
+  data: { currency: 'EUR', watching: [], note: '', total: null, prices: {}, shown: [] },
+  initial: 'on',
+  on: {
+    CURRENCY: ({ currency }) => { amid.run?.(); return { data: { currency } } },
+    WATCH: ({ ids }) => { amid.run?.(); return { data: { watching: ids } } },
+    NOTE: ({ note }) => ({ data: { note } }),
+    TURN: ({ on }) => ({ at: on ? 'on' : 'off' }),
+  },
+  states: {
+    on: {
+      follows: (follow) => ({
+        total: follow('shop', 'total', {
+          from: ['currency'],
+          args: ({ currency }) => ({ currency }),
+          updated: (update) => (update.ok ? { data: (d) => { d.total = update.value; d.shown.push(update.value) } } : undefined),
+        }),
+        price: follow('shop', 'price', {
+          each: 'watching',
+          args: (id) => ({ id }),
+          updated: (update, { key }) => (update.ok ? { data: (d) => { d.prices[key] = update.value; d.shown.push(update.value) } } : undefined),
+        }),
+      }),
+    },
+    off: {},
+  },
+})
+/** A window whose views are this check's: each one followed is kept, and delivers when the check says, stopped or not. */
+const atBoard = (host: { limit?: number } = {}) => {
+  const followed: Array<(value: number) => void> = []
+  const logs: StepLog[] = []
+  const defects: string[] = []
+  const amid: { run?: () => void } = {}
+  const sys = system({
+    side: 'window', ...host,
+    views: (_feature, _view, _args, heard) => { followed.push((value) => heard({ ok: true, value })); return () => {} },
+    log: (step) => { logs.push(step) },
+    onDefect: (defect) => { defects.push(defect.message) },
+  })
+  const it = sys.start('board', board(amid))
+  return {
+    sys, followed, defects,
+    send: (event: BoardEvent): void => sys.send(it, event),
+    now: () => sys.read(it).data,
+    /** Runs this while the step that handles the next event is open. */
+    during: (run: () => void): void => { amid.run = () => { delete amid.run; run() } },
+    steps: (): string[] => logs.map((step) => step.handled.map((one) => `${one.kind} ${one.name}${one.key === undefined ? '' : `/${one.key}`}`).join(', ')),
+    numbers: (): number[] => logs.map((step) => step.number),
+  }
+}
+/**
+ * A view heard from while it is followed; in the step that follows it again, and after; in the step that stops
+ * following it, and after; behind the step that leaves the state, and after.
+ */
+const shown = (it: ReturnType<typeof atBoard>): void => {
+  const { send, followed } = it
+  followed[0]!(1)
+  it.during(() => followed[0]!(2))
+  send({ type: 'CURRENCY', currency: 'USD' })
+  followed[0]!(3)
+  followed[1]!(4)
+  send({ type: 'WATCH', ids: ['a'] })
+  followed[2]!(5)
+  it.during(() => followed[2]!(6))
+  send({ type: 'WATCH', ids: [] })
+  followed[2]!(7)
+  // As a step ends, the state is told to turn off, and behind that comes an update of what it follows.
+  let once = true
+  const stop = it.sys.subscribe(() => {
+    if (!once) return
+    once = false
+    send({ type: 'TURN', on: false })
+    followed[1]!(8)
+  })
+  send({ type: 'NOTE', note: 'leaving' })
+  stop()
+  followed[1]!(9)
+  send({ type: 'TURN', on: true })
+  followed[3]!(10)
+}
+/** Every step `shown` takes: one for each event, and one for each update of a view followed when its turn came. */
+const SHOWN_STEPS = ['', 'view total', 'event CURRENCY', 'view total', 'event WATCH', 'view price/a', 'event WATCH', 'event NOTE', 'event TURN', 'event TURN', 'view total']
+
+const staleChecks: Array<[string, () => void]> = [
+  ['an update of a view no longer followed when its turn comes takes no step, and one of a view followed takes one', () => {
+    const it = atBoard()
+    shown(it)
+    strictEqual(it.followed.length, 4)
+    deepStrictEqual(it.steps(), SHOWN_STEPS)
+    deepStrictEqual(it.numbers(), SHOWN_STEPS.map((_, at) => at + 1))
+    deepStrictEqual(it.now(), { currency: 'USD', watching: [], note: 'leaving', total: 10, prices: { a: 5 }, shown: [1, 4, 5, 10] })
+    deepStrictEqual(it.defects, [])
+    strictEqual(it.sys.idle(), true)
+  }],
+  ['an update of a view no longer followed counts for nothing against the limit', () => {
+    // Exactly as many steps as it takes: one more, and the last update would be turned away.
+    const it = atBoard({ limit: SHOWN_STEPS.length })
+    shown(it)
+    deepStrictEqual(it.steps(), SHOWN_STEPS)
+    deepStrictEqual({ total: it.now().total, shown: it.now().shown, defects: it.defects }, { total: 10, shown: [1, 4, 5, 10], defects: [] })
+    // And it was the limit: the next thing is not taken.
+    it.send({ type: 'NOTE', note: 'one too many' })
+    strictEqual(it.now().note, 'leaving')
+    strictEqual(it.defects.length, 1)
+  }],
+]
+
+await run([...checks, ...moreChecks, ...staleChecks])
