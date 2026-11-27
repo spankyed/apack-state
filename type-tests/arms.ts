@@ -134,15 +134,21 @@ state<{ data: { n: number }; arms: { optDone: 'one'; optWhen: 'one'; optDyn: { o
   }),
 })
 
-// The timers whose options are refused are declared `'at arm'`, which is what a builder given nothing it can read makes:
-// so the one error on each of those lines is the option's own, and not the kind of timer that came of it.
-state<{ data: { n: number }; arms: { badDone: 'one'; badEachDone: 'each'; badAfter: { one: 'at arm' }; badWhenArmed: 'one'; badAfterEach: { each: 'at arm' }; badWhenArmedEach: { each: 'at arm' }; badAfterAlone: { one: 'at arm' }; badWhenArmedValue: { one: 'at arm' }; badPositional: { one: 'at arm' }; badPositionalDone: { one: 'at arm' } } }>()({
+state<{ data: { n: number }; arms: { badDone: 'one'; badEachDone: 'each' } }>()({
   data: { n: 0 },
   arms: ({ one, each }) => ({
     // @ts-expect-error a `one` timer's `done` return value is checked against the state's data
     badDone: one({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),
     // @ts-expect-error an `each` timer's `done` return value is checked against the state's data
     badEachDone: each({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),
+  }),
+})
+
+// The timers whose options are refused are declared `'at arm'`, which is what a builder given nothing it can read makes:
+// so the one error on each of those lines is the option's own, and not the kind of timer that came of it.
+state<{ data: { n: number }; arms: { badAfter: { one: 'at arm' }; badWhenArmed: 'one'; badAfterEach: { each: 'at arm' }; badWhenArmedEach: { each: 'at arm' }; badAfterAlone: { one: 'at arm' }; badWhenArmedValue: { one: 'at arm' }; badPositional: { one: 'at arm' }; badPositionalDone: { one: 'at arm' } } }>()({
+  data: { n: 0 },
+  arms: ({ one, each }) => ({
     // @ts-expect-error a misspelled `after` on a `one` timer is rejected even when `done` is present
     badAfter: one({ afer: 100, done: () => {} }),
     // @ts-expect-error a misspelled `whenArmed` on a `one` timer is rejected even when `done` is present
