@@ -22,7 +22,7 @@
 
 import { produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
-import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
+import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
 
 // ── the system ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -213,7 +213,12 @@ export interface Defect {
   readonly error?: unknown
 }
 
-export interface System {
+/** A typed named-peer handler: either a direct event callback or a `PeerPort`-shaped object. */
+export type TypedPeer<E = unknown> =
+  | ((event: [AnyEvent] extends [E] ? unknown : Read<E>) => void)
+  | { tell(peer: string, event: [AnyEvent] extends [E] ? unknown : Read<E>): void }
+
+export interface System<N extends Net = Net> {
   start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>
   /**
    * A state that this one starts, by the name it is declared under, and by key where there is one for each. This is
@@ -237,9 +242,13 @@ export interface System {
   attach(peer: Port): () => void
   /**
    * Attaches a named non-window peer to this system, and returns what detaches it. `tell({ peer: name }, event)`
-   * delivers `port.tell(name, event)` after the step commits, with no view hold. Duplicate names throw.
+   * delivers the event after the step commits, with no view hold. Accepts either a direct event callback or a
+   * `PeerPort`-shaped object. Duplicate names throw.
    */
-  attach(name: string, peer: PeerPort): () => void
+  attach<K extends NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? keyof NonNullable<N['peers']> & string : never>(
+    name: K,
+    peer: TypedPeer<NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? NonNullable<N['peers']>[K]['events'] : never>,
+  ): () => void
   /**
    * Whether nothing is under way here: no work a state is doing, no ask being answered or waited on, nothing put off
    * and nothing gathered. For a check, to wait until what it did has come to rest and not for a count of turns.
@@ -260,7 +269,7 @@ const RUNAWAY = 10_000
 /** A data field holding more items than this is reported: a collection that large belongs in a view. */
 const LARGE = 10_000
 
-export function system(host: {
+export function system<N extends Net = Net>(host: {
   side: 'backend' | 'window'
   /** What this system is called in a lane's label and nowhere else. */
   name?: string
@@ -297,7 +306,7 @@ export function system(host: {
    * heard from. The app gives none: one thing leading to the next for as long as it runs is what an agent's loop is.
    */
   limit?: number
-}): System {
+}): System<N> {
   const trace = (line: string): void => { try { host.trace?.(line) } catch {} }
   const defect = (message: string, ref?: string, error?: unknown): void => {
     trace(`DEFECT: ${message}`)
@@ -1627,9 +1636,11 @@ export function system(host: {
       listeners.push(listener)
       return () => { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1) }
     },
-    attach: ((peerOrName: Port | string, peer?: PeerPort) => {
+    attach: ((peerOrName: Port | string, peer?: PeerPort | ((event: AnyEvent) => void)) => {
       if (typeof peerOrName === 'string') {
-        const port = peer!
+        const port: PeerPort = typeof peer === 'function'
+          ? { tell: (_peer, event) => peer(event as AnyEvent) }
+          : peer!
         if (peers.has(peerOrName)) throw new Error(`${called} already has a peer named ${peerOrName}`)
         peers.set(peerOrName, port)
         return () => { if (peers.get(peerOrName) === port) peers.delete(peerOrName) }
@@ -1670,5 +1681,5 @@ export function system(host: {
     },
     [Symbol.dispose]: () => { self.stop() },
   }
-  return self
+  return self as System<N>
 }
