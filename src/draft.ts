@@ -30,11 +30,19 @@ const isPlain = (value: unknown): value is object => {
 /**
  * `fixed` says the outermost object's keys are not the edit's to change: its values can be edited and replaced, and
  * a key can be neither added nor removed. The write that tries is the one that throws, so the error is on its line.
+ * When `freeze` is given (and `base` is already deeply frozen), only newly assigned values and copied containers are
+ * frozen after the edit settles, avoiding re-walking untouched siblings from `base`.
  * @internal
  */
-export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean } = {}): { value: T; touched: Path[] } {
+export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean; freeze?: (value: unknown) => void } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()
   const touchedTop = new Set<string>()
+  /**
+   * Copies whose `base` was already frozen, mapped to the keys written onto them (`set` or `settle`). Keyed by the
+   * copy object itself so provenance survives mid-edit `settle` and child-draft eviction; copies of freshly created
+   * unfrozen bases are omitted so `freezeTree` deep-freezes all of their keys.
+   */
+  const copies = new Map<object, Set<string>>()
   let open = true
   /** Whether any nested draft or whole wrapper has been handed out; skips walking fresh assignments when none has. */
   let handed = false
@@ -48,6 +56,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
       node.copy = Array.isArray(node.base)
         ? [...node.base]
         : Object.assign(Object.create(Object.getPrototypeOf(node.base) as object | null) as Record<string, unknown>, node.base)
+      if (Object.isFrozen(node.base)) copies.set(node.copy, new Set())
       if (node.around) own(node.around)
     }
     return node.copy as Record<string, unknown>
@@ -66,7 +75,12 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   const settle = (node: Node): object => {
     if (!node.copy) return node.base
     const made = node.copy as Record<string, unknown>
-    for (const [key, held] of node.inside) if (held.node.copy && made[key] === held.node.base) made[key] = settle(held.node)
+    for (const [key, held] of node.inside) {
+      if (held.node.copy && made[key] === held.node.base) {
+        made[key] = settle(held.node)
+        copies.get(made)?.add(key)
+      }
+    }
     return made
   }
   const plainOf = (value: unknown, seen?: Map<object, object>): unknown => {
@@ -145,7 +159,9 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
         if (options.fixed && !node.around && !Object.hasOwn(node.base, key)) throw new Error(`There is no field ${key} to change`)
         const next = plainOf(value)
         if (Object.is(latest(node)[key], next) && Object.hasOwn(latest(node), key)) return true
-        own(node)[key] = next
+        const target = own(node)
+        target[key] = next
+        copies.get(target)?.add(key)
         node.inside.delete(key)
         note(node, key)
         return true
@@ -182,8 +198,22 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     throw new Error('An edit cannot be async: a draft is closed as soon as the function returns')
   }
   if (returned !== undefined) throw new Error('An edit changes its draft and returns nothing. To replace a field, give the field')
+  const root = (draft as { [NODE]: Node })[NODE]
+  const value = settle(root) as T
+  if (options.freeze && root.copy) {
+    const deepFreeze = options.freeze
+    const freezeTree = (current: unknown): void => {
+      if (typeof current !== 'object' || current === null) return
+      const dirty = copies.get(current)
+      if (!dirty) { deepFreeze(current); return }
+      copies.delete(current)
+      for (const key of dirty) freezeTree((current as Record<string, unknown>)[key])
+      Object.freeze(current)
+    }
+    freezeTree(value)
+  }
   return {
-    value: settle((draft as { [NODE]: Node })[NODE]) as T,
+    value,
     touched: options.topLevel ? [...touchedTop].map((field) => [field]) : [...touched.values()],
   }
 }
