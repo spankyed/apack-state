@@ -1751,8 +1751,8 @@ export function system<N extends Net = Net>(host: {
    * waiting on it, or has begun it again, so that what is held under its name is another.
    */
   const isStale = (item: Delivery): boolean => {
-    const held: ReadonlyMap<string, Live | Armed> = item.kind === 'view' ? item.of.following : item.kind === 'wait' ? item.of.waiting : item.made ? item.of.pending : item.of.awaiting
-    return held.get(item.id) !== item.live
+    const kept: ReadonlyMap<string, Live | Armed> = item.kind === 'view' ? item.of.following : item.kind === 'wait' ? item.of.waiting : item.made ? item.of.pending : item.of.awaiting
+    return kept.get(item.id) !== item.live
   }
   const pump = (): void => {
     while (!stepping && !flushing && outside.any) {
