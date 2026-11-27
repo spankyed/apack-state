@@ -252,10 +252,15 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 
 - **What began it, and everything after**: each thing handled in order, as its kind (an event, an ask, a view's
   result, how a read or write finished, what a state's work found), the state, and the name it was declared or sent by.
-  An event a state raised is marked `own`, and one nothing took `ignored`. An event or an ask that came through the
+  An event a state raised is marked `own`, and one nothing took `ignored`, with why: `internal` where it is one only
+  its state raises and it was sent from outside, `unhandled` otherwise. What moved its state says where to (`at`), so
+  a step that handled several things says which moved what. An event or an ask that came through the
   system's port says where from (`across: 'window'` on a backend, `across: 'backend'` in a window); one sent, raised
   or asked here says nothing. An ask, its progress, its answer and what is done with it carry one `id`, the system's
-  own, as do a view's updates, so that what one step began is found in the steps it led to. When the system is given
+  own, as do a view's updates, so that what one step began is found in the steps it led to. Everything else an earlier
+  step led to says which (`since`): a timer's expiry the step that armed it, what a state's work came to the step it
+  began in, and what work or a listener sent once its step was over the step that began it. What came from outside
+  any step, or was sent in the step that handled it, says nothing. When the system is given
   a `clock`, `now` stamps when the step began, and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   its pending calls or armed timers changed.

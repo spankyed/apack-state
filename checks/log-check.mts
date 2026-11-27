@@ -286,7 +286,7 @@ await run([
     backend.start('watcher', watcher)
     backend.start('nested', nested)
     await rest()
-    has(handledIn(logs), { kind: 'result', ref: 'nested', name: 'outer.inner' })
+    has(handledIn(logs), { kind: 'result', ref: 'nested', name: 'outer.inner', since: 6 })
     backend.send(made, { type: 'ADD', id: 'now' })
     backend.send(made, { type: 'ADD', id: 'later' })
     await turns()
@@ -298,8 +298,8 @@ await run([
     has(handled, { kind: 'answer', ref: 'worker', name: 'RUN', id: 2 })
     has(handled, { kind: 'done', ref: 'jobs', name: 'run', key: 'now', id: 2 })
     has(handled, { kind: 'cancel', ref: 'jobs', name: 'run', key: 'later' })
-    has(handled, { kind: 'result', ref: 'ends', name: 'busy' })
-    has(handled, { kind: 'failure', ref: 'breaks', name: 'busy' })
+    has(handled, { kind: 'result', ref: 'ends', name: 'busy', since: 3 })
+    has(handled, { kind: 'failure', ref: 'breaks', name: 'busy', since: 4, at: 'idle' })
     has(handled, { kind: 'view', ref: 'watcher', name: 'count', id: 1 })
     // A state that moved and changed none of its fields says so, and where it is.
     const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
@@ -485,7 +485,7 @@ await run([
     win.send(callerH, { type: 'GO', tag: 'b' })
     await rest()
 
-    const ignoredEvents = handledIn(logs.backend).filter((h) => h.kind === 'event' && h.ignored === true)
+    const ignoredEvents = handledIn(logs.backend).filter((h) => h.kind === 'event' && h.ignored !== undefined)
     deepStrictEqual(ignoredEvents.map((h) => `${h.ref}:${h.name}`), ['svc:PING', 'svc:SECRET', 'ghost:PING'])
     const throwStep = logs.backend.find((s) => s.handled.some((h) => h.kind === 'event' && h.name === 'THROW'))!
     strictEqual(throwStep.handled[0]?.ignored, undefined)
@@ -587,9 +587,9 @@ await run([
     await rest()
     deepStrictEqual(handledIn(both.logs.window).filter((each) => each.kind === 'event'), [
       { kind: 'event', ref: 'panel', name: 'TYPE' },
-      { kind: 'event', ref: 'panel', name: 'SEND' },
+      { kind: 'event', ref: 'panel', name: 'SEND', at: 'sending' },
       { kind: 'event', ref: 'panel', name: 'NOTED', across: 'backend' },
-      { kind: 'event', ref: 'panel', name: 'SENT', own: true },
+      { kind: 'event', ref: 'panel', name: 'SENT', own: true, since: 3, at: 'idle' },
     ])
   }],
   ['an ask its asker gives up is said as it leaves, by the id it was asked with: cancelled, left with its state, or made and cancelled in one step', async () => {

@@ -10,7 +10,9 @@ import { dial, join, listen, memoryPair, type Link } from '@apackdev/link'
 import { explore, sample, type Clock, type Explored, type ExploreOptions, type Schedule } from '@apackdev/orderings'
 import type { AnyEvent, Asks, Handle, RootGiven, Shape, State, Value } from './types.ts'
 import { system as kernel, type Defect, type System } from './kernel.ts'
-import { createInspector, type Inspector } from './inspect.ts'
+import { createInspector, type Inspector, type InspectorHooks } from './inspect.ts'
+
+export type { InspectorHooks } from './inspect.ts'
 
 export { everyOrder, explore, replay, sample, type Clock, type Explored, type ExploreOptions, type Scenario, type Schedule } from '@apackdev/orderings'
 export type { Defect } from './kernel.ts'
@@ -175,7 +177,7 @@ const KEPT = 500
  * that ordering's last steps across every system.
  */
 export async function inspectOrder(
-  scenario: (schedule: Schedule, hooks: (name: string) => { log(step: unknown): void; onDefect(defect: Defect): void; trace(line: string): void }) => () => void | Promise<void>,
+  scenario: (schedule: Schedule, hooks: (name: string) => InspectorHooks) => () => void | Promise<void>,
   options: InspectOrderOptions = {},
 ): Promise<Explored> {
   const { last = 30, ...exploreOpts } = options

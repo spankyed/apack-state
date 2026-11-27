@@ -3,7 +3,9 @@
 // Payload-free by default; optional snapshot capture uses the kernel's frozen structural-sharing values.
 //
 // Within one system an edge is exact: an ask, its progress, its answer and what is done with it carry one id, as do a
-// view and its updates. Between systems nothing a log holds says which message a step took, only where it went and
+// view and its updates, and everything else a step began says which step that was: a timer's expiry the step that
+// armed it, what a state's work comes to the step it began in, and what work or a listener sent later the step that
+// began it. Between systems nothing a log holds says which message a step took, only where it went and
 // what it was called, so an edge between systems is given when one message alone could be the one, and not given
 // when two could: two windows that told a backend the same thing, a broadcast a window has not caught up with. A step
 // then has no edge from another system; it never has a wrong one. That rests on three things: every system that sends
@@ -28,13 +30,18 @@ export interface InspectedDefect {
 
 /** A directed causal edge connecting an earlier step's emission or operation to a later step's handling. */
 export interface CausalEdge {
-  readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'view' | 'tell' | 'broadcast'
+  /**
+   * `tell` and `broadcast` are between systems. The rest are what the later step handled: within one system for all
+   * of them, and between two for an `ask`, its `progress` and its `answer`.
+   */
+  readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'view' | 'tell' | 'broadcast' | 'event' | 'result' | 'failure' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired'
   readonly fromSystem: string
   readonly fromStep: number
   readonly toSystem: string
   readonly toStep: number
   readonly opId?: number
   readonly ref: string
+  /** What was handled, as the state names it. What a state's work came to is named for the state it is the work of. */
   readonly name: string
 }
 
@@ -42,7 +49,7 @@ export interface CausalEdge {
 export interface InspectedStep {
   /** Global monotonic sequence across all attached systems, starting at 1. */
   readonly seq: number
-  /** Attached system name (e.g., `'backend'`, `'window-1'`). */
+  /** The system it is a step of, as it was hooked: its name, and for one hooked after another of that name, `name (2)` and so on. */
   readonly system: string
   /** Raw `StepLog` emitted by the kernel. */
   readonly log: StepLog
@@ -88,6 +95,8 @@ export interface CausalExplanation {
 /** Static-vs-runtime coverage overlay for one state ref against its `@apackdev/state/graph` `StateGraph`. */
 export interface StateCoverage {
   readonly title: string
+  /** The system the state ran in. Not there for a graph given by name that no system ran. */
+  readonly system?: string
   readonly ref: string
   readonly declaredStates: readonly string[]
   readonly visitedStates: readonly string[]
@@ -124,14 +133,12 @@ export interface InspectorOptions {
 export interface HookForward {
   readonly log?: (step: StepLog) => void
   readonly onDefect?: (defect: Defect) => void
-  readonly trace?: (line: string) => void
 }
 
 /** Host callbacks returned by `inspector.hooks(...)`, ready to spread into `system({ side, ... })`. */
 export interface InspectorHooks {
   readonly log: (step: StepLog) => void
   readonly onDefect: (defect: Defect) => void
-  readonly trace: (line: string) => void
 }
 
 /** Filter options for `inspector.format(...)`. */
@@ -151,7 +158,11 @@ export type InspectorUpdate =
 
 /** Unified multi-system causal inspector built over `StepLog`, `Defect`, and `StateGraph`. */
 export interface Inspector {
-  /** Returns `{ log, onDefect, trace }` hooks to spread into `system({ side, ...inspector.hooks('backend') })`. */
+  /**
+   * Returns `{ log, onDefect }` hooks to spread into `system({ side, ...inspector.hooks('backend') })`. Called once
+   * for each system: a second call under a name is another system, whose steps count from 1 again, and it is
+   * recorded as `name (2)`, so no two steps are told by one name and number.
+   */
   hooks(systemName: string, forward?: HookForward): InspectorHooks
   /** Binds a running `System` (or snapshot provider) under `systemName` for live `snapshots()` and optional per-step snapshot capture. */
   bind(systemName: string, sys: { snapshot(): Record<string, unknown> }): () => void
@@ -161,14 +172,20 @@ export interface Inspector {
   readonly defects: readonly InspectedDefect[]
   /** All causal edges linking retained steps, as they stand when read. */
   readonly edges: readonly CausalEdge[]
-  /** Walks backward from the latest step touching `ref` (and optional `field`) to its root cause(s). */
-  explain(ref: string, field?: string): CausalExplanation
+  /**
+   * Walks backward from the latest step touching `ref` (and optional `field`) to its root cause(s). Two systems may
+   * each run a state under one ref, as a feature's system and its surface do: `system` says which is meant.
+   */
+  explain(ref: string, options?: { readonly field?: string; readonly system?: string }): CausalExplanation
   /** Every ask and follow under way across attached systems: an ask is under way where it was made and where it is being answered. */
   inFlight(): readonly InFlightOp[]
   /** Every ignored event, dropped/failed peer tell, and defect (optionally filtered to `ref`). */
   whyIgnored(ref?: string): readonly IgnoredEntry[]
-  /** Overlays observed runtime transitions and defects onto static `@apackdev/state/graph` `StateGraph`s. */
-  coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string) => StateGraph | undefined)): readonly StateCoverage[]
+  /**
+   * Overlays observed runtime transitions and defects onto static `@apackdev/state/graph` `StateGraph`s: one overlay
+   * for each system that ran a state under a ref a graph is given for, since two systems may each run one.
+   */
+  coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string, system: string) => StateGraph | undefined)): readonly StateCoverage[]
   /** Current `snapshot()` of every bound `System`, keyed by attached system name. */
   snapshots(): Readonly<Record<string, Record<string, unknown>>>
   /** Formats steps, defects, and causal links into a compact human- and agent-readable timeline. */
@@ -204,6 +221,14 @@ interface Shouts {
   /** The step that made each of the last of them, by how many there had been before it. */
   readonly last: Map<number, Pending>
   readonly heard: Map<string, { upTo: number; unsure: number }>
+}
+
+/** What one state in one system was seen to be in, and the moves it was seen to make. */
+interface Seen {
+  readonly system: string
+  readonly ref: string
+  readonly states: Set<string>
+  readonly moves: Array<{ readonly from: string; readonly on: string; readonly to: string }>
 }
 
 /** An ask or a follow one system has under way, or has finished and may still hear of. */
@@ -323,8 +348,6 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
 
   /** Defects reported during a step before its `log(step)` callback fires, by `${system}#${step}`. */
   const pendingDefects = new Map<string, InspectedDefect[]>()
-  /** What the kernel traced of an event sent from outside that only its state raises, by system, until the step logs. */
-  const outsideTraces = new Map<string, string[]>()
   /** Every ask and follow not yet over, and each ask that is over until what is done with it is heard, by `${system}\0${opId}`. */
   const ops = new Map<string, Op>()
   /** What windows have told and asked a backend and it has not taken, by `${ref}\0${name}`. */
@@ -333,9 +356,13 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
   /** What a backend has broadcast, by `${ref}\0${name}`. */
   const shouts = new Map<string, Shouts>()
   /** Where each state with states of its own is, by `${system}\0${ref}`, to tell where a move was from. */
-  const lastAt = new Map<string, { readonly ref: string; readonly at: string }>()
-  const observedStates = new Map<string, Set<string>>()
-  const observedMoves = new Map<string, Array<{ readonly from: string; readonly on: string; readonly to: string }>>()
+  const lastAt = new Map<string, string>()
+  /** What each state was seen to be in and to do, by `${system}\0${ref}`. */
+  const seen = new Map<string, Seen>()
+  /** How many systems have been hooked under each name. */
+  const hooked = new Map<string, number>()
+  /** The name each system was hooked under, by what it is recorded as. */
+  const namedFor = new Map<string, string>()
 
   /** Holds a map to so many entries, the oldest going first. */
   const capMap = <K, V>(map: Map<K, V>, max: number): void => {
@@ -420,8 +447,6 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     const stepKey = `${systemName}#${log.number}`
     const stepDefects = pendingDefects.get(stepKey) ?? []
     pendingDefects.delete(stepKey)
-    const fromOutside = outsideTraces.get(systemName) ?? []
-    outsideTraces.delete(systemName)
 
     const causes: CausalEdge[] = []
     const cause = (kind: CausalEdge['kind'], from: Pending, to: Handled): void => {
@@ -448,9 +473,10 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     // 1. What the step handled: an event nothing took, and what each thing it took came of.
     for (const h of log.handled) {
       const key = `${h.ref}\0${h.name}`
+      // What an earlier step of this system led to, where no id says so.
+      if (h.since !== undefined) cause(h.kind as CausalEdge['kind'], { system: systemName, step: h.since, opId: undefined }, h)
       if (h.kind === 'event') {
         if (h.ignored) {
-          const outside = fromOutside.indexOf(`${h.ref} was sent ${h.name} from outside, which only it raises: ignored`)
           pushBounded(ignored, {
             seq: stepSeq,
             system: systemName,
@@ -458,7 +484,7 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
             kind: 'event',
             ref: h.ref,
             name: h.name!,
-            detail: outside < 0 ? `${h.ref} ignored ${h.name}` : fromOutside.splice(outside, 1)[0]!,
+            detail: h.ignored === 'internal' ? `${h.ref} was sent ${h.name} from outside, which only it raises: ignored` : `${h.ref} ignored ${h.name}`,
           })
         }
         const sent = h.across === 'window' ? arrive(tells, key) : h.across === 'backend' ? hear(key, systemName) : undefined
@@ -555,26 +581,33 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       for (const key of [...lastAt.keys()]) if (key.startsWith(mine)) lastAt.delete(key)
     }
 
-    // 3. Where each state that changed is now, and the move that took it there, for coverage.
+    // 3. Where each state that changed is now, and each move that took it there, for coverage.
+    const seenOf = (ref: string): Seen => touch(seen, `${systemName}\0${ref}`, () => ({ system: systemName, ref, states: new Set<string>(), moves: [] }), limit)
+    // In a state, it is in each state that one is inside.
+    const visit = (ref: string, at: string): void => { at.split('.').forEach((_, depth, path) => seenOf(ref).states.add(path.slice(0, depth + 1).join('.'))) }
+    // A step may handle several things, and each that moved its state says where to: a move is from where the state
+    // was before it, on what was handled. A move to the state it was in is a move: it left, and entered again.
+    for (const h of log.handled) {
+      if (h.at === undefined || !log.changed[h.ref]?.moved) continue
+      const stateKey = `${systemName}\0${h.ref}`
+      const from = lastAt.get(stateKey)
+      lastAt.set(stateKey, h.at)
+      visit(h.ref, h.at)
+      if (from === undefined) continue
+      const move = { from, on: graphTriggerOf(h), to: h.at }
+      const { moves } = seenOf(h.ref)
+      if (!moves.some((m) => m.from === move.from && m.on === move.on && m.to === move.to)) pushBounded(moves, move)
+    }
     for (const [ref, change] of Object.entries(log.changed)) {
       const stateKey = `${systemName}\0${ref}`
-      const from = lastAt.get(stateKey)?.at
       lastAt.delete(stateKey)
       if (!change.at) continue
-      lastAt.set(stateKey, { ref, at: change.at })
+      lastAt.set(stateKey, change.at)
       capMap(lastAt, limit * 4)
-      const visited = touch(observedStates, ref, () => new Set<string>(), limit)
-      // In a state, it is in each state that one is inside.
-      change.at.split('.').forEach((_, depth, path) => visited.add(path.slice(0, depth + 1).join('.')))
-      // A move to the state it was in is a move: it left, and entered again.
-      if (!change.moved || from === undefined) continue
-      const moves = touch(observedMoves, ref, () => [], limit)
-      // A state moves in a step that handled something of its own: the first of them is taken to be what moved it.
-      const on = graphTriggerOf(log.handled.find((h) => h.ref === ref)!)
-      if (!moves.some((m) => m.from === from && m.on === on && m.to === change.at)) pushBounded(moves, { from, on, to: change.at })
+      visit(ref, change.at)
     }
 
-    const sys = captureSnapshots ? bound.get(systemName) : undefined
+    const sys = captureSnapshots ? bound.get(namedFor.get(systemName)!) : undefined
     const record: InspectedStep = {
       seq: stepSeq,
       system: systemName,
@@ -629,9 +662,13 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
   }
 
   const api: Inspector = {
-    hooks(systemName: string, forward: HookForward = {}): InspectorHooks {
+    hooks(name: string, forward: HookForward = {}): InspectorHooks {
+      const nth = (hooked.get(name) ?? 0) + 1
+      hooked.set(name, nth)
+      const systemName = nth === 1 ? name : `${name} (${nth})`
+      namedFor.set(systemName, name)
       // What was broadcast before a system was hooked was not sent to it.
-      if (!systems.has(systemName)) for (const all of shouts.values()) all.heard.set(systemName, { upTo: all.sent, unsure: 0 })
+      for (const all of shouts.values()) all.heard.set(systemName, { upTo: all.sent, unsure: 0 })
       systems.add(systemName)
       return {
         log: (step: StepLog) => {
@@ -641,10 +678,6 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
         onDefect: (d: Defect) => {
           recordDefect(systemName, d)
           forward.onDefect?.(d)
-        },
-        trace: (line: string) => {
-          if (line.endsWith(' from outside, which only it raises: ignored')) pushBounded(touch(outsideTraces, systemName, () => [], Infinity), line)
-          forward.trace?.(line)
         },
       }
     },
@@ -659,13 +692,14 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     get defects(): readonly InspectedDefect[] { return [...defects] },
     get edges(): readonly CausalEdge[] { return [...edges] },
 
-    explain(ref: string, field?: string): CausalExplanation {
+    explain(ref: string, { field, system }: { readonly field?: string; readonly system?: string } = {}): CausalExplanation {
       const index = new Map<string, InspectedStep>()
       for (const s of steps) index.set(`${s.system}#${s.log.number}`, s)
 
       let target: InspectedStep | undefined
       for (let i = steps.length - 1; i >= 0; i--) {
         const s = steps[i]!
+        if (system !== undefined && s.system !== system) continue
         if (field !== undefined) {
           if (s.log.changed[ref]?.fields.includes(field)) { target = s; break }
         } else if (stepTouchesRef(s, ref)) {
@@ -710,49 +744,53 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       return ref === undefined ? [...ignored] : ignored.filter((entry) => entry.ref === ref)
     },
 
-    coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string) => StateGraph | undefined)): readonly StateCoverage[] {
-      const entries: Array<[string, StateGraph]> = []
-      if (typeof graphs === 'function') {
-        const allRefs = new Set<string>([...observedStates.keys(), ...defects.map((d) => d.ref).filter((r): r is string => r !== undefined)])
-        for (const ref of allRefs) {
-          const g = graphs(ref)
-          if (g) entries.push([ref, g])
-        }
-      } else {
-        for (const [ref, g] of Object.entries(graphs)) entries.push([ref, g])
-      }
-      return entries.map(([ref, graph]) => {
-        const visited = observedStates.get(ref) ?? new Set<string>()
-        const moves = observedMoves.get(ref) ?? []
-        const declaredMoves = graph.moves.flatMap((m) =>
-          m.to.map((to) => ({
-            from: m.from,
-            on: m.on,
-            to,
-            hit: moves.some((obs) =>
-              (obs.to === to || obs.to.startsWith(`${to}.`))
-              && (m.from === 'anywhere' || obs.from === m.from || obs.from.startsWith(`${m.from}.`))
-              && obs.on === m.on,
-            ),
-          })),
-        )
-        const refDefects = defects.filter((d) => d.ref === ref).length
-        let currentAt: string | undefined
-        for (const entry of lastAt.values()) {
-          if (entry.ref === ref) currentAt = entry.at
-        }
+    coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string, system: string) => StateGraph | undefined)): readonly StateCoverage[] {
+      const graphOf = typeof graphs === 'function' ? graphs : (ref: string): StateGraph | undefined => (Object.hasOwn(graphs, ref) ? graphs[ref] : undefined)
+      const overlay = (graph: StateGraph, ref: string, system: string | undefined, was: Seen | undefined): StateCoverage => {
+        const visited = was?.states ?? new Set<string>()
+        const moves = was?.moves ?? []
+        // A graph no system ran is nowhere: nothing is kept under no system.
+        const currentAt = lastAt.get(`${system}\0${ref}`)
         return {
           title: graph.title,
+          ...(system === undefined ? {} : { system }),
           ref,
           declaredStates: graph.states,
           visitedStates: graph.states.filter((s) => visited.has(s)),
           unvisitedStates: graph.states.filter((s) => !visited.has(s)),
-          declaredMoves,
+          declaredMoves: graph.moves.flatMap((m) =>
+            m.to.map((to) => ({
+              from: m.from,
+              on: m.on,
+              to,
+              hit: moves.some((obs) =>
+                (obs.to === to || obs.to.startsWith(`${to}.`))
+                && (m.from === 'anywhere' || obs.from === m.from || obs.from.startsWith(`${m.from}.`))
+                && obs.on === m.on,
+              ),
+            })),
+          ),
           observedMoves: [...moves],
-          defects: refDefects,
+          defects: defects.filter((d) => d.ref === ref && d.system === system).length,
           ...(currentAt === undefined ? {} : { currentAt }),
         }
-      })
+      }
+      // Each state a system ran, and each a defect was reported of, under a ref a graph is given for.
+      const ran = new Map<string, { system: string; ref: string }>()
+      for (const { system, ref } of seen.values()) ran.set(`${system}\0${ref}`, { system, ref })
+      for (const d of defects) if (d.ref !== undefined) ran.set(`${d.system}\0${d.ref}`, { system: d.system, ref: d.ref })
+      const out: StateCoverage[] = []
+      const given = new Set<string>()
+      for (const [key, { system, ref }] of ran) {
+        const graph = graphOf(ref, system)
+        if (!graph) continue
+        given.add(ref)
+        out.push(overlay(graph, ref, system, seen.get(key)))
+      }
+      // A graph given by name that no system ran is all still to visit.
+      // A function names none.
+      for (const [ref, graph] of Object.entries(graphs as Readonly<Record<string, StateGraph>>)) if (!given.has(ref)) out.push(overlay(graph, ref, undefined, undefined))
+      return out
     },
 
     snapshots(): Readonly<Record<string, Record<string, unknown>>> {
@@ -799,7 +837,7 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       defects.length = 0
       edges.length = 0
       ignored.length = 0
-      for (const kept of [pendingDefects, outsideTraces, ops, tells, asks, shouts, lastAt, observedStates, observedMoves]) kept.clear()
+      for (const kept of [pendingDefects, ops, tells, asks, shouts, lastAt, seen]) kept.clear()
     },
   }
 

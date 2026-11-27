@@ -411,8 +411,9 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
 // @public
 export interface Handled {
     readonly across?: 'window' | 'backend';
+    readonly at?: string;
     readonly id?: number;
-    readonly ignored?: true;
+    readonly ignored?: 'unhandled' | 'internal';
     readonly key?: string;
     // (undocumented)
     readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired' | 'answer';
@@ -420,6 +421,7 @@ export interface Handled {
     readonly own?: true;
     // (undocumented)
     readonly ref: string;
+    readonly since?: number;
 }
 
 // @public (undocumented)

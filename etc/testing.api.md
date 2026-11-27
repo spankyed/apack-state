@@ -87,15 +87,21 @@ export type FromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(options: FromEvents<S, E, A, G>): Promise<void>;
 
 // @public
-export function inspectOrder(scenario: (schedule: Schedule, hooks: (name: string) => {
-    log(step: unknown): void;
-    onDefect(defect: Defect): void;
-    trace(line: string): void;
-}) => () => void | Promise<void>, options?: InspectOrderOptions): Promise<Explored>;
+export function inspectOrder(scenario: (schedule: Schedule, hooks: (name: string) => InspectorHooks) => () => void | Promise<void>, options?: InspectOrderOptions): Promise<Explored>;
 
 // @public
 export interface InspectOrderOptions extends ExploreOptions {
     readonly last?: number;
+}
+
+// @public
+export interface InspectorHooks {
+    // Warning: (ae-forgotten-export) The symbol "StepLog" needs to be exported by the entry point testing.d.ts
+    //
+    // (undocumented)
+    readonly log: (step: StepLog) => void;
+    // (undocumented)
+    readonly onDefect: (defect: Defect) => void;
 }
 
 // @public
@@ -143,10 +149,10 @@ export interface WaitForOptions {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:28:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:47:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:52:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:60:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:30:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:49:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:54:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:62:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

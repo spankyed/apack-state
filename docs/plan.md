@@ -1317,8 +1317,23 @@ The design is the smaller half of the value. In the order they would pay:
      put a step between a handler's end and its answer.
    - What came through a port says so (`across`), with the side it came from. Without it a tell from a window and
      the same event sent on the backend are one line in a log, and an edge between systems is a guess.
+   - What moved a state says so, and where to (`handled.at`). A step handles everything queued in it, so an event a
+     state took and the event it raised in taking it are one step: `changed` says the state moved, and only the
+     handled thing can say which of them moved it. Read off the first thing handled, a move was given to an event
+     that made none.
+   - What an earlier step led to says which (`handled.since`), where no `id` does: a timer's expiry, what a state's
+     work came to, and what work or a listener sent after its step was over. It is the number of the step, kept as
+     the timer is armed, the work begun, the scope made. Without it a chain of causes ended at every timer and at
+     everything work did after its first wait.
+   - An ignored event says why (`'internal'`, `'unhandled'`). The inspector read that from what the kernel traced,
+     word for word.
    - A step the kernel threw out of keeps its number. A defect is stamped with its step as it is reported, before
      the step is known to end; the next step, given the same number, was taken for the one that reported it.
+
+   **A state is a ref in a system.** A feature's system and its surface run under one ref, in two systems. Coverage
+   is one overlay for each system that ran a ref, and `explain` is told which system where it matters. Each call of
+   `hooks(name)` is one system: a second under a name is recorded as `name (2)`, since its steps count from 1 again
+   and a step is told by its system and its number.
 
    **Between systems, an edge is given only when one message could be the one.** A log says where a message went
    and what it was called, never which. So the inspector keeps what was sent under each name and gives an edge when

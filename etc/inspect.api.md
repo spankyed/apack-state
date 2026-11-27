@@ -12,9 +12,7 @@ export interface CausalEdge {
     readonly fromStep: number;
     // (undocumented)
     readonly fromSystem: string;
-    // (undocumented)
-    readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'view' | 'tell' | 'broadcast';
-    // (undocumented)
+    readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'view' | 'tell' | 'broadcast' | 'event' | 'result' | 'failure' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired';
     readonly name: string;
     // (undocumented)
     readonly opId?: number;
@@ -80,8 +78,9 @@ export interface FormatOptions {
 // @public
 export interface Handled {
     readonly across?: 'window' | 'backend';
+    readonly at?: string;
     readonly id?: number;
-    readonly ignored?: true;
+    readonly ignored?: 'unhandled' | 'internal';
     readonly key?: string;
     // (undocumented)
     readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired' | 'answer';
@@ -89,6 +88,7 @@ export interface Handled {
     readonly own?: true;
     // (undocumented)
     readonly ref: string;
+    readonly since?: number;
 }
 
 // @public
@@ -97,8 +97,6 @@ export interface HookForward {
     readonly log?: (step: StepLog) => void;
     // (undocumented)
     readonly onDefect?: (defect: Defect) => void;
-    // (undocumented)
-    readonly trace?: (line: string) => void;
 }
 
 // @public
@@ -169,10 +167,13 @@ export interface Inspector {
         snapshot(): Record<string, unknown>;
     }): () => void;
     clear(): void;
-    coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string) => StateGraph | undefined)): readonly StateCoverage[];
+    coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string, system: string) => StateGraph | undefined)): readonly StateCoverage[];
     readonly defects: readonly InspectedDefect[];
     readonly edges: readonly CausalEdge[];
-    explain(ref: string, field?: string): CausalExplanation;
+    explain(ref: string, options?: {
+        readonly field?: string;
+        readonly system?: string;
+    }): CausalExplanation;
     export(): ExportedTrace;
     format(options?: FormatOptions): string;
     hooks(systemName: string, forward?: HookForward): InspectorHooks;
@@ -189,8 +190,6 @@ export interface InspectorHooks {
     readonly log: (step: StepLog) => void;
     // (undocumented)
     readonly onDefect: (defect: Defect) => void;
-    // (undocumented)
-    readonly trace: (line: string) => void;
 }
 
 // @public
@@ -243,6 +242,7 @@ export interface StateCoverage {
     }>;
     // (undocumented)
     readonly ref: string;
+    readonly system?: string;
     // (undocumented)
     readonly title: string;
     // (undocumented)

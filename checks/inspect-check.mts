@@ -200,7 +200,6 @@ await run([
     const inspector = createInspector()
     const forwardedLogs: StepLog[] = []
     const forwardedDefects: Defect[] = []
-    const forwardedTraces: string[] = []
     const updates: InspectorUpdate[] = []
     const unsubGood = inspector.subscribe((u) => updates.push(u))
     // Throwing subscriber is isolated and does not disrupt inspection.
@@ -219,7 +218,6 @@ await run([
       ...inspector.hooks('backend', {
         log: (s) => forwardedLogs.push(s),
         onDefect: (d) => forwardedDefects.push(d),
-        trace: (l) => forwardedTraces.push(l),
       }),
     })
     const win = system({ side: 'window', ...inspector.hooks('window') })
@@ -245,7 +243,7 @@ await run([
     strictEqual(backend.read(svcH).data.pings, 1)
 
     // explain('panel', 'saved') walks backward from window done through backend SAVE to window SEND.
-    const explained = inspector.explain('panel', 'saved')
+    const explained = inspector.explain('panel', { field: 'saved' })
     strictEqual(explained.ref, 'panel')
     strictEqual(explained.field, 'saved')
     ok(explained.steps.some((s) => s.system === 'window' && s.log.handled.some((h) => h.kind === 'event' && h.name === 'SEND')), explained.text)
@@ -255,16 +253,16 @@ await run([
     ok(explained.edges.some((e) => e.fromSystem === 'backend' && e.toSystem === 'window' && e.kind === 'answer'))
 
     // explain('svc', 'pings') walks backward from backend PING to window TELL_SVC via cross-system tell edge.
-    const explainedTell = inspector.explain('svc', 'pings')
+    const explainedTell = inspector.explain('svc', { field: 'pings' })
     ok(explainedTell.steps.some((s) => s.system === 'window' && s.log.handled.some((h) => h.kind === 'event' && h.name === 'TELL_SVC')), explainedTell.text)
     ok(explainedTell.edges.some((e) => e.kind === 'tell' && e.fromSystem === 'window' && e.toSystem === 'backend'))
 
     // explain('panel', 'noted') captures cross-system broadcast edge from backend to window.
-    const explainedBcast = inspector.explain('panel', 'noted')
+    const explainedBcast = inspector.explain('panel', { field: 'noted' })
     ok(explainedBcast.edges.some((e) => e.kind === 'broadcast' && e.fromSystem === 'backend' && e.toSystem === 'window'))
 
     // explain for unknown ref returns clean empty explanation.
-    const missingExplain = inspector.explain('nobody', 'x')
+    const missingExplain = inspector.explain('nobody', { field: 'x' })
     deepStrictEqual(missingExplain.steps, [])
     ok(missingExplain.text.includes('nobody.data.x'))
 
@@ -284,7 +282,6 @@ await run([
 
     // Forwarded hooks and live subscribers received events; unsubscribing stops further updates.
     ok(forwardedLogs.length > 0)
-    ok(forwardedTraces.length > 0)
     ok(updates.some((u) => u.kind === 'step'))
     strictEqual(forwardedDefects.length, 0)
     unsubGood()
@@ -457,7 +454,7 @@ await run([
     const beforeWin2Steps = insp.steps.length
     win2.send(p2, { type: 'SEND', text: 'from-win2' })
     await rest()
-    const explainedWin2 = insp.explain('panel', 'saved')
+    const explainedWin2 = insp.explain('panel', { field: 'saved' })
     const answerEdge = explainedWin2.edges.find((e) => e.kind === 'answer' && e.fromSystem === 'backend' && e.toSystem === 'win2')
     ok(answerEdge !== undefined, explainedWin2.text)
     const backendAnswerStep = insp.steps.find((s) => s.system === 'backend' && s.log.number === answerEdge!.fromStep)!
@@ -737,6 +734,7 @@ await run([
     sys.send(made, { type: 'TO', at: 'idle' })
     deepStrictEqual(inspector.coverage({ mover: moverGraph }), [{
       title: 'Mover',
+      system: 'one',
       ref: 'mover',
       declaredStates: ['idle', 'busy'],
       visitedStates: ['idle'],
@@ -832,7 +830,7 @@ await run([
     strictEqual(inspector.whyIgnored().length, 2)
     strictEqual(inspector.export().steps.length, 7)
   }],
-  ['an ignored event is explained by what the kernel said of that event, and of no other whose name is part of its own', async () => {
+  ['an ignored event is explained by why the step says it was: sent from outside what only its state raises, or taken by nothing', async () => {
     const inspector = createInspector()
     const sys = system({ side: 'backend', ...inspector.hooks('one') })
     const quiet = desks<{ internal: { type: 'SECRET' } }, { type: 'PING' }>()({ internal: { SECRET: () => {} }, on: { PING: () => {} } })
@@ -850,12 +848,114 @@ await run([
       { seq: 4, system: 'one', step: 4, kind: 'event', ref: 'a', name: 'NOPE', detail: 'a ignored NOPE' },
     ])
     deepStrictEqual(inspector.whyIgnored('a').map((entry) => entry.name), ['SECRET', 'NOPE'])
-    // With no trace wired, an event sent from outside is still said to be ignored.
-    const plain = createInspector()
-    const { log } = plain.hooks('one')
-    const untraced = system({ side: 'backend', log })
-    untraced.send(untraced.start('a', quiet), { type: 'SECRET' } as never)
-    deepStrictEqual(plain.whyIgnored().map((entry) => entry.detail), ['a ignored SECRET'])
+  }],
+  ['two systems that each run a state under one ref are covered apart, and explained apart when asked', async () => {
+    const inspector = createInspector()
+    const flow = desks<{ states: { one: {}; two: {} } }, { type: 'GO' }>()({ initial: 'one', states: { one: { on: { GO: () => ({ at: 'two' }) } }, two: {} } })
+    const tint = desks<{ data: { n: number }; states: { red: {}; blue: {} } }, { type: 'GO' }>()({ data: { n: 0 }, initial: 'red', states: { red: { on: { GO: () => ({ at: 'blue', data: { n: 1 } }) } }, blue: {} } })
+    const backHooks = inspector.hooks('backend')
+    const back = system({ side: 'backend', ...backHooks })
+    const win = system({ side: 'window', ...inspector.hooks('window') })
+    const inBack = back.start('feature', flow)
+    const inWin = win.start('feature', tint)
+    back.send(inBack, { type: 'GO' })
+    win.send(inWin, { type: 'GO' })
+    const flowGraph: StateGraph = { title: 'Flow', states: ['one', 'two'], moves: [{ from: 'one', on: 'GO', to: ['two'] }], stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: '' }
+    const tintGraph: StateGraph = { title: 'Tint', states: ['red', 'blue'], moves: [{ from: 'red', on: 'GO', to: ['blue'] }], stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: '' }
+    const covered = inspector.coverage((_, system) => (system === 'backend' ? flowGraph : tintGraph))
+    deepStrictEqual(covered.map((each) => [each.title, each.system, each.visitedStates, each.observedMoves, each.currentAt]), [
+      ['Flow', 'backend', ['one', 'two'], [{ from: 'one', on: 'GO', to: 'two' }], 'two'],
+      ['Tint', 'window', ['red', 'blue'], [{ from: 'red', on: 'GO', to: 'blue' }], 'blue'],
+    ])
+    // One graph given by name is laid over each system that ran the ref: here it fits the backend's and not the window's.
+    deepStrictEqual(inspector.coverage({ feature: flowGraph }).map((each) => [each.system, each.visitedStates, each.declaredMoves.map((move) => move.hit)]), [['backend', ['one', 'two'], [true]], ['window', [], [false]]])
+    // And one that nothing ran is given once, of no system.
+    deepStrictEqual(inspector.coverage({ unseen: flowGraph }).map((each) => ['system' in each, each.unvisitedStates]), [[false, ['one', 'two']]])
+    // Explained without saying which, it is the one that stepped last; said, it is that one.
+    deepStrictEqual(inspector.explain('feature').steps.map((step) => step.system), ['window'])
+    deepStrictEqual(inspector.explain('feature', { system: 'backend' }).steps.map((step) => [step.system, step.log.number]), [['backend', 2]])
+    deepStrictEqual(inspector.explain('feature', { system: 'window', field: 'n' }).steps.map((step) => [step.system, step.log.number]), [['window', 2]])
+    deepStrictEqual(inspector.explain('feature', { system: 'backend', field: 'n' }).steps, [])
+    // A defect is of the system that reported it, and each state one was reported of is asked about, run or not.
+    backHooks.onDefect({ message: 'the backend\'s', ref: 'feature' })
+    backHooks.onDefect({ message: 'of one never run', ref: 'ghost' })
+    backHooks.onDefect({ message: 'of another', ref: 'wraith' })
+    deepStrictEqual(inspector.coverage({ feature: flowGraph }).map((each) => [each.system, each.defects]), [['backend', 1], ['window', 0]])
+    const asked: string[] = []
+    inspector.coverage((ref, system) => { asked.push(`${system} ${ref}`); return undefined })
+    deepStrictEqual(asked, ['backend feature', 'window feature', 'backend ghost', 'backend wraith'])
+  }],
+  ['a move is by what moved the state, in a step that handled more: one thing that did not, and two that each did', async () => {
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const hops = desks<{ states: { one: {}; two: {}; three: {} }; internal: { type: 'B' } | { type: 'C' } }, { type: 'A' }>()({
+      initial: 'one',
+      on: { A: (_, { raise }) => { raise({ type: 'B' }); raise({ type: 'C' }) } },
+      internal: { B: () => ({ at: 'two' }), C: () => ({ at: 'three' }) },
+      states: { one: {}, two: {}, three: {} },
+    })
+    sys.send(sys.start('hops', hops), { type: 'A' })
+    deepStrictEqual(inspector.steps.at(-1)!.log.handled.map((each) => [each.name, each.at]), [['A', undefined], ['B', 'two'], ['C', 'three']])
+    const graph: StateGraph = { title: 'Hops', states: ['one', 'two', 'three'], moves: [{ from: 'anywhere', on: 'A', to: ['two'] }, { from: 'one', on: 'B', to: ['two'] }, { from: 'two', on: 'C', to: ['three'] }], stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: '' }
+    const [covered] = inspector.coverage({ hops: graph })
+    deepStrictEqual(covered!.observedMoves, [{ from: 'one', on: 'B', to: 'two' }, { from: 'two', on: 'C', to: 'three' }])
+    deepStrictEqual(covered!.declaredMoves.map((move) => [move.on, move.hit]), [['A', false], ['B', true], ['C', true]])
+    deepStrictEqual([covered!.visitedStates, covered!.currentAt], [['one', 'two', 'three'], 'three'])
+  }],
+  ['what a step began leads back to it: a timer to the step that armed it, work to the step it began in, and what work sent later to that step', async () => {
+    const inspector = createInspector()
+    let fire!: () => void
+    const clock = { now: () => 0, after: (_: number, expire: () => void) => { fire = expire; return () => {} } }
+    let finish!: (value: void) => void
+    const timed = desks<{ data: { fired: number; told: number }; states: { idle: {}; working: {}; done: {} }; arms: { poll: 'single' }; internal: { type: 'TOLD' } }, { type: 'START' } | { type: 'WORK' }>()({
+      data: { fired: 0, told: 0 },
+      arms: ({ single }) => ({ poll: single({ after: 100, expired: () => ({ data: (d) => { d.fired++ } }) }) }),
+      internal: { TOLD: () => ({ data: (d) => { d.told++ } }) },
+      initial: 'idle',
+      states: {
+        idle: { on: { START: (_, { arm }) => { arm('poll') }, WORK: () => ({ at: 'working' }) } },
+        working: { async run({ raise }) { await new Promise<void>((resolve) => { finish = resolve }); raise({ type: 'TOLD' }); return { at: 'done' } }, failed: () => {} },
+        done: {},
+      },
+    })
+    const sys = system({ side: 'backend', clock, ...inspector.hooks('one') })
+    const made = sys.start('timed', timed)
+    sys.send(made, { type: 'START' })
+    const armedIn = inspector.steps.at(-1)!.log.number
+    sys.send(made, { type: 'WORK' })
+    const beganIn = inspector.steps.at(-1)!.log.number
+    fire()
+    const expired = inspector.steps.at(-1)!
+    deepStrictEqual(expired.causes, [{ kind: 'expired', fromSystem: 'one', fromStep: armedIn, toSystem: 'one', toStep: expired.log.number, ref: 'timed', name: 'poll' }])
+    deepStrictEqual(inspector.explain('timed', { field: 'fired' }).steps.map((step) => step.log.number), [armedIn, expired.log.number])
+    finish()
+    await rest()
+    const after = inspector.steps.filter((step) => step.log.number > expired.log.number)
+    deepStrictEqual(after.flatMap((step) => step.causes.map((edge) => [edge.kind, edge.name, edge.fromStep])), [['event', 'TOLD', beganIn], ['result', 'working', beganIn]])
+    // What a step sent and handled itself leads to nothing: it is that step.
+    deepStrictEqual(inspector.steps.find((step) => step.log.number === armedIn)!.causes, [])
+    deepStrictEqual(inspector.explain('timed', { field: 'told' }).steps.map((step) => step.log.number), [beganIn, after[0]!.log.number])
+  }],
+  ['a system hooked under a name another had is another system, recorded under a name of its own: no two steps are one name and number', async () => {
+    const inspector = createInspector()
+    const quiet = desks<{}, { type: 'PING' }>()({ on: { PING: () => {} } })
+    const first = system({ side: 'backend', ...inspector.hooks('backend') })
+    first.send(first.start('a', quiet), { type: 'PING' })
+    first.stop()
+    const secondHooks = inspector.hooks('backend')
+    const second = system({ side: 'backend', ...secondHooks })
+    const unbind = inspector.bind('backend', second)
+    second.send(second.start('a', quiet), { type: 'PING' })
+    const names = inspector.steps.map((step) => `${step.system}#${step.log.number}`)
+    strictEqual(new Set(names).size, names.length)
+    deepStrictEqual([...new Set(inspector.steps.map((step) => step.system))], ['backend', 'backend (2)'])
+    deepStrictEqual(inspector.export().systems, ['backend', 'backend (2)'])
+    secondHooks.onDefect({ message: 'of the second', step: 1 })
+    deepStrictEqual(inspector.steps.filter((step) => step.defects.length).map((step) => step.system), ['backend (2)'])
+    deepStrictEqual(inspector.format({ system: 'backend (2)' }).split('\n').filter((line) => !line.startsWith(' ')).map((line) => line.split(' [')[0]), ['backend (2)#1', 'backend (2)#2'])
+    // What it is bound by is the name it was hooked under.
+    deepStrictEqual(Object.keys(inspector.snapshots()), ['backend'])
+    unbind()
   }],
   ['a defect of a step the kernel threw out of stays that step\'s: the next step logged is not given it', async () => {
     const inspector = createInspector()
@@ -933,7 +1033,7 @@ await run([
       { kind: 'broadcast', fromSystem: 'backend', fromStep: 4, toSystem: 'window', toStep: 6, ref: 'pane', name: 'NOTE' },
     ])
     // What a field came of is every step back from the one that last changed it, and nothing beside.
-    const why = inspector.explain('pane', 'got')
+    const why = inspector.explain('pane', { field: 'got' })
     deepStrictEqual(why.steps.map((step) => `${step.system}#${step.log.number}`), ['window#2', 'backend#2', 'window#3', 'window#4'])
     deepStrictEqual(why.edges.map((edge) => edge.kind), ['done', 'answer', 'answer', 'ask'])
     strictEqual(why.text, inspector.format().split('\n').slice(2, 16).join('\n'))
@@ -943,7 +1043,7 @@ await run([
     strictEqual('field' in inspector.explain('desk'), false)
     deepStrictEqual(inspector.explain('pane').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#4', 'window#6'])
     deepStrictEqual(inspector.explain('nobody'), { ref: 'nobody', steps: [], edges: [], text: '(no recorded step touched nobody)' })
-    deepStrictEqual(inspector.explain('pane', 'nothing'), { ref: 'pane', field: 'nothing', steps: [], edges: [], text: '(no recorded step touched pane.data.nothing)' })
+    deepStrictEqual(inspector.explain('pane', { field: 'nothing' }), { ref: 'pane', field: 'nothing', steps: [], edges: [], text: '(no recorded step touched pane.data.nothing)' })
     // By system, by state, and the last of them.
     deepStrictEqual(inspector.format({ system: 'backend', last: 2 }).split('\n').filter((line) => !line.startsWith('  ')), ['backend#3 [committed]  ← window#5 (tell)', 'backend#4 [committed]'])
     deepStrictEqual(inspector.format({ ref: 'desk' }).split('\n').filter((line) => !line.startsWith('  ')).map((line) => line.split(' ')[0]), ['backend#1', 'window#2', 'backend#2', 'window#3', 'window#5', 'backend#3', 'backend#4'])
@@ -1157,15 +1257,17 @@ await run([
     flaky.send({ ref: 'mover' } as never, { type: 'TO', at: 'busy' } as never)
     strictEqual(inspector.steps.at(-1)!.log.status, 'lost')
     deepStrictEqual(inspector.inFlight().filter((op) => op.system !== 'backend'), [{ kind: 'follow', system: 'other', opId: 1, startedStep: 1, to: 'docs', name: 'count' }])
-    deepStrictEqual(inspector.coverage({ mover: moverGraph })[0]!.currentAt, 'idle')
+    const where = (): Array<[string | undefined, string | undefined]> => inspector.coverage({ mover: moverGraph }).map((each) => [each.system, each.currentAt])
+    deepStrictEqual(where().sort(), [['flaky', undefined], ['other', 'idle']])
     other.stop()
-    strictEqual('currentAt' in inspector.coverage({ mover: moverGraph })[0]!, false)
+    deepStrictEqual(where().sort(), [['flaky', undefined], ['other', undefined]])
   }],
   ['every line of a trace: a key, an event raised, one ignored, a clock, two fields, a state that stopped, and defects with and without a step', async () => {
     const inspector = createInspector()
     const defects: InspectorUpdate[] = []
     inspector.subscribe((update) => { if (update.kind === 'defect') defects.push(update) })
-    const sys = system({ side: 'backend', clock: { now: () => 7, after: () => () => {} }, ...inspector.hooks('one') })
+    const oneHooks = inspector.hooks('one')
+    const sys = system({ side: 'backend', clock: { now: () => 7, after: () => () => {} }, ...oneHooks })
     const lines = desks<{
       data: { a: number; b: number }
       states: { on: {}; off: {} }
@@ -1194,8 +1296,8 @@ await run([
     await sys.ask(told as never, 'SLOW' as never, {} as never, (() => { throw new Error('nobody listens') }) as never)
     await rest()
     // And of no step: reported between two.
-    inspector.hooks('one').onDefect({ message: 'of no step', ref: 'lines' })
-    inspector.hooks('one').onDefect({ message: 'of no step or state' })
+    oneHooks.onDefect({ message: 'of no step', ref: 'lines' })
+    oneHooks.onDefect({ message: 'of no step or state' })
     deepStrictEqual(inspector.format().split('\n'), [
       'one#1 [committed @ 7ms]',
       'one#2 [committed @ 7ms]',
@@ -1269,7 +1371,6 @@ await run([
     // The hooks are called by a kernel that keeps what they throw to itself: with nothing to forward to, they throw nothing.
     const bare = createInspector().hooks('bare')
     bare.onDefect({ message: 'nothing forwards this' })
-    bare.trace('nor this')
   }],
   ['what is forgotten at the limit is forgotten whole: a step, and each edge from it, while the step it led to still says what it came of', async () => {
     const inspector = createInspector({ limit: 3 })
@@ -1285,7 +1386,7 @@ await run([
     deepStrictEqual(edges(), ['answer backend#2→window#3', 'done window#3→window#4'])
     // What the answer came of is still on its step, though one of those steps is gone: asked why, it is the steps that are kept.
     deepStrictEqual(inspector.steps[1]!.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`), ['answer window#2', 'answer backend#2'])
-    deepStrictEqual(inspector.explain('pane', 'got').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#2', 'window#3', 'window#4'])
+    deepStrictEqual(inspector.explain('pane', { field: 'got' }).steps.map((step) => `${step.system}#${step.log.number}`), ['backend#2', 'window#3', 'window#4'])
     // The first step kept is found, as the last is.
     deepStrictEqual(inspector.explain('desk').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#2', 'window#3'])
     win.send(handle, { type: 'NOTE' })
@@ -1335,7 +1436,8 @@ await run([
   }],
   ['coverage counts what a state itself did: its own defects, a move from inside a state, by the event that made it, in a step another state began', async () => {
     const inspector = createInspector()
-    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const oneHooks = inspector.hooks('one')
+    const sys = system({ side: 'backend', ...oneHooks })
     type Deep = { data: { n: number }; states: { out: {}; in: { initial: 'near'; states: { near: {}; far: {} } } } }
     const deep = desks<Deep, { type: 'IN' } | { type: 'OUT' } | { type: 'LEAVE' } | { type: 'COUNT' } | { type: 'THROW' }>()({
       data: { n: 0 },
@@ -1365,6 +1467,7 @@ await run([
     sys.send(flat, { type: 'PING' })
     deepStrictEqual(inspector.coverage({ deep: deepGraph }), [{
       title: 'Deep',
+      system: 'one',
       ref: 'deep',
       declaredStates: ['out', 'in', 'in.near', 'in.far', 'i', 'in.f'],
       visitedStates: ['out', 'in', 'in.far'],
@@ -1389,7 +1492,7 @@ await run([
     deepStrictEqual(inspector.coverage((ref) => { asked.push(ref); return ref === 'flat' ? moverGraph : undefined }).map((each) => [each.ref, each.defects, each.visitedStates]), [['flat', 1, []]])
     deepStrictEqual(asked, ['deep', 'flat'])
     // A defect of no state asks of none.
-    inspector.hooks('one').onDefect({ message: 'of no state' })
+    oneHooks.onDefect({ message: 'of no state' })
     asked.length = 0
     inspector.coverage((ref) => { asked.push(ref); return undefined })
     deepStrictEqual(asked, ['deep', 'flat'])
@@ -1398,7 +1501,8 @@ await run([
     const inspector = createInspector({ limit: 3 })
     const thrower = desks<{}, { type: 'PING' } | { type: 'NOTE' }>()({ on: { PING: () => { throw new Error('it broke') }, NOTE: () => {} } })
     const one = system({ side: 'backend', ...inspector.hooks('one') })
-    const two = system({ side: 'backend', ...inspector.hooks('two') })
+    const twoHooks = inspector.hooks('two')
+    const two = system({ side: 'backend', ...twoHooks })
     const first = one.start('a', thrower)
     const second = two.start('b', thrower)
     one.send(first, { type: 'PING' })
@@ -1417,7 +1521,7 @@ await run([
     strictEqual(inspector.format({ system: 'one', last: 1 }), '(no steps recorded)')
     strictEqual(inspector.format({ last: 0 }), '(no steps recorded)')
     // A defect of no step, reported between the steps shown, is shown with them, and not with later ones alone.
-    const hooks = inspector.hooks('two')
+    const hooks = twoHooks
     hooks.onDefect({ message: 'between steps' })
     two.send(second, { type: 'NOTE' })
     deepStrictEqual(marks(inspector.format({ last: 2 })), ['two ⚠ DEFECT: between steps'])
