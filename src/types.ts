@@ -566,6 +566,13 @@ type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
  * type, and the required one is what keeps the `undefined` of a `from` that may be: an optional property is read
  * without it.
  */
+/**
+ * A field with one to follow or ask for each of its keys. Whether there is one or one for each key is what the entry
+ * is, and `args` and its handlers are given a key or not by it, so it is a field's name or it is not there. It is
+ * written as required where it is there so that one that may be undefined is read as that, and not as the name
+ * alone: `cond ? 'ids' : undefined` is then no field's name, and is refused as any other value that is none.
+ */
+type EachOpt<Many> = [Many] extends [undefined] ? { each?: undefined } : { each: Exclude<Many, undefined> }
 type StandingArgsOpt<R, H extends string, From, Many, A> =
   ({} extends Read<A>
     ? { args?: (...given: Given_<R, H, From, Many>) => Read<A> | null | undefined | false }
@@ -602,9 +609,7 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   // What `from` was written as: fields of the data, none of them the field `each` names, or `undefined`, which is no
   // `from`. `K` is read only where the type arguments are given outright, and is then the fields it may name.
   From extends readonly Exclude<[K] extends [never] ? keyof DataAt<R, H> & string : K, Many>[] | undefined = [K] extends [never] ? undefined : readonly Exclude<K, Many>[],
->(feature: F, view: V, options: StandingArgsOpt<R, H, From, Many, N['views'][F][V]['args']> & {
-  /** A field with one to follow for each of its keys. */
-  each?: Many
+>(feature: F, view: V, options: StandingArgsOpt<R, H, From, Many, N['views'][F][V]['args']> & EachOpt<Many> & {
   updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
@@ -737,9 +742,7 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
   // What `from` was written as: fields of the data, none of them the field `each` names, or `undefined`, which is no
   // `from`. `K` is read only where the type arguments are given outright, and is then the fields it may name.
   From extends readonly Exclude<[K] extends [never] ? keyof DataAt<R, H> & string : K, Many>[] | undefined = [K] extends [never] ? undefined : readonly Exclude<K, Many>[],
->(of: S, ask: Q, options: StandingArgsOpt<R, H, From, Many, AskOf<N, S, Q>['args']> & {
-  /** A field with one ask for each of its keys. */
-  each?: Many
+>(of: S, ask: Q, options: StandingArgsOpt<R, H, From, Many, AskOf<N, S, Q>['args']> & EachOpt<Many> & {
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Loaded<R, H, E, N>

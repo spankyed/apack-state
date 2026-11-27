@@ -248,7 +248,8 @@ points at.
     given an empty object and asked once. The type of the `from` written is what types `args`: a `from` of
     `undefined` is no `from`, so the key alone, and one that may be `undefined` gives fields that may be `undefined`,
     which is what the kernel calls it with either way. Options held in a constant are taken as they are typed,
-    whichever of them that type leaves out. It may return nothing for a key, as it may for one alone, and that key is
+    whichever of them that type leaves out. Whether an entry is one or one for each key is what it is, so `each` is a field's name or is not there, and one
+    that may be either by a value is refused where it is written. It may return nothing for a key, as it may for one alone, and that key is
     then not read until there is something to ask for: what was read or followed for it is given up, and it is asked
     again when a field it names changes. An `args` that throws is reported, and has seen the values it threw for: it
     is not called for them again at some later look, and what it had live goes on as it was, since what it threw is
