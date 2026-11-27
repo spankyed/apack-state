@@ -23,6 +23,190 @@ const runCli = (...args: string[]): { out: string; err: string; status: number }
   return { out, err, status }
 }
 
+/** What the tool finds in each state a source declares, in the order they are written, with the files it is written `beside`. */
+const findingsIn = (source: string, beside: Record<string, string> = {}): string[][] => {
+  const work = mkdtempSync(join(tmpdir(), 'apack-graph-findings-'))
+  try {
+    const file = join(work, 'states.ts')
+    for (const [name, written] of Object.entries(beside)) writeFileSync(join(work, name), written)
+    writeFileSync(file, `import { answered, forNet, state } from '${join(root, 'src', 'index.ts').replaceAll('\\', '/')}'\n${source}`)
+    return (analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []).map((g) => [...g.findings])
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+/**
+ * A state with a timer of its own and a timer in each of two states beside each other, `inA` written in the first
+ * and `inB` in the second.
+ */
+const twoBranches = (inA: string, moves = `NEXT: () => ({ at: 'b' })`, inB = ''): string => `
+const anyName = (): any => 't'
+const quiet = (): void => {}
+function hand(_: unknown): void {}
+type Shape = { arms: { top: 'one' }; states: { a: { arms: { mine: 'one' } }; b: { arms: { side: 'one' } } } }
+export const branches = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
+  initial: 'a',
+  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  on: { ${moves} },
+  states: {
+    a: { arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${inA} },
+    b: { arms: ({ one }) => ({ side: one({ after: 100 }) }), ${inB} },
+  },
+})
+`
+/**
+ * A timer armed only in `box.dead`, which no move that is read enters, beside a state `other` holding `inOther`:
+ * what could enter `box.dead` if it cannot be read.
+ */
+const entryFrom = (inOther: string): string => `
+const anyHandler: any = () => ({ at: 'box.dead' })
+declare const either: ((a: string) => void) | ((a: number, b: number) => { at: 'box.dead' })
+const quiet = (): void => {}
+function twice(): void
+function twice(event?: unknown): void
+function twice(): void {}
+type Shape = { states: { box: { arms: { keep: 'one' }; states: { live: {}; dead: {} } }; other: {} } }
+export const entry = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
+  initial: 'box',
+  on: { NEXT: () => ({ at: 'other' }) },
+  states: {
+    box: {
+      initial: 'live',
+      arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+      states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } } },
+    },
+    other: { ${inOther} },
+  },
+})
+`
+
+/** What is said of what cannot happen, without the notes of what could not be read and the events nothing takes. */
+const dead = (found: readonly string[]): string[] => found.filter((finding) => finding.includes(' is never entered') || finding.startsWith('nothing arms '))
+/**
+ * A state with a timer at each depth: `top` everywhere, `mine` in `a`, `deep` and `other` in the two states inside
+ * `a`, `side` in `b`. Every state is entered from `start` but `far`, which nothing read enters and where alone
+ * `top` is armed. `what` is written in the state `at`, in a definition called `name`.
+ */
+const placed = (at: string, what: string, name: string): string => {
+  const put = (path: string): string => (at === path ? `${what},` : '')
+  return `
+export const ${name} = forNet<PlacedNet>()<Placed, PlacedEvent, { GET: { args: {}; answer: number } }>()({
+  initial: 'start',
+  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  ${put('')}
+  states: {
+    start: { on: { A: () => ({ at: 'a' }), X: () => ({ at: 'a.x' }), Y: () => ({ at: 'a.y' }), B: () => ({ at: 'b' }) } },
+    a: { initial: 'x', arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${put('a')} states: {
+      x: { arms: ({ one }) => ({ deep: one({ after: 100 }) }), ${put('a.x')} },
+      y: { arms: ({ one }) => ({ other: one({ after: 100 }) }) },
+    } },
+    b: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    far: { initial: 'in', ${put('far')} states: { in: { on: { GO: (_, { arm }) => { arm('top') } } } } },
+  },
+})
+`
+}
+const PLACED = `
+import { imported } from './handlers.ts'
+declare const flag: boolean
+declare function ambient(): void
+const anyName = (): any => 't'
+const anyTable: any = {}
+const quiet = (): void => {}
+const again = quiet
+const GO = quiet
+function declared(): void {}
+const typedVoid: () => void = () => ({ at: 'far' })
+const chosen = flag ? () => {} : () => ({ at: 'far' as const })
+const heard = () => (): void => {}
+const work = (): void => {}
+const moreOptions = {} as { done: () => { at: 'far' } }
+const buildLoads = (load: any) => ({ far: load('svc', 'X', { from: [] }) })
+function hand(_: unknown): void {}
+const wrapped = (load: any): any => load('svc', 'X', { from: [], done: () => ({ at: 'far' }) })
+const other = (..._: any[]): any => ({ of: 'svc', ask: 'X', from: [], done: () => ({ at: 'far' }) })
+type PlacedNet = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
+type Placed = {
+  internal: { type: 'GO' }
+  arms: { top: 'one' }
+  states: {
+    start: {}
+    a: { arms: { mine: 'one' }; states: { x: { arms: { deep: 'one' } }; y: { arms: { other: 'one' } } } }
+    b: { arms: { side: 'one' } }
+    far: { states: { in: {} } }
+  }
+}
+type PlacedEvent = { type: 'GO' } | { type: 'A' } | { type: 'X' } | { type: 'Y' } | { type: 'B' }
+`
+const HANDLERS = { 'handlers.ts': 'export const imported = (): void => {}\n' }
+/** What is written in a state, by what of it is unread: nothing, a timer it could arm, a state it could enter, both, or anything a state holds. */
+const UNREAD = {
+  nothing: [
+    `on: { GO: () => {} }`,
+    `on: { GO: (() => {}) }`,
+    `on: { GO: function () {} }`,
+    `on: { GO() {} }`,
+    `on: { ['GO']: () => {} }`,
+    `internal: { GO() {} }`,
+    `answers: { GET: () => 1 }`,
+    `run() {}`,
+    `run: () => {}, failed() {}`,
+    `listen: () => {}`,
+    `listen() {}`,
+    `loads: (load) => ({ got: load('svc', 'X', { from: [], done() {} }) })`,
+    `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], updated: () => {} }) })`,
+  ],
+  arms: [
+    `on: { GO: quiet }`,
+    `on: { GO: again }`,
+    `on: { GO }`,
+    `on: { GO: declared }`,
+    `on: { GO: imported }`,
+    `on: { GO: (_, { arm }) => { hand(arm) } }`,
+    `on: { GO: (_, scope) => { hand(scope) } }`,
+    `on: { GO: (_, { arm }) => { arm(anyName()) } }`,
+    `on: { GO: (_, { tell, broadcast, onExit, ...rest }) => { rest.arm('side') } }`,
+    `internal: { GO: quiet }`,
+    `listen: heard`,
+    `listen: flag ? heard : heard`,
+    `run: work`,
+  ],
+  moves: [
+    `on: { GO: (): any => undefined }`,
+    `on: { GO: () => ({ at: anyName() }) }`,
+    `on: { ['G' + 'O']: () => {} }`,
+    `answers: { GET: () => answered(1, anyName()) }`,
+    `run: (): any => undefined`,
+  ],
+  both: [
+    `on: anyTable`,
+    `internal: anyTable`,
+    `answers: anyTable`,
+    `on: { ...({} as Record<string, () => void>) }`,
+    `on: { GO: flag ? () => {} : () => ({ at: 'far' as const }) }`,
+    `on: { GO: typedVoid }`,
+    `on: { GO: chosen }`,
+    `on: { GO: ambient }`,
+    `run: flag ? work : work`,
+    `loads: buildLoads`,
+    `loads: (load) => ({ ...({} as {}) })`,
+    `loads: (load) => ({ got: load('svc', 'X', { from: [], ...moreOptions }) })`,
+    `loads: (load) => ({ got: load('svc', 'X', { from: [], [anyName()]: 1, done: () => {} }) })`,
+    `loads: (load) => ({ got: load('svc', 'X', { from: [], done: typedVoid }) })`,
+    `loads: (load) => ({ got: load('svc', 'X', moreOptions as never) })`,
+    `loads: (load) => ({ [anyName()]: load('svc', 'X', { from: [], done: () => {} }) })`,
+    `loads: (load) => ({ got: wrapped(load) })`,
+    `loads: () => ({ got: other('svc', 'X', { from: [], done: () => {} }) })`,
+    `loads: ({ ...helpers }: any) => ({ got: helpers('svc', 'X', { from: [], done: () => {} }) })`,
+    `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], updated: typedVoid }) })`,
+  ],
+  held: [
+    `...({} as {})`,
+    `[anyName()]: 1`,
+    `get listen() { return () => {} }`,
+  ],
+} as const
+
 await run([
   ['a state entered at one inside it, and then itself, is entered at what it starts at too', () => {
     const { out, status } = graph('checks/graphs/entered.mts')
@@ -34,6 +218,14 @@ await run([
     strictEqual(status, 0, err)
     ok(out.includes('reaches: tell where()'), out)
     ok(out.includes('loads   lookup: library LOOKUP, from what from names'), out)
+  }],
+  ['one for each key that is also from fields says both, and one that names no fields says its keys alone', () => {
+    const { out, err, status } = graph('checks/graphs/keyed-from.mts')
+    strictEqual(status, 0, err)
+    ok(out.includes('loads   diff: repo DIFF, one for each key of open, each from rev, depth'), out)
+    ok(out.includes('once: repo DIFF, one for each key of open\n'), out)
+    ok(out.includes('follows blame: repo blame, one for each key of open, each from rev'), out)
+    ok(out.includes('findings: none'), out)
   }],
   ['detects states built with hostState, inline forNet<Net>(), and bare state() by resolved State return type', () => {
     const file = join(root, 'checks', 'graphs', 'custom-alias.mts')
@@ -671,21 +863,16 @@ export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type
 
       deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
       deepStrictEqual(graphs[1]!.findings, [
-        'nothing arms first',
-        'nothing arms second except the done of second, first, which cannot fire',
-        'nothing arms ping except the done of pong, which cannot fire',
-        'nothing arms pong except the done of ping, which cannot fire',
+        'nothing arms first, so nothing arms second',
+        'nothing arms ping except the done of pong, so nothing arms pong',
       ])
       deepStrictEqual(graphs[2]!.findings, [])
       deepStrictEqual(graphs[3]!.findings, ['nothing arms t in b'])
       deepStrictEqual(graphs[4]!.findings, [])
-      deepStrictEqual(graphs[5]!.findings, [
-        'nothing arms dead-first',
-        'nothing arms dead-next except the done of dead-first, which cannot fire',
-      ])
+      deepStrictEqual(graphs[5]!.findings, ['nothing arms dead-first, so nothing arms dead-next'])
       deepStrictEqual(graphs[6]!.arms, ['pulse in active: 100ms, one at a time'])
       deepStrictEqual(graphs[6]!.findings, [])
-      deepStrictEqual(graphs[7]!.findings, ['dead is never entered', 'nothing arms keepalive'])
+      deepStrictEqual(graphs[7]!.findings, ['dead is never entered, so nothing arms keepalive'])
       // An unrelated event/data field named `arm` does not suppress unused-timer findings,
       // while escaping `scope.arm` via `{ arm }` shorthand still suppresses them.
       deepStrictEqual(graphs[8]!.findings, ['nothing arms dead'])
@@ -693,5 +880,607 @@ export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type
     } finally {
       rmSync(work, { recursive: true, force: true })
     }
+  }],
+  ['an arm counts only in a state that can be entered, and a timer armed only where none can is said by that state', () => {
+    const [deadOnly, alsoLive, fromDeadDone, mixed] = findingsIn(`
+type Shape = { arms: { t: 'one' }; states: { live: {}; dead: {} } }
+export const deadOnly = state<Shape, { type: 'GO' }>()({
+  initial: 'live',
+  arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('t') } } } },
+})
+export const alsoLive = state<Shape, { type: 'GO' }>()({
+  initial: 'live',
+  arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: {
+    live: { on: { GO: (_, { arm }) => { arm('t') } } },
+    dead: { on: { GO: (_, { arm }) => { arm('t') } } },
+  },
+})
+
+type DoneShape = { arms: { keep: 'one' }; states: { live: {}; dead: { arms: { b: 'one' } } } }
+export const fromDeadDone = state<DoneShape, never>()({
+  initial: 'live',
+  arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  states: {
+    live: {},
+    dead: { arms: ({ one }) => ({ b: one({ after: 100, done: ({ arm }) => { arm('keep') } }) }) },
+  },
+})
+
+type MixedShape = { arms: { t: 'one'; u: 'one' }; states: { live: {}; dead: {}; gone: {} } }
+export const mixed = state<MixedShape, { type: 'GO' }>()({
+  initial: 'live',
+  arms: ({ one }) => ({
+    t: one({ after: 100, done: ({ arm }) => { arm('t'); arm('u') } }),
+    u: one({ after: 100 }),
+  }),
+  states: {
+    live: {},
+    dead: { on: { GO: (_, { arm }) => { arm('t'); arm('u') } } },
+    gone: { on: { GO: (_, { arm }) => { arm('u') } } },
+  },
+})
+`)
+    deepStrictEqual(deadOnly, ['dead is never entered, so nothing arms t'])
+    deepStrictEqual(alsoLive, ['dead is never entered'])
+    deepStrictEqual(fromDeadDone, ['dead is never entered, so nothing arms keep'])
+    // What two causes each lead to is said once, by the first of them.
+    deepStrictEqual(mixed, ['dead is never entered, so nothing arms t, u', 'gone is never entered'])
+  }],
+  ['a handler that cannot be read hides the timers its own state and the states around it declare, and no others', () => {
+    const [found] = findingsIn(`
+const quiet = (): void => {}
+type Shape = {
+  arms: { top: 'one' }
+  states: {
+    a: { arms: { side: 'one' } }
+    ab: {
+      arms: { mid: 'one' }
+      states: {
+        sub: { arms: { own: 'one' }; states: { deep: { arms: { below: 'one' } }; rest: {} } }
+        other: { arms: { beside: 'one' } }
+      }
+    }
+  }
+}
+export const branch = state<Shape, { type: 'GO' } | { type: 'A' } | { type: 'DEEP' } | { type: 'OTHER' }>()({
+  initial: 'ab',
+  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  on: { A: () => ({ at: 'a' }), DEEP: () => ({ at: 'ab.sub.deep' }), OTHER: () => ({ at: 'ab.other' }) },
+  states: {
+    a: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    ab: {
+      initial: 'sub',
+      arms: ({ one }) => ({ mid: one({ after: 100 }) }),
+      states: {
+        sub: {
+          initial: 'rest',
+          arms: ({ one }) => ({ own: one({ after: 100 }) }),
+          on: { GO: quiet },
+          states: { deep: { arms: ({ one }) => ({ below: one({ after: 100 }) }) }, rest: {} },
+        },
+        other: { arms: ({ one }) => ({ beside: one({ after: 100 }) }) },
+      },
+    },
+  },
+})
+`)
+    deepStrictEqual(found, ['nothing arms side in a', 'nothing arms below in ab.sub.deep', 'nothing arms beside in ab.other'])
+  }],
+  ['an arm of a name that is not known, and an arm handed elsewhere, hide as a handler that cannot be read does', () => {
+    deepStrictEqual(findingsIn(twoBranches(`on: { GO: (_, { arm }) => { arm(anyName()) } }`)), [['nothing arms side in b', 'dynamic target in arm anyName()']])
+    deepStrictEqual(findingsIn(twoBranches(`on: { GO: (_, { arm }) => { hand(arm) } }`)), [['nothing arms side in b']])
+    deepStrictEqual(findingsIn(twoBranches(`on: { GO: (_, scope) => { hand(scope) } }`)), [['nothing arms side in b']])
+    deepStrictEqual(findingsIn(twoBranches(`on: { GO: quiet }`)), [['nothing arms side in b']])
+  }],
+  ['each kind of handler, written elsewhere, hides the timers of the state it is in once it can run', () => {
+    deepStrictEqual(findingsIn(`
+const quiet = (): void => {}
+const heard = () => (): void => {}
+type Timed = { arms: { t: 'one' } }
+export const byListen = state<Timed, never>()({ arms: ({ one }) => ({ t: one({ after: 100 }) }), listen: heard })
+type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
+export const byCallDone = forNet<Net>()<Timed & { calls: { save: 'one' } }, never>()({
+  arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: quiet }) }),
+})
+export const written = state<Timed, never>()({ arms: ({ one }) => ({ t: one({ after: 100, done: () => {} }) }), listen: () => () => {} })
+// The done of a timer runs once the timer is armed: written elsewhere, it hides nothing until then.
+type Two = { arms: { t: 'one'; u: 'one' } }
+export const byDone = state<Two, { type: 'GO' }>()({ arms: ({ one }) => ({ t: one(({ after: 100, done: (quiet) })), u: one({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
+export const byDoneOption = state<Two, { type: 'GO' }>()({ arms: ({ one }) => ({ t: one({ after: 100, done: quiet }), u: one({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
+export const byDoneUnarmed = state<Two, never>()({ arms: ({ one }) => ({ t: one(({ after: 100, done: (quiet) })), u: one({ after: 100 }) }) })
+export const byDoneOptionUnarmed = state<Two, never>()({ arms: ({ one }) => ({ t: one({ after: 100, done: quiet }), u: one({ after: 100 }) }) })
+`), [[], [], ['nothing arms t'], [], [], ['nothing arms t', 'nothing arms u'], ['nothing arms t', 'nothing arms u']])
+  }],
+  ['what only a handler that cannot run enters or arms is dead, and is said by what stops the handler', () => {
+    const found = findingsIn(`
+type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
+const net = forNet<Net>()
+type Three = { arms: { t: 'one' }; states: { live: {}; dead: {}; beyond: {} } }
+type Event = { type: 'GO' }
+export const byHandler = state<Three, Event>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { on: { GO: () => {} } }, dead: { on: { GO: () => ({ at: 'beyond' }) } }, beyond: { on: { GO: (_, { arm }) => { arm('t') } } } },
+})
+export const byInternal = state<Three & { internal: Event }, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100, done: () => {} }) }),
+  states: { live: {}, dead: { internal: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
+})
+export const byAnswer = state<Three, never, { GET: { args: {}; answer: number } }>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100, done: () => {} }) }),
+  states: { live: { answers: { GET: () => 1 } }, dead: { answers: { GET: (_, { arm }) => { arm('t'); return answered(1, { at: 'beyond' }) } } }, beyond: {} },
+})
+type Late = { arms: { never: 'one'; then: 'one' }; states: { live: {}; late: {} } }
+export const byDone = state<Late, never>()({
+  initial: 'live',
+  arms: ({ one }) => ({ never: one({ after: 100, done({ arm }) { arm('then'); return { at: 'late' } } }), then: one({ after: 100 }) }),
+  states: { live: {}, late: {} },
+})
+export const byDoneOption = state<Late, never>()({
+  initial: 'live',
+  arms: ({ one }) => ({ never: one({ after: 100, done: ({ arm }) => { arm('then'); return { at: 'late' } } }), then: one({ after: 100 }) }),
+  states: { live: {}, late: {} },
+})
+export const byRun = state<Three, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { run: ({ arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+export const byFailed = state<Three, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { run: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+export const byListen = state<Three, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { listen: ({ arm }) => { arm('t') } }, beyond: {} },
+})
+type Calling = { arms: { t: 'one' }; states: { live: {}; dead: { calls: { save: 'one' } }; beyond: {} } }
+export const byCall = net<Calling, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byProgress = net<Calling, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byLoad = net<Three, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { loads: (load) => ({ got: load('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byFollow = net<Three, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: {}, dead: { follows: (follow) => ({ docs: follow('docs', 'all', { updated: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+`)
+    const all = 'dead is never entered, so nothing arms t; nothing enters beyond'
+    deepStrictEqual(found.map(dead), [
+      [all], [all], [all],
+      ['nothing arms never, so nothing arms then; nothing enters late'],
+      ['nothing arms never, so nothing arms then; nothing enters late'],
+      [all], [all],
+      ['dead is never entered, so nothing arms t', 'beyond is never entered'],
+      [all], [all], [all], [all],
+    ])
+  }],
+  ['each kind of handler, in a state that can be the case, enters what it moves to and arms what it arms', () => {
+    const found = findingsIn(`
+type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
+const net = forNet<Net>()
+type Two = { arms: { t: 'one' }; states: { live: {}; beyond: {} } }
+type Event = { type: 'GO' }
+export const byHandler = state<Two, Event>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { on: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
+})
+export const byInternal = state<Two & { internal: Event }, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { internal: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
+})
+export const byAnswer = state<Two, never, { GET: { args: {}; answer: number } }>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { answers: { GET: (_, { arm }) => { arm('t'); return answered(1, { at: 'beyond' }) } } }, beyond: {} },
+})
+type Then = { arms: { first: 'one'; then: 'one' }; states: { live: {}; beyond: {} } }
+export const byDone = state<Then, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ first: one({ after: 100, done: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: one({ after: 100 }) }),
+  states: { live: { on: { GO: (_, { arm }) => { arm('first') } } }, beyond: {} },
+})
+export const byDoneOption = state<{ arms: { first: { one: 'at arm' }; then: 'one' }; states: { live: {}; beyond: {} } }, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ first: one({ done: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: one({ after: 100 }) }),
+  states: { live: { on: { GO: (_, { arm }) => { arm('first', 10) } } }, beyond: {} },
+})
+export const byRun = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { run: ({ arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+export const byFailed = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { run: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+export const byFailedListening = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { listen: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+export const byListen = state<{ arms: { t: 'one' } }, never>()({ arms: ({ one }) => ({ t: one({ after: 100 }) }), listen: ({ arm }) => { arm('t') } })
+type Calling = { arms: { t: 'one' }; states: { live: { calls: { save: 'one' } }; beyond: {} } }
+export const byCall = net<Calling, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byProgress = net<Calling, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byLoad = net<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { loads: (load) => ({ got: load('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+export const byFollow = net<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { follows: (follow) => ({ docs: follow('docs', 'all', { updated: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+})
+// A state inside one that can be the case is under the handlers of that one.
+type Under = { arms: { t: 'one' }; states: { box: { states: { in: {} } }; beyond: {} } }
+export const byAround = state<Under, Event>()({
+  initial: 'box', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { box: { initial: 'in', on: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, states: { in: {} } }, beyond: {} },
+})
+`)
+    deepStrictEqual(found.map(dead), found.map(() => []))
+    strictEqual(found.length, 14)
+  }],
+  ['a failed runs only where there is work to fail', () => {
+    deepStrictEqual(findingsIn(`
+type Two = { arms: { t: 'one' }; states: { live: {}; beyond: {} } }
+export const noWork = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
+})
+const quiet = (): void => {}
+export const noWorkUnread = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { failed: Math.random() > 0.5 ? quiet : quiet }, beyond: {} },
+})
+export const workUnread = state<Two, never>()({
+  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  states: { live: { run: () => {}, failed: Math.random() > 0.5 ? quiet : quiet }, beyond: {} },
+})
+`), [
+      ['beyond is never entered', 'nothing arms t'],
+      ['beyond is never entered', 'nothing arms t'],
+      [],
+    ])
+  }],
+  ['a chain of states and timers, each reached from the one before, can all happen, and none of it without its first link', () => {
+    const chain = (first: string): string => `
+type Chain = { arms: { first: 'one' }; states: { a: {}; b: { arms: { second: 'one' } }; c: { arms: { third: 'one' } }; d: {} } }
+export const chain = state<Chain, { type: 'GO' }>()({
+  initial: 'a',
+  // Declared against the order they happen in, so each is found from the one before whatever is read first.
+  arms: ({ one }) => ({ first: one({ after: 100, done: () => ({ at: 'b' }) }) }),
+  states: {
+    d: {},
+    c: { arms: ({ one }) => ({ third: one({ after: 100, done: () => ({ at: 'd' }) }) }), run: ({ arm }) => { arm('third') } },
+    b: { arms: ({ one }) => ({ second: one({ after: 100, done: () => ({ at: 'c' }) }) }), on: { GO: (_, { arm }) => { arm('second') } } },
+    a: { on: { GO: ${first} } },
+  },
+})
+`
+    deepStrictEqual(findingsIn(chain(`(_, { arm }) => { arm('first') }`)), [[]])
+    deepStrictEqual(findingsIn(chain(`() => {}`)), [['nothing arms first, so nothing enters b, c, d']])
+  }],
+  ['what is dead is said once, by its cause, with what is dead because of it', () => {
+    const [whole, apart, circle, between, ownAndOther, inside, shared, into] = findingsIn(`
+type Event = { type: 'GO' }
+type Whole = { arms: { keepalive: 'one'; unused: 'one' }; states: { live: {}; dead: { arms: { inner: 'one' }; states: { sub: { arms: { own: 'one' } }; side: {} } } } }
+export const whole = state<Whole, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ keepalive: one({ after: 100 }), unused: one({ after: 100 }) }),
+  states: {
+    live: { on: { GO: () => {} } },
+    dead: {
+      initial: 'sub',
+      arms: ({ one }) => ({ inner: one({ after: 100 }) }),
+      on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
+      states: { sub: { arms: ({ one }) => ({ own: one({ after: 100 }) }) }, side: {} },
+    },
+  },
+})
+type Apart = { arms: { wy: 'one'; wx: 'one' }; states: { live: {}; x: {}; y: {} } }
+export const apart = state<Apart, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ wy: one({ after: 100 }), wx: one({ after: 100 }) }),
+  states: { live: { on: { GO: () => {} } }, x: { on: { GO: (_, { arm }) => { arm('wx') } } }, y: { on: { GO: (_, { arm }) => { arm('wy') } } } },
+})
+type Circle = { states: { live: {}; a: {}; b: {}; c: {} } }
+export const circle = state<Circle, Event>()({
+  initial: 'live',
+  states: { live: { on: { GO: () => {} } }, a: { on: { GO: () => ({ at: 'b' }) } }, b: { on: { GO: () => ({ at: 'c' }) } }, c: { on: { GO: () => ({ at: 'a' }) } } },
+})
+type Between = { arms: { w: 'one' }; states: { live: {}; s: {} } }
+export const between = state<Between, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ w: one({ after: 100, done: () => ({ at: 's' }) }) }),
+  states: { live: { on: { GO: () => {} } }, s: { on: { GO: (_, { arm }) => { arm('w') } } } },
+})
+type OwnAndOther = { arms: { p: 'one'; q: 'one'; r: 'one' } }
+export const ownAndOther = state<OwnAndOther, never>()({
+  arms: ({ one }) => ({
+    p: one({ after: 100, done: ({ arm }) => { arm('p'); arm('q') } }),
+    q: one({ after: 100, done: ({ arm }) => { arm('p'); arm('r') } }),
+    r: one({ after: 100 }),
+  }),
+})
+// A move from inside a state to it, or to another inside it, is no way into it.
+type Inside = { states: { live: {}; dead: { states: { x: {}; y: {} } } } }
+export const inside = state<Inside, Event>()({
+  initial: 'live',
+  states: {
+    live: { on: { GO: () => {} } },
+    dead: { initial: 'x', states: { x: { on: { GO: () => ({ at: 'dead.y' }) } }, y: { on: { GO: () => ({ at: 'dead' }) } } } },
+  },
+})
+// What the done of a timer in a state never entered leads to is said by that state, as the timer is.
+type Shared = { arms: { keep: 'one' }; states: { live: {}; dead: { arms: { b: 'one' } }; late: {}; gone: {} } }
+export const shared = state<Shared, Event>()({
+  initial: 'live',
+  arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  states: {
+    live: { on: { GO: () => {} } },
+    dead: { arms: ({ one }) => ({ b: one({ after: 100, done: ({ arm }) => { arm('keep'); return { at: 'late' } } }) }) },
+    late: {},
+    gone: { on: { GO: () => ({ at: 'late' }) } },
+  },
+})
+// A move to a state inside another enters that other too.
+type Into = { states: { live: {}; q: {}; p: { states: { c: {}; d: {} } } } }
+export const into = state<Into, Event>()({
+  initial: 'live',
+  states: { live: { on: { GO: () => {} } }, q: { on: { GO: () => ({ at: 'p.d' }) } }, p: { initial: 'c', states: { c: {}, d: {} } } },
+})
+`)
+    deepStrictEqual(whole, ['dead is never entered, so nothing arms keepalive; nothing enters dead.sub, dead.side', 'nothing arms unused'])
+    deepStrictEqual(apart, ['x is never entered, so nothing arms wx', 'y is never entered, so nothing arms wy'])
+    deepStrictEqual(circle, ['a is never entered except from c, so nothing enters b, c'])
+    deepStrictEqual(between, ['s is never entered except by the done of w, so nothing arms w'])
+    deepStrictEqual(ownAndOther, ['nothing arms p except its own done and the done of q, so nothing arms q, r'])
+    deepStrictEqual(inside, ['dead is never entered, so nothing enters dead.x, dead.y'])
+    deepStrictEqual(shared, ['dead is never entered, so nothing arms keep; nothing enters late', 'gone is never entered'])
+    deepStrictEqual(into, ['q is never entered, so nothing enters p, p.c, p.d'])
+  }],
+  ['a state is entered at what it starts at only when it is entered itself, and at any state inside it where that is not a name', () => {
+    const starts = (initial: string): string[] => findingsIn(`
+declare const some: any
+declare const either: 'x' | 'y'
+type Shape = { states: { idle: {}; p: { states: { x: {}; y: { states: { z: {}; z2: {} } }; w: {} } }; q: { states: { v: {} } } } }
+export const begins = state<Shape, { type: 'GO' }>()({
+  initial: 'idle',
+  states: {
+    idle: { on: { GO: () => ({ at: ${initial === 'none' ? `'p.w'` : `'p'`} }) } },
+    p: { initial: ${initial === 'none' ? `'x'` : initial}, states: { x: {}, y: { initial: 'z', states: { z: {}, z2: {} } }, w: {} } },
+    q: { initial: 'v', states: { v: {} } },
+  },
+})
+`)[0]!
+    const q = 'q is never entered, so nothing enters q.v'
+    deepStrictEqual(starts(`'x'`), ['p.y is never entered, so nothing enters p.y.z, p.y.z2', 'p.w is never entered', q])
+    deepStrictEqual(starts('either'), ['p.y.z2 is never entered', 'p.w is never entered', q])
+    deepStrictEqual(starts('some'), ['p.y.z2 is never entered', q])
+    // Entered only at a state inside it, it is not entered at what it starts at.
+    deepStrictEqual(starts('none'), ['p.x is never entered', 'p.y is never entered, so nothing enters p.y.z, p.y.z2', q])
+  }],
+  ['what is unread hides what it could do from where it is, and nothing else', () => {
+    const [M, D, O, S] = ['nothing arms mine in a', 'nothing arms deep in a.x', 'nothing arms other in a.y', 'nothing arms side in b']
+    const far = 'far is never entered, so nothing enters far.in'
+    const nothingHidden = ['far is never entered, so nothing arms top; nothing enters far.in', M, D, O, S]
+    const expected: Record<keyof typeof UNREAD, Record<string, string[]>> = {
+      nothing: { '': nothingHidden, a: nothingHidden, 'a.x': nothingHidden, far: nothingHidden },
+      arms: { '': [far, M, D, O, S], a: [far, D, O, S], 'a.x': [far, O, S], far: nothingHidden },
+      moves: { '': [M, D, O, S], a: [M, D, O, S], 'a.x': [M, D, O, S], far: nothingHidden },
+      both: { '': [M, D, O, S], a: [D, O, S], 'a.x': [O, S], far: nothingHidden },
+      held: { '': [], a: [S], 'a.x': [O, S], far: nothingHidden },
+    }
+    const cases = (Object.keys(UNREAD) as Array<keyof typeof UNREAD>).flatMap((kind) => UNREAD[kind].flatMap((what) => Object.keys(expected[kind]).map((at) => ({ kind, what, at }))))
+    const found = findingsIn(PLACED + cases.map(({ at, what }, index) => placed(at, what, `placed${index}`)).join(''), HANDLERS)
+    strictEqual(found.length, cases.length)
+    for (const [index, { kind, what, at }] of cases.entries()) deepStrictEqual(dead(found[index]!), expected[kind][at], `${what} in ${at || 'the definition'}`)
+  }],
+  ['states that are not written out hold anything from where they are, and a definition that is not holds anything', () => {
+    const held = (inP: string, before = ''): string[] => dead(findingsIn(`
+${before}
+type Shape = {
+  arms: { top: 'one' }
+  states: { start: {}; p: { arms: { mine: 'one' }; states: { c: { arms: { deep: 'one' } }; d: { arms: { other: 'one' } } } }; q: { arms: { side: 'one' } }; far: {} }
+}
+export const held = state<Shape, { type: 'P' } | { type: 'C' } | { type: 'D' } | { type: 'Q' }>()({
+  initial: 'start',
+  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  states: {
+    start: { on: { P: () => ({ at: 'p' }), C: () => ({ at: 'p.c' }), D: () => ({ at: 'p.d' }), Q: () => ({ at: 'q' }) } },
+    p: { initial: 'c', arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${inP} },
+    q: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    far: { on: { P: (_, { arm }) => { arm('top') } } },
+  },
+})
+`)[0]!)
+    const c = `c: { arms: ({ one }: any) => ({ deep: one({ after: 100 }) }) }`
+    const d = `d: { arms: ({ one }: any) => ({ other: one({ after: 100 }) }) }`
+    const [M, D, O, S] = ['nothing arms mine in p', 'nothing arms deep in p.c', 'nothing arms other in p.d', 'nothing arms side in q']
+    deepStrictEqual(held(`states: { ${c}, ${d} }`), ['far is never entered, so nothing arms top', M, D, O, S])
+    // One state not written out holds what is in it and inside it, and what it could arm around it.
+    deepStrictEqual(held(`states: { c: made, ${d} }`, `const made: any = {}`), [O, S])
+    deepStrictEqual(held(`states: { c, ${d} }`, `const c: any = {}`), [O, S])
+    // States not written out, or not all, hold every state inside the one they are in.
+    deepStrictEqual(held(`states: made`, `const made: any = {}`), [S])
+    deepStrictEqual(held(`states: { ...made, ${d} }`, `const made: any = {}`), [S])
+    deepStrictEqual(held(`states: { [name]: {}, ${c}, ${d} }`, `declare const name: string`), [S])
+    deepStrictEqual(held(`states: { get c(): any { return {} }, ${d} }`), [S])
+    // What a declaration is made by is what its own table is handed, not what some function around it is.
+    deepStrictEqual(dead(findingsIn(`
+type Net = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
+type Two = { states: { live: {}; far: {} } }
+export const build = (handed: any) => forNet<Net>()<Two, never>()({
+  initial: 'live',
+  states: { live: { loads: () => ({ got: handed('svc', 'X', { from: [], done: () => {} }) }) }, far: {} },
+})
+export const read = forNet<Net>()<Two, never>()({
+  initial: 'live',
+  states: { live: { loads: (load) => ({ got: load('svc', 'X', { from: [], done: () => {} }) }) }, far: {} },
+})
+`).flat()), ['far is never entered'])
+    const whole = findingsIn(`
+type Shape = { arms: { t: 'one' }; states: { live: {}; dead: {} } }
+const made = { initial: 'live', arms: ({ one }: any) => ({ t: one({ after: 100 }) }), states: { live: {}, dead: {} } } as const
+export const elsewhere = state<Shape, never>()(made as never)
+`)[0]!
+    deepStrictEqual(whole, ['definition is not an inline object literal; reaches, follows, loads, calls, and arms could not be scanned'])
+  }],
+  ['the done of a timer that is not read does what it may once its timer is armed, and nothing before', () => {
+    const done = (written: string, armed: 't' | 'u' | 'v' | ''): string[] => dead(findingsIn(`
+declare const flag: boolean
+const quiet = (): void => {}
+const typedVoid: () => void = () => ({ at: 'far' })
+const options = { after: 100, done: quiet }
+const optionsFar = { after: 100, done: () => ({ at: 'far' as const }) }
+const buildArms = ({ one }: any) => ({ t: one({ after: 100 }), u: one({ after: 100 }) })
+const more = {} as {}
+const other = (ms: number): any => ({ kind: 'one', ms, done: () => ({ at: 'far' }) })
+type Shape = { arms: { u: 'one' }; states: { live: { arms: { t: 'one'; v: 'one' } }; beside: { arms: { side: 'one' } }; far: {} } }
+export const timed = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
+  initial: 'live',
+  arms: ({ one }) => ({ u: one({ after: 100 }) }),
+  states: {
+    live: { arms: ${written}, on: { GO: (_, { arm }) => { ${armed && `arm('${armed}')`} }, NEXT: () => ({ at: 'beside' }) } },
+    beside: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    far: {},
+  },
+})
+`)[0]!)
+    const [U, T, V, S] = ['nothing arms u', 'nothing arms t in live', 'nothing arms v in live', 'nothing arms side in beside']
+    const far = 'far is never entered'
+    const table = (t: string): string => `({ one }) => ({ t: ${t}, v: one({ after: 100 }) })`
+    const each: Array<[string, string[]]> = [
+      // Written here, it is read: it arms nothing and goes nowhere.
+      [table(`one({ after: 100, done: () => {} })`), [far, U, V, S]],
+      [`(arms) => ({ t: arms.one({ after: 100, done: () => {} }), v: arms.one({ after: 100 }) })`, [far, U, V, S]],
+      // The name of a function leaves what it arms unread: the timers of its state and the states around it.
+      [table(`one(({ after: 100, done: (quiet) }))`), [far, S]],
+      [table(`one({ after: 100, done: quiet })`), [far, S]],
+      [table(`one({ done: quiet })`), [far, S]],
+      // What may be either of two, or says less than it does, leaves where it goes unread too.
+      [table(`one({ after: 100, done: flag ? quiet : quiet })`), [S]],
+      [table(`one({ after: 100, done: typedVoid })`), [S]],
+      [table(`one({ after: 100, ...more })`), [S]],
+      [table(`one({ after: 100, [String(flag)]: 1 })`), [S]],
+      [table(`one(options)`), [S]],
+      [`({ one }) => ({ t: flag ? one({ after: 100 }) : one({ after: 200 }), v: one({ after: 100 }) })`, [S]],
+      // One made by anything but what the table is handed holds what that made of it.
+      [table(`other(100)`), [S]],
+    ]
+    for (const [written, armed] of each) {
+      deepStrictEqual(done(written, 't'), armed, written)
+      deepStrictEqual(done(written, ''), [far, U, T, V, S], written)
+    }
+    // Options written elsewhere are read by their type for where the done goes, and it goes there once armed.
+    deepStrictEqual(done(table(`one(optionsFar)`), 't'), [S])
+    deepStrictEqual(done(table(`one(optionsFar)`), ''), [U, 'nothing arms t in live, so nothing enters far', V, S])
+    // One entry that is not read leaves the done of the others in its table as they are written.
+    deepStrictEqual(done(`({ one }) => ({ t: flag ? one({ after: 100 }) : one({ after: 200 }), v: one({ after: 100 }) })`, 'v'), [far, U, T, S])
+    // A table of timers that is not written out, or not all: the done of each timer there is unread, armed or not.
+    for (const written of [`buildArms`, `({ one }) => ({ ...more, t: one({ after: 100 }), v: one({ after: 100 }) })`, `({ one }) => ({ [String(flag)]: one({ after: 100 }), t: one({ after: 100 }), v: one({ after: 100 }) })`, `({ one }) => { return { t: one({ after: 100 }), v: one({ after: 100 }) } }`]) {
+      deepStrictEqual(done(written, 't'), [S], written)
+      deepStrictEqual(done(written, ''), [far, U, T, V, S], written)
+      // And of no timer another state declares, whose done is read where it is written.
+      deepStrictEqual(done(written, 'u'), [far, T, V, S], written)
+    }
+  }],
+  ['what cannot be read in a state never entered hides nothing, and a timer declared there is said by the state alone', () => {
+    deepStrictEqual(findingsIn(twoBranches('', `GO: () => {}`, `on: { GO: quiet }`)), [[
+      'nothing takes NEXT',
+      'b is never entered',
+      'nothing arms top',
+      'nothing arms mine in a',
+    ]])
+  }],
+  ['who is told, when it is not known, hides no timer', () => {
+    deepStrictEqual(findingsIn(twoBranches(`on: { GO: (_, { tell, arm }) => { tell(anyName(), { type: 'PING' }); arm('mine') } }`)), [[
+      'nothing arms top',
+      'nothing arms side in b',
+      'dynamic target in tell anyName()',
+    ]])
+  }],
+  ['a move to a state that is not known may enter any state, and arms nothing', () => {
+    // `b` is entered by nothing that is read, and `top` is armed only there.
+    const armedInB = `on: { GO: (_, { arm }) => { arm('top') } }`
+    deepStrictEqual(findingsIn(twoBranches('', `NEXT: () => ({ at: anyName() })`, armedInB)), [[
+      'nothing arms mine in a',
+      'nothing arms side in b',
+      'dynamic move target in NEXT (at is any)',
+    ]])
+    deepStrictEqual(findingsIn(twoBranches('', `NEXT: () => {}`, armedInB)), [[
+      'b is never entered, so nothing arms top',
+      'nothing arms mine in a',
+    ]])
+  }],
+  ['a way into a state that could not be read leaves the state, and what is armed in it, unreported', () => {
+    deepStrictEqual(findingsIn(entryFrom(`on: { GO: quiet }`)), [['box.dead is never entered, so nothing arms keep in box']])
+    // A handler that returns anything, one that is not one function, one that is one of two, a table of handlers
+    // that is not written out, and what a read hears when its options are spread in: each may enter it, unread.
+    const silent = (inOther: string): void => deepStrictEqual(findingsIn(entryFrom(inOther)), [[]], inOther)
+    silent(`on: { GO: (): any => undefined }`)
+    silent(`on: { GO: anyHandler }`)
+    silent(`on: { GO: twice }`)
+    silent(`on: { GO: Math.random() > 0.5 ? () => {} : () => ({ at: 'box.dead' as const }) }`)
+    silent(`on: anyHandler`)
+    silent(`on: { ...({} as Record<string, () => { at: 'box.dead' }>) }`)
+    silent(`on: { ['G' + 'O']: () => ({ at: 'box.dead' as const }) }`)
+    silent(`internal: anyHandler`)
+    silent(`on: { GO: either }`)
+    silent(`loads: (load: any) => ({ far: load('svc', 'X', { from: [], ...({} as { done: () => { at: 'box.dead' } }) }) })`)
+    const startsAt = (initial: string): string[] => findingsIn(`
+declare const either: 'live' | 'dead'
+declare const some: any
+type Shape = { arms: { one: 'one'; two: 'one' }; states: { live: {}; dead: {} } }
+export const begins = state<Shape, { type: 'GO' }>()({
+  initial: ${initial},
+  arms: ({ one }) => ({ one: one({ after: 100 }), two: one({ after: 100 }) }),
+  states: {
+    live: { on: { GO: (_, { arm }) => { arm('one') } } },
+    dead: { on: { GO: (_, { arm }) => { arm('two') } } },
+  },
+})
+`)[0]!
+    deepStrictEqual(startsAt(`'live'`), ['dead is never entered, so nothing arms two'])
+    deepStrictEqual(startsAt('either'), [])
+    deepStrictEqual(startsAt('some'), [])
+  }],
+  ['a move a handler makes is read from what it returns, where the type its return is given leaves it out', () => {
+    const hidden = (handler: string): string[] => findingsIn(`
+declare const anyValue: any
+declare const somewhere: string
+type Shape = { data: { n: number }; arms: { keep: 'one' }; states: { live: {}; dead: {}; gone: {} } }
+const going = { data: { n: 1 }, at: 'dead' as const }
+export const hides = state<Shape, { type: 'GO' }>()({
+  data: { n: 0 }, initial: 'live', arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  on: { GO: ${handler} },
+  states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } }, gone: {} },
+})
+`)[0]!
+    const neither = ['dead is never entered, so nothing arms keep', 'gone is never entered']
+    // The type says only that the data changes; the value also says where it goes, and it goes nowhere else.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => going`), ['gone is never entered'])
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { if (Math.random() > 0.5) return { data: { n: 2 } }; return going }`), ['gone is never entered'])
+    deepStrictEqual(hidden(`function (): { data: { n: number } } { return going }`), ['gone is never entered'])
+    // A value that could be anything, or that goes to a state not known, may go anywhere.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => anyValue`), [])
+    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 }, at: somewhere })`), [])
+    // What a function kept inside it returns is not what it returns.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { const inner = (): unknown => going; void inner; return { data: { n: 2 } } }`), neither)
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { function inner(): unknown { return going } void inner; return { data: { n: 2 } } }`), neither)
+    // And one whose values go nowhere is still told so.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 } })`), neither)
   }],
 ])

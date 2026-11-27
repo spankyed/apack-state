@@ -457,8 +457,8 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
    */
   follows?: (follow: Follow<R, H, E, N>) => Record<string, Followed<R, H, E, N>>
   /**
-   * The standing asks it loads while it is the case: fetched and refreshed when a named `from` field changes, or one
-   * for each key of an `each` field. How each finishes goes to `done`.
+   * The standing asks it loads while it is the case: fetched and refreshed when a named `from` field changes, one
+   * for each key of an `each` field, or both. How each finishes goes to `done`.
    */
   loads?: (load: Load<R, H, E, N>) => Record<string, Loaded<R, H, E, N>>
 } & ([keyof CallsOf<S>] extends [never] ? { calls?: never } : {
@@ -522,7 +522,8 @@ export interface OneOf<D, X> { readonly state: X; readonly given: (data: Read<D>
 //   loads:   (load)   => ({ diff:   load('code', 'GET_GIT_DIFF', { from: ['selected'], args: ({ selected }) => selected, done }) }),
 //
 // Each says which fields of the data it depends on: `each`, a field with one of them for each of its keys, or
-// `from`, the fields a single one reads. The kernel looks again only when one of those fields changes. There is
+// `from`, the fields one reads. What is followed or loaded may name both: one for each key, each asked again when
+// a field in `from` changes. The kernel looks again only when one of those fields changes. There is
 // nothing to work out and nothing to run to find out, so nothing can throw, and the graph can say what depends on
 // what. Each is written as a function of the helper it is made with, which is what gives a handler inside it the
 // types of the state it is declared in.
@@ -537,14 +538,16 @@ export interface Start<D> {
   <X extends AnyState>(state: X, options: { given: (data: Read<D>) => RootGiven<X> }): OneOf<D, X>
 }
 
-/** What `args` is given: the key, for one of many, or the fields it named. */
-type Given_<R, H extends string, K extends string, Many> = [Many] extends [string] ? string : Read<Pick<DataAt<R, H>, K & keyof DataAt<R, H>>>
+/** What `args` is given: the fields it named, after the key for one of many. One of many that names none is given the key alone. */
+type Given_<R, H extends string, K extends string, Many> =
+  [Many] extends [string] ? ([K] extends [never] ? [key: string] : [key: string, from: Named<R, H, K>]) : [from: Named<R, H, K>]
+type Named<R, H extends string, K extends string> = Read<Pick<DataAt<R, H>, K & keyof DataAt<R, H>>>
 /** What a handler of one of many is given beside its scope: which one it is. */
 type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
 type StandingArgsOpt<R, H extends string, K extends string, Many, A> =
   {} extends Read<A>
-    ? { args?: (given: Given_<R, H, K, Many>) => Read<A> | ([Many] extends [string] ? never : null | undefined | false) }
-    : { args: (given: Given_<R, H, K, Many>) => Read<A> | ([Many] extends [string] ? never : null | undefined | false) }
+    ? { args?: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
+    : { args: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
 
 /** A view a state follows, as `follow` makes it. */
 export interface Followed<R, H extends string, E extends AnyEvent, N extends Net> {
@@ -555,16 +558,19 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
 /**
  * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
  * one of them changes; where `args` returns nothing (`null`, `undefined`, or `false`), nothing is followed and any
- * previous view stops. With `each`, one is followed for each key of that field. `args` may be omitted when the view
- * accepts `{}`. What it delivers goes to `updated`, which returns what happens next as any handler does.
+ * previous view stops. With `each`, one is followed for each key of that field, and `args` is given the key: alone, or with the
+ * fields named in `from` after it where it names any.
+ * With both, each key's view is followed again when a field in `from` changes, and a key that appears or goes
+ * starts or stops its own alone. `args` may be omitted when the view accepts `{}`. What it delivers goes to
+ * `updated`, which returns what happens next as any handler does.
  */
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   F extends keyof N['views'] & string, V extends keyof N['views'][F] & string,
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
-  /** The fields a single one reads. It is followed again when one of them changes. */
-  from?: [Many] extends [string] ? never : readonly K[]
-  /** A field with one to follow for each of its keys, in place of `from`. */
+  /** The fields one reads. It is followed again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
+  from?: readonly Exclude<K, Many>[]
+  /** A field with one to follow for each of its keys. */
   each?: Many
   updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
@@ -684,8 +690,9 @@ export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> 
  * It is a read: it runs because the data says so, for as long as it does. With `from`, it is asked for what `args`
  * makes of those fields, and asked again when one of them changes, cancelling the previous one. Where `args` returns
  * nothing, nothing is asked. To refresh with nothing else changed, name a counter field and increment it. With `each`
- * there is one for each key of that field: an added key asks, and a removed key cancels. `args` may be omitted when
- * the ask accepts `{}`.
+ * there is one for each key of that field: an added key asks, and a removed key cancels, and `args` is given the
+ * key, alone or with the fields named in `from` after it. With both, each key's is asked again when a field in `from` changes, the one before for that key
+ * cancelled. `args` may be omitted when the ask accepts `{}`.
  *
  * Outcomes go to `done`, and streamed progress to `progress` as a list at most once a frame.
  */
@@ -693,9 +700,9 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
   S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string,
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
-  /** The fields a single one reads. It is asked again when one of them changes. */
-  from?: [Many] extends [string] ? never : readonly K[]
-  /** A field with one ask for each of its keys, in place of `from`. */
+  /** The fields one reads. It is asked again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
+  from?: readonly Exclude<K, Many>[]
+  /** A field with one ask for each of its keys. */
   each?: Many
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void

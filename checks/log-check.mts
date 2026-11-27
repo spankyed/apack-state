@@ -374,6 +374,21 @@ await run([
     has(sentIn(logs), { kind: 'unfollow', to: 'threads', name: 'count' })
     strictEqual(stopped, 1)
   }],
+  ['what a view delivers to a state that has stopped by its turn is in no log, and the steps are numbered without a gap', async () => {
+    const logs: StepLog[] = []
+    let deliver!: (value: number) => void
+    const window = system({ side: 'window', views: (_feature, _view, _args, heard) => { deliver = (value) => heard({ ok: true, value }); return () => {} }, log: (step) => { logs.push(step) } })
+    const handle = window.start('watcher', watcher)
+    // As the step that took the first count ends, the watcher is stopped, and behind that comes another count.
+    const stop = window.subscribe(() => { stop(); window.stop(handle); deliver(2) })
+    deliver(1)
+    deepStrictEqual(logs.map((step) => step.handled), [[], [{ kind: 'view', ref: 'watcher', name: 'count' }], []])
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3])
+    strictEqual(window.read(handle), undefined)
+    // The next step is the fourth: none was taken that the log did not say.
+    window.start('watcher', watcher)
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3, 4])
+  }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
     const traced: string[] = []
     const window = system({ side: 'window', log: () => { throw new Error('the log broke') }, trace: (line) => { traced.push(line) } })

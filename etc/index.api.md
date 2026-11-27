@@ -348,7 +348,7 @@ export interface Failure {
 //
 // @public
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
-    from?: [Many] extends [string] ? never : readonly K[];
+    from?: readonly Exclude<K, Many>[];
     each?: Many;
     updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Followed<R, H, E, N>;
@@ -430,7 +430,7 @@ export interface Lane {
 
 // @public
 export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
-    from?: [Many] extends [string] ? never : readonly K[];
+    from?: readonly Exclude<K, Many>[];
     each?: Many;
     done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
     progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
@@ -778,14 +778,14 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:584:5 - (ae-forgotten-export) The symbol "ArmKind" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:584:5 - (ae-forgotten-export) The symbol "ArmNeedsMs" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:599:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:694:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:863:5 - (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:700:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:781:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:781:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:869:5 - (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:874:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:874:5 - (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:874:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:874:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
