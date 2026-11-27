@@ -109,8 +109,10 @@ Every callback supplied to `system(...)` has a defined failure contract:
   - **Local in-system ask call-chain cycles:** Each answering handler carries its causal `(ref, askName)` chain. If a local
     `ask()` closes a cycle (`a PING -> b PONG -> a PING`, self-asks, or longer hops), the cycle-closing ask immediately
     resolves to `{ ok: false, failure: { kind: 'failed', message: 'Ask cycle: ...' } }` and reports a structured `Defect`
-    instead of hanging. Non-cyclic re-entry to a different ask on the same state (`a OUTER -> b HELP -> a READ`),
-    concurrent independent asks, and cross-link asks are unaffected.
+    instead of hanging. Because detection keys strictly on `(ref, askName)`, re-entering the same ask on the same state ref
+    is disallowed even with different `args` (use distinct child refs or an internal helper for recursive work). Non-cyclic
+    re-entry to a different ask on the same state (`a OUTER -> b HELP -> a READ`), concurrent independent asks, and
+    cross-link asks are unaffected.
 - **Not detected by the kernel:**
   - **Cross-link or external deadlocks:** Call chains are local to one system (they do not cross `@apackdev/link` ports),
     and the kernel cannot inspect deadlocks inside arbitrary external non-kernel promises or locks.
