@@ -144,8 +144,8 @@ state<{ data: { n: number }; arms: { badDone: 'one'; badEachDone: 'each' } }>()(
   }),
 })
 
-// The timers whose options are refused are declared `'at arm'`, which is what a builder given nothing it can read makes:
-// so the one error on each of those lines is the option's own, and not the kind of timer that came of it.
+// Each timer here is declared as the kind its options, as written, make: `'at arm'` where they hold no `after`. So the
+// one error on each of those lines is the option's own, and not the kind of timer that came of it.
 state<{ data: { n: number }; arms: { badAfter: { one: 'at arm' }; badWhenArmed: 'one'; badAfterEach: { each: 'at arm' }; badWhenArmedEach: { each: 'at arm' }; badAfterAlone: { one: 'at arm' }; badWhenArmedValue: { one: 'at arm' }; badPositional: { one: 'at arm' }; badPositionalDone: { one: 'at arm' } } }>()({
   data: { n: 0 },
   arms: ({ one, each }) => ({
@@ -165,6 +165,95 @@ state<{ data: { n: number }; arms: { badAfter: { one: 'at arm' }; badWhenArmed: 
     badPositional: one(100),
     // @ts-expect-error what expiring does is given as `done`, not as a bare function
     badPositionalDone: one(() => {}),
+  }),
+})
+
+// What decides whether each `arm` gives the duration is the type of the options, and of `after` in them: options that
+// may be `undefined`, or an `after` that may be, are neither a duration declared nor one left to each `arm`.
+declare const duration: number
+declare const maybeDuration: number | undefined
+const heldOptions = { after: 100, whenArmed: 'ignore' as const }
+const heldBare = { whenArmed: 'ignore' as const }
+declare const maybeOptions: { readonly after: number } | undefined
+declare const optionalAfter: { readonly after?: number }
+declare const untypedOptions: any
+state<{ data: { n: number }; arms: {
+  literal: 'one'; fromNumber: 'one'; held: 'one'; heldEach: 'each'; typedDone: 'one'; ignoring: 'one'
+  bare: { one: 'at arm' }; doneOnly: { one: 'at arm' }; heldAtArm: { one: 'at arm' }; noAfter: { one: 'at arm' }; maybeNothing: { one: 'at arm' }
+  maybeNone: 'one'; maybeNoneEach: 'each'; maybeHeld: 'one'; maybeAfter: 'one'; maybeAfterEach: 'each'; optional: 'one'
+  maybeAfterAtArm: { one: 'at arm' }; maybeAfterAtArmEach: { each: 'at arm' }; optionalAtArm: { one: 'at arm' }; untyped: 'one'; untypedAtArm: { one: 'at arm' }
+} }>()({
+  data: { n: 0 },
+  arms: ({ one, each }) => ({
+    literal: one({ after: 100 }),
+    fromNumber: one({ after: duration }),
+    held: one(heldOptions),
+    heldEach: each(heldOptions),
+    typedDone: one({ after: 100, done: ({ data, arm }) => { arm('literal'); return { data: { n: data.n + 1 } } } }),
+    ignoring: one({ after: 100, whenArmed: 'ignore' }),
+    bare: one(),
+    doneOnly: one({ done: ({ data }) => ({ data: { n: data.n + 1 } }) }),
+    heldAtArm: one(heldBare),
+    noAfter: one({ after: undefined }),
+    maybeNothing: one(flag ? { done: () => {} } : undefined),
+    // @ts-expect-error options that may be `undefined` declare no duration for a `'one'` timer
+    maybeNone: one(flag ? { after: 100 } : undefined),
+    // @ts-expect-error options that may be `undefined` declare no duration for an `'each'` timer
+    maybeNoneEach: each(flag ? { after: 100 } : undefined),
+    // @ts-expect-error options held in a constant that may be `undefined` declare no duration either
+    maybeHeld: one(maybeOptions),
+    // @ts-expect-error an `after` that may be `undefined` declares no duration for a `'one'` timer
+    maybeAfter: one({ after: flag ? 100 : undefined }),
+    // @ts-expect-error an `after` that may be `undefined` declares no duration for an `'each'` timer
+    maybeAfterEach: each({ after: maybeDuration }),
+    // @ts-expect-error an `after` that may be left out declares no duration
+    optional: one(optionalAfter),
+    // @ts-expect-error a `{ one: 'at arm' }` timer does not accept an `after` that may be a duration
+    maybeAfterAtArm: one({ after: flag ? 100 : undefined }),
+    // @ts-expect-error a `{ each: 'at arm' }` timer does not accept an `after` that may be a duration
+    maybeAfterAtArmEach: each({ after: maybeDuration }),
+    // @ts-expect-error a `{ one: 'at arm' }` timer does not accept an `after` that may be there
+    optionalAtArm: one(optionalAfter),
+    // @ts-expect-error options of type `any` say nothing of a duration, so they declare none
+    untyped: one(untypedOptions),
+    // @ts-expect-error options of type `any` may hold an `after`, which a `{ one: 'at arm' }` timer does not accept
+    untypedAtArm: one(untypedOptions),
+  }),
+})
+
+// A key that is not an option is refused in options held in a constant, and in whichever of the objects they may be.
+const heldMisspelled = { after: 100, whenArmd: 'ignore' as const }
+declare const eitherOptions: { readonly after: number; readonly whenArmd?: 'ignore' } | { readonly after: number }
+declare const eitherOrNone: { readonly whenArmd?: 'ignore' } | undefined
+state<{ data: { n: number }; arms: { badHeld: 'one'; badEither: 'one'; badEitherEach: 'each'; badEitherOrNone: { one: 'at arm' }; badUndefinedKey: 'one' } }>()({
+  data: { n: 0 },
+  arms: ({ one, each }) => ({
+    // @ts-expect-error a misspelled option is refused in options held in a constant
+    badHeld: one(heldMisspelled),
+    // @ts-expect-error a misspelled option is refused when only one of the objects the options may be has it
+    badEither: one(eitherOptions),
+    // @ts-expect-error a misspelled option is refused on an `each` timer when only one of the objects the options may be has it
+    badEitherEach: each(eitherOptions),
+    // @ts-expect-error a misspelled option is refused in options that may be `undefined`
+    badEitherOrNone: one(eitherOrNone),
+    // @ts-expect-error a key that is not an option is refused whatever it holds
+    badUndefinedKey: one({ after: 100, afer: undefined }),
+  }),
+})
+
+// A mistake inside an option is the one error of its line, whichever kind of timer it is declared for: the kind the
+// builder makes does not turn on options it could not read.
+state<{ data: { n: number }; arms: { badAfterType: 'one'; badAfterTypeAtArm: { each: 'at arm' }; badWhenArmedFixed: 'one'; badPositionalFixed: 'one' } }>()({
+  data: { n: 0 },
+  arms: ({ one, each }) => ({
+    // @ts-expect-error `after` is a number of milliseconds
+    badAfterType: one({ after: '100' }),
+    // @ts-expect-error `after` is a number of milliseconds, on a timer that takes none as on one that does
+    badAfterTypeAtArm: each({ after: '100' }),
+    // @ts-expect-error `whenArmed` is `'restart'` or `'ignore'`, on a timer with a declared duration too
+    badWhenArmedFixed: one({ after: 100, whenArmed: 'reset' }),
+    // @ts-expect-error a bare number is no options for a timer with a declared duration either
+    badPositionalFixed: one(100),
   }),
 })
 

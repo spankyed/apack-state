@@ -37,13 +37,11 @@ export type AnyEvent = {
 // @public
 export type AnyState = State<any, any, any, any>;
 
-// Warning: (ae-forgotten-export) The symbol "ArmOptions" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
-//
 // @public
-export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmEachDone<R, H, E, N>> = ArmOptions<ArmEachDone<R, H, E, N>>>(options?: O & StrictArmOptions<O, ArmEachDone<R, H, E, N>>) => ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>;
+export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = {
+    (): ArmedEach<R, H, E, N, true>;
+    <O extends ArmRead<ArmEachDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmEachDone<R, H, E, N>>): ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>;
+};
 
 // @public
 export interface ArmedEach<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
@@ -85,10 +83,11 @@ export interface ArmedOne<R, H extends string, E extends AnyEvent, N extends Net
     readonly whenArmed?: 'restart' | 'ignore';
 }
 
-// Warning: (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
-//
 // @public
-export type ArmOne<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmDone<R, H, E, N>> = ArmOptions<ArmDone<R, H, E, N>>>(options?: O & StrictArmOptions<O, ArmDone<R, H, E, N>>) => ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>;
+export type ArmOne<R, H extends string, E extends AnyEvent, N extends Net> = {
+    (): ArmedOne<R, H, E, N, true>;
+    <O extends ArmRead<ArmDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmDone<R, H, E, N>>): ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>;
+};
 
 // @public (undocumented)
 export type AskEnd = 'failed' | 'abandoned' | 'unavailable' | 'disconnected';
@@ -782,6 +781,11 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:694:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:862:5 - (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
