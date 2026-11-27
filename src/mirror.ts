@@ -22,12 +22,12 @@ import type { System } from './kernel.ts'
 import type { Asks, Handle, Started } from './types.ts'
 
 type Pending = Record<string, boolean | number | Record<string, boolean>>
-type Waiting = Record<string, boolean | Record<string, boolean>>
-type Held = { at?: string; data: Record<string, unknown>; pending?: Pending; waiting?: Waiting }
-/** What a reader is handed: where the state is, its fields, pending calls, and armed waits. None of it can be written. */
-type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<string, unknown>>; readonly pending?: Readonly<Pending>; readonly waiting?: Readonly<Waiting> }
+type Armed = Record<string, boolean | Record<string, boolean>>
+type Held = { at?: string; data: Record<string, unknown>; pending?: Pending; armed?: Armed }
+/** What a reader is handed: where the state is, its fields, pending calls, and armed timers. None of it can be written. */
+type Shown = { readonly at: string | undefined; readonly data: Readonly<Record<string, unknown>>; readonly pending?: Readonly<Pending>; readonly armed?: Readonly<Armed> }
 /** The same, as the mirror writes it. */
-interface Written { readonly whole: { at: string | undefined }; readonly data: Record<string, unknown>; readonly pending: Pending | undefined; readonly waiting: Waiting | undefined }
+interface Written { readonly whole: { at: string | undefined }; readonly data: Record<string, unknown>; readonly pending: Pending | undefined; readonly armed: Armed | undefined }
 
 /** One running state, mirrored once for everything that reads it. @internal */
 export interface Shared { readonly ref: string; readonly box: { now: Shown | undefined }; readers: number }
@@ -77,19 +77,19 @@ export function mirrors(sys: System): Mirrors {
     const data = shallowReactive<Record<string, unknown>>({ ...now.data })
     const pending = now.pending === undefined ? undefined : reactive<Pending>({})
     if (pending) follow(pending, now.pending!)
-    const waiting = now.waiting === undefined ? undefined : reactive<Waiting>({})
-    if (waiting) follow(waiting, now.waiting!)
+    const armed = now.armed === undefined ? undefined : reactive<Armed>({})
+    if (armed) follow(armed, now.armed!)
     const whole = shallowReactive({
       at: now.at,
       data: shallowReadonly(data),
       ...(pending ? { pending: readonly(pending) } : {}),
-      ...(waiting ? { waiting: readonly(waiting) } : {}),
+      ...(armed ? { armed: readonly(armed) } : {}),
     })
-    written.set(shared, { whole, data, pending, waiting })
+    written.set(shared, { whole, data, pending, armed })
     shared.box.now = shallowReadonly(whole) as Shown
   }
 
-  const onStep = (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, { moved: boolean; pending: boolean; waiting: boolean }>>): void => {
+  const onStep = (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, { moved: boolean; pending: boolean; armed: boolean }>>): void => {
     for (const ref of changed) {
       const shared = byRef.get(ref)
       if (!shared) continue
@@ -99,7 +99,7 @@ export function mirrors(sys: System): Mirrors {
       if (!latest || !into) { show(shared, latest); continue }
       if (changes[ref]?.moved) into.whole.at = latest.at
       if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending)
-      if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting)
+      if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed)
       // A field the state replaced is written, and one it no longer has, having left the state that held it, goes.
       for (const field of fields[ref] ?? []) {
         if (Object.hasOwn(latest.data, field)) into.data[field] = latest.data[field]; else delete into.data[field]

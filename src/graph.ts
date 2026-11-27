@@ -21,7 +21,7 @@ export interface StateGraph {
   readonly follows: readonly string[]
   readonly loads: readonly string[]
   readonly calls: readonly string[]
-  readonly waits: readonly string[]
+  readonly arms: readonly string[]
   readonly reaches: readonly string[]
   readonly findings: readonly string[]
   readonly text: string
@@ -144,27 +144,27 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const follows: string[] = []
     const loads: string[] = []
     const calls: string[] = []
-    const waits: string[] = []
+    const arms: string[] = []
     const reachesSet = new Set<string>()
     const uncertain = new Set<string>()
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
-    const waitKey = (within: string, name: string): string => `${within}\n${name}`
+    const timerKey = (within: string, name: string): string => `${within}\n${name}`
     /** Whether `outer` is `inner` or a state around it. The state everything is in is around every state. */
     const around = (outer: string, inner: string): boolean => !outer || inner === outer || inner.startsWith(`${outer}.`)
 
     const declared: string[] = []
     const startsStates: string[] = []
-    const declaredWaits: Array<{ key: string; name: string; within: string }> = []
-    const byWaitKey = new Map<string, { key: string; name: string; within: string }>()
+    const declaredTimers: Array<{ key: string; name: string; within: string }> = []
+    const byTimerKey = new Map<string, { key: string; name: string; within: string }>()
     const survey = (of: Type, within: string): void => {
       const started = of.getProperty('starts')
       if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
-      const waited = of.getProperty('waits')
-      if (waited) {
-        for (const each of typeOf(waited).getProperties()) {
-          const entry = { key: waitKey(within, each.name), name: each.name, within }
-          declaredWaits.push(entry)
-          byWaitKey.set(entry.key, entry)
+      const armed = of.getProperty('arms')
+      if (armed) {
+        for (const each of typeOf(armed).getProperties()) {
+          const entry = { key: timerKey(within, each.name), name: each.name, within }
+          declaredTimers.push(entry)
+          byTimerKey.set(entry.key, entry)
         }
       }
       const states = of.getProperty('states')
@@ -173,10 +173,10 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
     survey(shape, '')
 
-    const resolveWait = (fromPath: string, name: string): string | undefined => {
+    const resolveTimer = (fromPath: string, name: string): string | undefined => {
       for (let at = fromPath; ; ) {
-        const key = waitKey(at, name)
-        if (byWaitKey.has(key)) return key
+        const key = timerKey(at, name)
+        if (byTimerKey.has(key)) return key
         if (!at) return undefined
         const cut = at.lastIndexOf('.')
         at = cut >= 0 ? at.slice(0, cut) : ''
@@ -184,16 +184,16 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
 
     // What can happen is one graph. A state that can be the case lets the handlers written in it run; a handler that
-    // can run can enter the states it moves to and arm the waits it arms; a wait that can be armed lets its `done`
+    // can run can enter the states it moves to and arm the timers it arms; a timer that can be armed lets its `expired`
     // run. A `Site` is where handlers are written that can run on the same condition, with all they can do. What
     // could not be read is what it may do, not a fact about the whole definition: `anywhere` is a move to a state
-    // that is not known, `armsAround` an `arm` that is not known (it reaches the waits its own state and the states
+    // that is not known, `armsAround` an `arm` that is not known (it reaches the timers its own state and the states
     // around it declare), and `armsWithin` one written in a state inside this one.
     type Site = {
       /** The state it is written in. */
       readonly state: string
-      /** The wait whose `done` it is: it runs once that is armed, and not otherwise. */
-      readonly wait?: string
+      /** The timer whose `expired` it is: it runs once that is armed, and not otherwise. */
+      readonly timer?: string
       /** A `failed`, which runs only where there is work to fail. */
       readonly ofWork?: true
       readonly moves: Set<string>
@@ -203,7 +203,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       armsWithin: boolean
     }
     const sites = new Map<string, Site>()
-    const siteAt = (key: string, made: Pick<Site, 'state' | 'wait' | 'ofWork'>): Site => {
+    const siteAt = (key: string, made: Pick<Site, 'state' | 'timer' | 'ofWork'>): Site => {
       let found = sites.get(key)
       if (!found) { found = { ...made, moves: new Set(), arms: new Set(), anywhere: false, armsAround: false, armsWithin: false }; sites.set(key, found) }
       return found
@@ -211,7 +211,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     /** What a state takes, hears and does while it is the case: its tables, `run`, `listen`, and what its calls, reads and views come back to. */
     const handlersIn = (path: string): Site => siteAt(`in\n${path}`, { state: path })
     const failedIn = (path: string): Site => siteAt(`failed\n${path}`, { state: path, ofWork: true })
-    const doneOf = (key: string): Site => siteAt(`done\n${key}`, { state: key.slice(0, key.indexOf('\n')), wait: key })
+    const expiredOf = (key: string): Site => siteAt(`expired\n${key}`, { state: key.slice(0, key.indexOf('\n')), timer: key })
     /** A part of a state that could not be read may hold anything a state holds, in it and in every state inside it. */
     const hidden = (path: string): void => {
       const all = handlersIn(path)
@@ -296,7 +296,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             if (ts.isStringLiteralLike(resolvedTarget)) names.push(resolvedTarget.text)
             else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) names.push(m.value as string)
             for (const armedName of names) {
-              const targetKey = resolveWait(at.state, armedName)
+              const targetKey = resolveTimer(at.state, armedName)
               if (targetKey) at.arms.add(targetKey)
             }
           }
@@ -374,6 +374,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       }
       return undefined
     }
+    /** Whether what is written there is `undefined`, however it is written. */
+    const isUndefined = (node: any): boolean => Boolean(checker.getTypeAtLocation(node).flags & ts.TypeFlags.Undefined)
     const unwrapParens = (node: any): any => {
       let cur = node
       while (cur && ts.isParenthesizedExpression(cur)) cur = cur.expression
@@ -498,15 +500,15 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           }
           continue
         }
-        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') {
+        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'arms') {
           scan(property, here)
           continue
         }
-        // What a table of declarations hears with, where it is not read: the `done` of each wait the state declares,
-        // which runs once that wait is armed, and for the rest what the state hears while it is the case.
+        // What a table of declarations hears with, where it is not read: the `expired` of each timer the state declares,
+        // which runs once that timer is armed, and for the rest what the state hears while it is the case.
         const unreadEntries = (): void => {
-          if (name !== 'waits') unreadHandler(here)
-          else for (const wait of declaredWaits) if (wait.within === path) unreadHandler(doneOf(wait.key))
+          if (name !== 'arms') unreadHandler(here)
+          else for (const timer of declaredTimers) if (timer.within === path) unreadHandler(expiredOf(timer.key))
         }
         if (!made || !ts.isArrowFunction(made)) {
           uncertain.add(`could not statically read ${where(path, name)}`)
@@ -531,46 +533,49 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           const entryName = entry.name ? propName(entry.name) : undefined
           if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer) || entryName === undefined || !madeByHelper(entry.initializer.expression, made)) {
             uncertain.add(`could not statically read ${where(path, `${name}.${entryName ?? (entry.name ? entry.name.getText() : '?')}`)}`)
-            if (name === 'waits' && entryName !== undefined && byWaitKey.has(waitKey(path, entryName))) unreadHandler(doneOf(waitKey(path, entryName)))
+            if (name === 'arms' && entryName !== undefined && byTimerKey.has(timerKey(path, entryName))) unreadHandler(expiredOf(timerKey(path, entryName)))
             else unreadEntries()
             scan(entry, here)
             continue
           }
-          if (name === 'waits') {
-            const done = doneOf(waitKey(path, entryName))
-            scan(entry.initializer, done)
-            const [first, second] = entry.initializer.arguments
+          if (name === 'arms') {
+            const expired = expiredOf(timerKey(path, entryName))
+            scan(entry.initializer, expired)
+            const given = unwrapParens(entry.initializer.arguments[0])
+            // No options, written as `undefined`, are no options written at all.
+            const options = given && isUndefined(given) ? undefined : given
             const helper = entry.initializer.expression.getText()
-            const hasMs = Boolean(first && (checker.getTypeAtLocation(first).flags & ts.TypeFlags.NumberLike))
-            const rest = hasMs ? second : first
-            let noReset = false
-            if (rest && ts.isObjectLiteralExpression(rest)) {
-              if (rest.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
-                uncertain.add(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
-                unreadHandler(done)
+            let msLabel = 'ms at arm'
+            let ignoredWhileArmed = false
+            if (options && ts.isObjectLiteralExpression(options)) {
+              if (options.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
+                uncertain.add(`spread in ${where(path, `arms.${entryName}`)} could not be statically read`)
+                unreadHandler(expired)
               }
-              const resetProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'reset')
-              const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
-              if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
-              const doneProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'done')
-              if (doneProp) unreadBy(doneProp, done)
-              const returned = returnedBy(doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp), done)
-              if (returned) read(returned, path, `${entryName} (done)`, done)
-            } else if (rest) {
-              unreadBy(rest, done)
-              const restType = checker.getTypeAtLocation(rest)
-              if (restType.getCallSignatures().length) {
-                read(returnedBy(restType, done)!, path, `${entryName} (done)`, done)
-              } else {
-                // Options written elsewhere: what is read of them is what their type says, for the moves listed.
-                const doneProp = restType.getProperty?.('done')
-                const returned = returnedBy(doneProp && real(typeOf(doneProp))[0], done)
-                if (returned) read(returned, path, `${entryName} (done)`, done)
-                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entryName}`)}`)
-              }
+              const named = (key: string): any => options.properties.find((each: any) => each.name && propName(each.name) === key)
+              const afterProp = named('after')
+              const after = afterProp && (ts.isPropertyAssignment(afterProp) ? afterProp.initializer : afterProp.name)
+              if (after && !isUndefined(after)) msLabel = ts.isNumericLiteral(after) ? `${after.text}ms` : text(after)
+              const whenArmedProp = named('whenArmed')
+              const whenArmed = whenArmedProp && (ts.isPropertyAssignment(whenArmedProp) ? whenArmedProp.initializer : whenArmedProp.name)
+              const whenArmedType = whenArmed && checker.getTypeAtLocation(whenArmed)
+              if (whenArmedType?.isStringLiteral() && whenArmedType.value === 'ignore') ignoredWhileArmed = true
+              const expiredProp = named('expired')
+              if (expiredProp) unreadBy(expiredProp, expired)
+              // An `expired` that may be `undefined`, or one of two functions, moves as each function it may be does.
+              const returned = expiredProp ? real(checker.getTypeAtLocation(expiredProp.initializer ?? expiredProp)).flatMap((each: Type) => returnedBy(each, expired) ?? []) : []
+              if (returned.length) read(returned, path, `${entryName} (expired)`, expired)
+            } else if (options) {
+              // Options written elsewhere: what is read of them is what their type says, for the moves listed.
+              unreadHandler(expired)
+              const optionsType = checker.getTypeAtLocation(options)
+              if (optionsType.getProperty?.('after')) msLabel = `${text(options)}.after`
+              const expiredProp = optionsType.getProperty?.('expired')
+              const returned = returnedBy(expiredProp && real(typeOf(expiredProp))[0], expired)
+              if (returned) read(returned, path, `${entryName} (expired)`, expired)
+              else if (optionsType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `arms.${entryName}`)}`)
             }
-            const msLabel = hasMs ? (ts.isNumericLiteral(first) ? `${first.text}ms` : text(first)) : 'ms at arm'
-            waits.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
+            arms.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${ignoredWhileArmed ? ', ignored while armed' : ''}`)
             continue
           }
           scan(entry.initializer, here)
@@ -605,14 +610,14 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     if (literal && ts.isObjectLiteralExpression(literal)) {
       declarations(literal, '')
     } else {
-      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
+      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and arms could not be scanned')
       hidden('')
     }
 
     // The least set closed under what can happen, from the state everything is in and what it starts at. A state is
-    // live when it can be the case, and a wait when it can be armed.
+    // live when it can be the case, and a timer when it can be armed.
     const liveStates = new Set<string>()
-    const liveWaits = new Set<string>()
+    const liveTimers = new Set<string>()
     /**
      * Entering a state is entering each state around it, and then what it starts at, and what that starts at. A state
      * around the one entered is not entered at what it starts at.
@@ -628,7 +633,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         else for (const name of initial ?? []) next.push(join(at, name))
       }
     }
-    const canRun = (at: Site): boolean => (at.wait !== undefined ? liveWaits.has(at.wait) : liveStates.has(at.state) && (!at.ofWork || working.has(at.state)))
+    const canRun = (at: Site): boolean => (at.timer !== undefined ? liveTimers.has(at.timer) : liveStates.has(at.state) && (!at.ofWork || working.has(at.state)))
     const ran = new Set<Site>()
     enter('')
     for (let more = true; more; ) {
@@ -638,22 +643,22 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         ran.add(at)
         more = true
         for (const target of at.anywhere ? declared : at.moves) enter(target)
-        for (const key of at.arms) liveWaits.add(key)
-        for (const wait of declaredWaits) {
-          if ((at.armsAround && around(wait.within, at.state)) || (at.armsWithin && around(at.state, wait.within))) liveWaits.add(wait.key)
+        for (const key of at.arms) liveTimers.add(key)
+        for (const timer of declaredTimers) {
+          if ((at.armsAround && around(timer.within, at.state)) || (at.armsWithin && around(at.state, timer.within))) liveTimers.add(timer.key)
         }
       }
     }
 
     // What is dead is said by its cause. One dead thing leads to another where it is read to: a state to the states
-    // inside it and the waits it declares, a handler's state to what the handler enters and arms, a wait to what its
-    // `done` does. What may be, unread, leads nowhere here: it is not known to. A cause is a dead thing nothing dead
+    // inside it and the timers it declares, a handler's state to what the handler enters and arms, a timer to what its
+    // `expired` does. What may be, unread, leads nowhere here: it is not known to. A cause is a dead thing nothing dead
     // leads to but what it leads to itself, and the first of those declared speaks for them.
     const stateId = (path: string): string => `state\n${path}`
-    const waitId = (key: string): string => `wait\n${key}`
+    const timerId = (key: string): string => `timer\n${key}`
     const dead = [
       ...declared.filter((name) => !liveStates.has(name)).map(stateId),
-      ...declaredWaits.filter((wait) => !liveWaits.has(wait.key)).map((wait) => waitId(wait.key)),
+      ...declaredTimers.filter((timer) => !liveTimers.has(timer.key)).map((timer) => timerId(timer.key)),
     ]
     const order = new Map(dead.map((id, index) => [id, index]))
     const leadsTo = new Map<string, Set<string>>(dead.map((id) => [id, new Set()]))
@@ -664,10 +669,10 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       ledBy.get(to)!.add(from)
     }
     for (const name of declared) lead(stateId(name.slice(0, Math.max(0, name.lastIndexOf('.')))), stateId(name))
-    for (const wait of declaredWaits) lead(stateId(wait.within), waitId(wait.key))
+    for (const timer of declaredTimers) lead(stateId(timer.within), timerId(timer.key))
     for (const at of sites.values()) {
-      const from = at.wait !== undefined ? waitId(at.wait) : stateId(at.state)
-      for (const key of at.arms) lead(from, waitId(key))
+      const from = at.timer !== undefined ? timerId(at.timer) : stateId(at.state)
+      for (const key of at.arms) lead(from, timerId(key))
       // A move enters the states around its target that the handler is not already in.
       for (const target of at.moves) {
         for (const name of declared) if (around(name, target) && !around(name, at.state)) lead(from, stateId(name))
@@ -689,31 +694,31 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const said = (id: string): string => {
       const name = id.slice(id.indexOf('\n') + 1)
       if (id.startsWith('state\n')) return name
-      const wait = byWaitKey.get(name)!
-      return where(wait.within, wait.name)
+      const timer = byTimerKey.get(name)!
+      return where(timer.within, timer.name)
     }
     const isState = (id: string): boolean => id.startsWith('state\n')
     const spoken = new Set<string>(causes)
     const caused: string[] = []
     for (const cause of causes) {
       const by = [...ledBy.get(cause)!]
-      const fromWaits = by.filter((id) => !isState(id) && id !== cause).map(said)
+      const fromTimers = by.filter((id) => !isState(id) && id !== cause).map(said)
       const except: string[] = []
       let subject: string
       if (isState(cause)) {
         const fromStates = by.filter(isState).map(said)
         if (fromStates.length) except.push(`from ${fromStates.join(', ')}`)
-        if (fromWaits.length) except.push(`by the done of ${fromWaits.join(', ')}`)
+        if (fromTimers.length) except.push(`by the expiry of ${fromTimers.join(', ')}`)
         subject = `${said(cause)} is never entered`
       } else {
-        if (by.includes(cause)) except.push('its own done')
-        if (fromWaits.length) except.push(`the done of ${fromWaits.join(', ')}`)
+        if (by.includes(cause)) except.push('its own expiry')
+        if (fromTimers.length) except.push(`the expiry of ${fromTimers.join(', ')}`)
         subject = `nothing arms ${said(cause)}`
       }
       const after = dead.filter((id) => !spoken.has(id) && reached.get(cause)!.has(id))
       for (const id of after) spoken.add(id)
-      // A wait declared in a state never entered is said by that state: nothing in it happens at all.
-      const unarmed = after.filter((id) => !isState(id) && liveStates.has(byWaitKey.get(id.slice(id.indexOf('\n') + 1))!.within)).map(said)
+      // A timer declared in a state never entered is said by that state: nothing in it happens at all.
+      const unarmed = after.filter((id) => !isState(id) && liveStates.has(byTimerKey.get(id.slice(id.indexOf('\n') + 1))!.within)).map(said)
       const unentered = after.filter(isState).map(said)
       const so = [unarmed.length ? `nothing arms ${unarmed.join(', ')}` : '', unentered.length ? `nothing enters ${unentered.join(', ')}` : ''].filter(Boolean)
       caused.push(`${subject}${except.length ? ` except ${except.join(' and ')}` : ''}${so.length ? `, so ${so.join('; ')}` : ''}`)
@@ -734,12 +739,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const followed of follows) lines.push(`  follows ${followed}`)
     for (const loaded of loads) lines.push(`  loads   ${loaded}`)
     for (const called of calls) lines.push(`  calls   ${called}`)
-    for (const waited of waits) lines.push(`  waits   ${waited}`)
+    for (const armed of arms) lines.push(`  arms    ${armed}`)
     if (reaches.length) lines.push(`  reaches: ${reaches.join(', ')}`)
     lines.push(`  findings: ${findings.length ? findings.join('; ') : 'none'}`)
 
     return {
-      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, waits, reaches, findings,
+      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, arms, reaches, findings,
       text: lines.join('\n').replaceAll('\r\n', '\n'),
     }
   }

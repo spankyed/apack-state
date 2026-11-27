@@ -10,7 +10,7 @@ The kernel tracks four distinct lifetimes. They nest, but they are **not** inter
 | Lifetime | Begins | Ends | What is atomic or cancelled |
 |---|---|---|---|
 | **System** | `system(...)` | `stop()` / `[Symbol.dispose]()` or a lost transaction | Stops all running states, cancels all work and asks, detaches ports |
-| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, `waits`, and runs `onExit` releases (LIFO) |
+| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, `arms`, and runs `onExit` releases (LIFO) |
 | **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `send`/`tell`/`progress` calls are ignored |
 | **Transactional step** | One outside arrival (`send`, `ask`, view update, work result) | `transact` returns and `flush()` runs | Data updates, database rows written via `transact`, and managed outgoing sends (`tell`, `broadcast`, `ask`, `answer`, `peer`) commit or roll back together |
 
@@ -61,9 +61,9 @@ network) that already ran.
   `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
   registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
   absent, matching synchronous `run()`).
-- **Imperative calls (`calls`) and timers (`waits`).** Both project into one flat namespace per machine (`pending` and
-  `waiting`). Because an active child and its enclosing ancestors run simultaneously and share one snapshot map, a
-  nested state may not redeclare a `call` or `wait` name already declared by an enclosing state; sibling states may
+- **Imperative calls (`calls`) and timers (`arms`).** Each projects into one flat namespace per machine (`pending` and
+  `armed`). Because an active child and its enclosing ancestors run simultaneously and share one snapshot map, a
+  nested state may not redeclare a call or timer name already declared by an enclosing state; sibling states may
   share a name provided their kinds match, while conflicting kinds (`one` vs `each` vs `many`) across states of one
   machine are refused at compile time and on `start()`. `arm` and `disarm` enqueue onto the step's internal queue so
   they obey exact FIFO ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the
@@ -72,11 +72,14 @@ network) that already ran.
   self-transition, call `arm` from that state's `listen` or `run`), never block `sys.idle()`, and never deliver or log
   stale expirations after disarm, re-arm, or exit. An `each` key must be a string — calling or arming an `each` entry
   with `undefined`, a number, or any other non-string reports a structured `Defect` without starting the call or timer,
-  because `pending` and `waiting` are plain objects where `5` and `'5'` would coerce to one entry `'5'` while
+  because `pending` and `armed` are plain objects where `5` and `'5'` would coerce to one entry `'5'` while
   `scope.key` is typed `string` (and `undefined` would omit `'/'` and overwrite `{}` with `true`). Arming with a
-  non-finite or negative `ms`, or without a `clock` on the system, likewise reports a structured `Defect`; a throwing
-  `done` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
-  `waiting`.
+  non-finite or negative `ms`, or without a `clock` on the system, likewise reports a structured `Defect`. A timer
+  declared with anything but an options object where its options go (a bare number, a function, `null`, an array),
+  or with a `whenArmed` that is neither `'restart'` nor `'ignore'`, is refused on `start()`, saying what it was given;
+  no options at all, `undefined`, and an object of them are taken as they are; a throwing
+  `expired` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
+  `armed`.
 
 ## Handle semantics
 
@@ -124,7 +127,7 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `Port.ask` / `Port.tell` | Yes (`safely` → defect / failure outcome) | Ask settles as `failed`; system continues running |
 | `forNet(resolve)` | Yes (`try/catch` + non-empty string check → defect) | Reported as a defect before mutating `following`/`awaiting`/`pending`; `ask()` resolves to `failed`; valid results memoized per running state |
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
-| `clock.now()` / `clock.after()` | `after` throw rejects `sleep()` or reports a `Defect` for `waits` (preserving any prior armed timer on re-arm); `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
+| `clock.now()` / `clock.after()` | `after` throw rejects `sleep()` or reports a `Defect` for `arms` (preserving any prior armed timer on re-arm); `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
 ## Cycle and deadlock boundaries
 

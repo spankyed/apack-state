@@ -84,7 +84,7 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
 | `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
 | `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
-| `waits` | The timers it arms when a handler says `arm`, each with an optional `done` handler for when it expires |
+| `arms` | The timers it arms when a handler says `arm`, each with an optional `expired` handler for when it expires |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
 
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
@@ -334,42 +334,45 @@ points at.
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
     by hand, and no event for how one finished.
 
-    **Imperative timers follow the same split under `waits`.** A state declares them in `Shape.waits` (`'one'`,
-    `'each'`, `{ one: 'ms' }`, `{ each: 'ms' }`), builds them in `waits: ({ one, each }) => ({ ... })` with a fixed
-    default `ms` (overridable per `arm`) or runtime `ms`, `reset: true` (debounce, the default) or `reset: false`
-    (throttle), and an optional `done` handler (omitted for pure-TTL flags). Handlers arm and disarm them transactionally
+    **Imperative timers follow the same split under `arms`.** The words are one family: a timer is declared under
+    `arms`, armed with `arm`, cleared with `disarm`, read on `armed`, and logged as `arm`, `disarm` and `expired`. A
+    state declares them in `Shape.arms` (`'one'`, `'each'`, `{ one: 'at arm' }`, `{ each: 'at arm' }`) and builds them
+    in `arms: ({ one, each }) => ({ ... })`, each from one labelled object: `one({ after: 100, expired, whenArmed })`.
+    `after` is how long it runs (overridable per `arm`), and is left out of a timer declared `'at arm'`, whose every
+    `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `expired` is the
+    handler for its expiring (omitted for pure-TTL flags). A misspelled option does not compile. Handlers arm and disarm them transactionally
     with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
-    clears every active key). Which timers are armed lives on `waiting` beside `at`, `data`, and `pending` (`boolean`
+    clears every active key). Which timers are armed lives on `armed` beside `at`, `data`, and `pending` (`boolean`
     for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
     never blocks `sys.idle()`.
 
-    **A name under `calls` or `waits` stands for one thing.** `pending` and `waiting` have one entry for a name,
+    **A name under `calls` or `arms` stands for one thing.** `pending` and `armed` have one entry for a name,
     whichever state declares it. So a name has one kind across a definition, and a state does not declare again a
     name a state around it declares: the two could be under way at once, and the entry would say one while `cancel`
     or `disarm` ended the other. Both are refused where the definition is written and where it is started. States
     beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
-    reaches the wait its own state or the nearest state around it declares.
+    reaches the timer its own state or the nearest state around it declares.
 
     **What can happen is one analysis, and what cannot is said by its cause.** A state that can be the case lets
     the handlers written in it run: its `on`, `internal` and `answers`, its `run` and `listen`, what its calls,
     reads and views come back to, and its `failed` where it has a `run` or a `listen` to fail. A handler that can
     run can enter the states it moves to, with each state around them and what the target starts at, and arm the
-    waits it arms. A wait that can be armed lets its `done` run. It begins with the state everything is in and what
+    timers it arms. A timer that can be armed lets its `expired` run. It begins with the state everything is in and what
     that starts at, and takes the least of what follows; whether anyone sends an event is not asked. What it never
-    gets to is dead: a state never entered, a wait nothing arms. So a state entered only from a handler that cannot
-    run is never entered, and a wait armed only there is not armed.
+    gets to is dead: a state never entered, a timer nothing arms. So a state entered only from a handler that cannot
+    run is never entered, and a timer armed only there is not armed.
 
     Each dead thing is said once. A cause is one nothing dead leads to, or only what it leads to itself, and it is
     said with what is dead because of it: `dead is never entered, so nothing arms keepalive; nothing enters
-    dead.sub`, `nothing arms first, so nothing arms second`, `nothing arms poll except its own done`. Of a circle the
-    first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A wait
+    dead.sub`, `nothing arms first, so nothing arms second`, `nothing arms poll except its own expiry`. Of a circle the
+    first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A timer
     declared in a state never entered is not named: the state says it.
 
     Where a handler goes is read from the type it returns, and, where that type is written by hand, from each value
     it returns as well: a type given to a return may say less than the values do, and a move it leaves out is still
     made.
     What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
-    written in the definition may arm any wait its own state or a state around it declares, and so may an `arm` of a
+    written in the definition may arm any timer its own state or a state around it declares, and so may an `arm` of a
     name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
     that returns `any`, is not one function, is written as anything but a function or the name of one, is named by
     something whose type may say less than it returns (a `const` given a type, a function declared without its
@@ -378,8 +381,8 @@ points at.
     with where its options are not all read, and a declaration made by anything but what its table is handed (`one`,
     `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
     in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
-    what is unread in a state never entered hides nothing, and the unread `done` of a wait hides nothing until the
-    wait is armed.
+    what is unread in a state never entered hides nothing, and the unread `expired` of a timer hides nothing until the
+    timer is armed.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
