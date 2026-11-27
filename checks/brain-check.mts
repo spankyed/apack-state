@@ -53,7 +53,7 @@ await run([
         },
       },
     })
-    backend.attach('runHistory', history.peer)
+    backend.peer('runHistory', history.peer)
     const brain = backend.start('brain', makeBrainState(blueprints, execute))
 
     backend.send(brain, { type: 'START_BRAIN', rootFlowId: 'root' })
@@ -96,7 +96,7 @@ await run([
       side: 'backend',
       clock: { now: () => 500, after: (_ms, fn) => { fn(); return () => {} } },
     })
-    backend.attach('runHistory', history.peer)
+    backend.peer('runHistory', history.peer)
     const brain = backend.start('brain', makeBrainState(blueprints, execute))
 
     backend.send(brain, { type: 'START_BRAIN', rootFlowId: 'root' })
@@ -149,7 +149,7 @@ await run([
       side: 'backend',
       clock: { now: () => 1_000, after: () => () => {} },
     })
-    backend.attach('runHistory', history.peer)
+    backend.peer('runHistory', history.peer)
     const brain = backend.start('brain', makeBrainState(racingBlueprints, execute))
     backend.send(brain, { type: 'START_BRAIN', rootFlowId: 'root' })
     backend.send(brain, { type: 'TRIGGER_BRAIN_EVENT', eventType: 'slow', payload: null })
@@ -177,7 +177,7 @@ await run([
         return payload
       }
       const backend = system({ side: 'backend', ...onSchedule(schedule, 'brain') })
-      backend.attach('runHistory', history.peer)
+      backend.peer('runHistory', history.peer)
       const brain = backend.start('brain', makeBrainState(blueprints, execute))
 
       backend.send(brain, { type: 'START_BRAIN', rootFlowId: 'root' })

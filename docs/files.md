@@ -36,7 +36,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `src/testing.ts` | `@apackdev/state/testing`: the schedule of `@apackdev/orderings` (`everyOrder`, `explore`, `sample`, `replay`, its clock), `connect(window, backend, schedule?)` over `@apackdev/link`, a system on a schedule (`onSchedule`), and scenarios made from the events a state declares (`fromEvents`) |
 | `checks/log-check.mts` | A step's log: what began it, what changed, what left, how it ended, and that nothing carried is in it |
 | `checks/clock-check.mts` | A system's clock: step-stamped `now` in handlers and logs, live `now` after an `await` in work, monotonic clamping, no-clock refusals, and `sleep(ms)` cancellation under every ordering. Runs |
-| `checks/peers-check.mts` | Named non-window peers: `attach(name, peer)`, `tell({ peer }, event)` commit-time delivery, `outcome: 'dropped'` logging, `safely` isolation, and no view hold over `@apackdev/link` under every ordering. Runs |
+| `checks/peers-check.mts` | Named non-window peers: `peer(name, peer)`, `tell({ peer }, event)` commit-time delivery, `outcome: 'dropped'` logging, `safely` isolation, and no view hold over `@apackdev/link` under every ordering. Runs |
 | `checks/brain-check.mts` | A slice of apack's brain: dynamic trigger nodes via one declared `TRIGGER` event, recursive subflows, commit-time `runHistory` peer facts with `now`, `sleep(ms)` delays, and `KILL_BRAIN` cancellation under every ordering. Runs |
 | `checks/testing-check.mts` | That kit, held to what it says |
 | `src/turn.ts` | The next turn of the event loop, in Node and in a window: what the kernel puts off with when it is given nothing, and what every check waits a turn with |
@@ -45,7 +45,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |
 | `checks/loads-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field. Runs |
 | `checks/calls-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel. Runs, for about 10 seconds |
-| `checks/arms-check.mts` | Imperative timers declared under `arms`: `one` and keyed `each`, a duration declared as `after` or given at `arm`, `whenArmed: 'restart'`/`'ignore'`, optional `done`, `arm`/`disarm` rollback, exit cleanup, Vue mirror reactivity, and `explore` determinism. Runs |
+| `checks/arms-check.mts` | Imperative timers declared under `arms`: `single` and keyed `each`, a duration declared as `after` or given at `arm`, `whenArmed: 'restart'`/`'ignore'`, optional `done`, `arm`/`disarm` rollback, exit cleanup, Vue mirror reactivity, and `explore` determinism. Runs |
 | `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
 | `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |

@@ -115,20 +115,20 @@ const subject = (store: Rows, { handled, wait = () => new Promise<void>((resolve
   return state<{ data: { count: number } }, Events, Asks>()({
     data: { count: 0 },
     on: {
-      DO: ({ does }, { data, send }) => {
+      DO: ({ does }, { data, raise }) => {
         handled?.({ what: 'told', does })
         put(does.writes)
-        for (const sent of does.sends) send({ type: 'DO', does: sent })
+        for (const sent of does.sends) raise({ type: 'DO', does: sent })
         if (does.ends === 'throws' || does.ends === 'refuses') throw new Error('the handler threw')
         if (does.ends === 'stray') return { data: { nothing: 1 } } as never
         return { data: { count: data.count + does.adds } }
       },
     },
     answers: {
-      RUN: ({ does }, { send, refuse }) => {
+      RUN: ({ does }, { raise, refuse }) => {
         handled?.({ what: 'asked', does })
         put(does.writes)
-        for (const sent of does.sends) send({ type: 'DO', does: sent })
+        for (const sent of does.sends) raise({ type: 'DO', does: sent })
         if (does.ends === 'throws') throw new Error('the handler threw')
         if (does.ends === 'refuses') throw refuse('no', 'the handler refused')
         if (does.ends === 'stray') return answered(does.adds, { data: { nothing: 1 } } as never)
@@ -140,10 +140,10 @@ const subject = (store: Rows, { handled, wait = () => new Promise<void>((resolve
           draft.count += does.adds
         } })
       },
-      WAIT: async ({ does }, { send, refuse }) => {
+      WAIT: async ({ does }, { raise, refuse }) => {
         handled?.({ what: 'began waiting', does })
         put(does.writes)
-        for (const sent of does.sends) send({ type: 'DO', does: sent })
+        for (const sent of does.sends) raise({ type: 'DO', does: sent })
         await wait(does)
         if (does.ends === 'throws' || does.ends === 'stray') throw new Error('the handler threw')
         if (does.ends === 'refuses') throw refuse('no', 'the handler refused')

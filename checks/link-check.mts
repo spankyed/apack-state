@@ -228,13 +228,13 @@ await run([
     }
     const window = system({ side: 'window', name: WINDOW })
     window.attach(spy)
-    const sameStep = state<{ states: { active: { calls: { create: 'one' } }; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
+    const sameStep = state<{ states: { active: { calls: { create: 'single' } }; done: {} } }, { type: 'GO' } | { type: 'LEAVE' }>()({
       initial: 'active',
       states: {
         active: {
-          calls: ({ one }) => ({ create: one('threads', 'CREATE', { args: () => ({ id: 'a' }), done: () => undefined }) }),
+          calls: ({ single }) => ({ create: single('threads', 'CREATE', { args: () => ({ id: 'a' }), done: () => undefined }) }),
           on: {
-            GO: (_, { call, send }) => { call('create'); send({ type: 'LEAVE' }) },
+            GO: (_, { call, raise }) => { call('create'); raise({ type: 'LEAVE' }) },
             LEAVE: () => ({ at: 'done' }),
           },
         },

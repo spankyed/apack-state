@@ -31,19 +31,19 @@ export type Shape = {
   internal?: AnyEvent
   /**
    * The imperative asks it can call on demand, by name:
-   * - `'one'` / `{ one: In }`: single-flight (deduped), `pending.<name>: boolean`
+   * - `'single'` / `{ single: In }`: single-flight (deduped), `pending.<name>: boolean`
    * - `'each'` / `{ each: In }`: keyed concurrent (one per key), `pending.<name>: Readonly<Record<string, true>>`
    * - `'many'` / `{ many: In }`: unkeyed concurrent, `pending.<name>: number`
    */
-  calls?: Record<string, 'one' | 'each' | 'many' | { readonly one: unknown } | { readonly each: unknown } | { readonly many: unknown }>
+  calls?: Record<string, 'single' | 'each' | 'many' | { readonly single: unknown } | { readonly each: unknown } | { readonly many: unknown }>
   /**
    * The imperative timers it can arm on demand, by name:
-   * - `'one'` / `{ one: 'at arm' }`: single timer, `armed.<name>: boolean`
+   * - `'single'` / `{ single: 'at arm' }`: single timer, `armed.<name>: boolean`
    * - `'each'` / `{ each: 'at arm' }`: keyed timers (one per key), `armed.<name>: Readonly<Record<string, true>>`
    *
    * `'at arm'` says the timer declares no duration of its own: each `arm` gives one.
    */
-  arms?: Record<string, 'one' | 'each' | { readonly one: 'at arm' } | { readonly each: 'at arm' }>
+  arms?: Record<string, 'single' | 'each' | { readonly single: 'at arm' } | { readonly each: 'at arm' }>
 }
 
 /** Any state, as something another can start. */
@@ -57,7 +57,7 @@ export type Net = {
   surfaces: Record<string, { events: AnyEvent }>
   /** The live reads a feature offers, by feature and then by name. */
   views: Record<string, Record<string, { args: object; result: unknown }>>
-  /** Non-window peers attached to a system by name (tell-only). Optional. */
+  /** The non-window peers a system may be given by name (tell-only). Optional. */
   peers?: Record<string, { events: AnyEvent }>
 }
 type Nothing = { systems: {}; surfaces: {}; views: {} }
@@ -107,8 +107,8 @@ type Sub<S, K> = K extends keyof StatesOf<S> ? StatesOf<S>[K] : never
 type StartsOf<S> = S extends { starts: infer C extends object } ? C : {}
 type StartsBelow<S, P> = P extends `${infer H}.${infer T}` ? StartsOf<Sub<S, H>> & StartsBelow<Sub<S, H>, T> : StartsOf<Sub<S, P>>
 /** Everything started where a handler sits: by its own state and by every state around it. */
-type CallKind<C> = C extends 'each' | { readonly each: unknown } ? 'each' : C extends 'many' | { readonly many: unknown } ? 'many' : 'one'
-type CallInput<C> = C extends { readonly one: infer I } | { readonly each: infer I } | { readonly many: infer I } ? I : never
+type CallKind<C> = C extends 'each' | { readonly each: unknown } ? 'each' : C extends 'many' | { readonly many: unknown } ? 'many' : 'single'
+type CallInput<C> = C extends { readonly single: infer I } | { readonly each: infer I } | { readonly many: infer I } ? I : never
 type InputScope<I> = [I] extends [never] ? {} : { readonly input: Read<I> }
 type CallParams<C> =
   CallKind<C> extends 'each'
@@ -122,15 +122,15 @@ type CallsAt<S, P extends string> = P extends '' ? CallsOf<S> : CallsOf<S> & Cal
 type CallKindsOf<S> = { [K in keyof CallsOf<S>]: CallKind<CallsOf<S>[K]> }
 /** Every imperative ask a state declares, whichever of its states declares it, mapped to its cardinality kind. */
 type AllCallKinds<S> = CallKindsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllCallKinds<StatesOf<S>[K]> }[Names<S>]>)
-/** Which of them are in flight: by key for `each`, in-flight count for `many`, and boolean for `one`. */
+/** Which of them are in flight: by key for `each`, in-flight count for `many`, and boolean for `single`. */
 type PendingOf<M> = {
   readonly [K in keyof M]:
     M[K] extends 'each' ? Readonly<Record<string, true>>
     : M[K] extends 'many' ? number
     : boolean
 }
-type ArmKind<W> = W extends 'each' | { readonly each: 'at arm' } ? 'each' : 'one'
-type ArmNeedsMs<W> = W extends { readonly one: 'at arm' } | { readonly each: 'at arm' } ? true : false
+type ArmKind<W> = W extends 'each' | { readonly each: 'at arm' } ? 'each' : 'single'
+type ArmNeedsMs<W> = W extends { readonly single: 'at arm' } | { readonly each: 'at arm' } ? true : false
 type ArmParams<W> =
   ArmKind<W> extends 'each'
     ? (ArmNeedsMs<W> extends true ? [key: string, ms: number] : [key: string, ms?: number])
@@ -143,7 +143,7 @@ type ArmsAt<S, P extends string> = P extends '' ? ArmsOf<S> : ArmsOf<S> & ArmsBe
 type ArmKindsOf<S> = { [K in keyof ArmsOf<S>]: ArmKind<ArmsOf<S>[K]> }
 /** Every imperative timer a state declares, whichever of its states declares it, mapped to its cardinality kind. */
 type AllArmKinds<S> = ArmKindsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllArmKinds<StatesOf<S>[K]> }[Names<S>]>)
-/** Which of them are armed: by key for `each`, and boolean for `one`. */
+/** Which of them are armed: by key for `each`, and boolean for `single`. */
 type ArmedOf<M> = {
   readonly [K in keyof M]: M[K] extends 'each' ? Readonly<Record<string, true>> : boolean
 }
@@ -274,10 +274,10 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   readonly signal: AbortSignal
 
   /**
-   * Tells this running state an event: one only it sends itself, which its `internal` handlers take, or one that
+   * Raises an event in this running state: one only it raises itself, which its `internal` handlers take, or one that
    * others may send it too.
    */
-  send(event: Read<E | InternalOf<R>>): void
+  raise(event: Read<E | InternalOf<R>>): void
 
   /** Tells a backend system, or a state this one started, an event. Nobody waits. */
   tell<K extends SystemsOf<N>>(to: K, event: Read<N['systems'][K]['events']>): void
@@ -288,8 +288,8 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    */
   tell<K extends keyof N['surfaces'] & string>(to: { readonly surface: K }, event: Read<N['surfaces'][K]['events']>): void
   /**
-   * Tells a named non-window peer attached to this system an event. Nobody waits. Delivered after the step commits,
-   * with no view hold; dropped (recorded in `StepLog.sent` with `outcome: 'dropped'`) if no peer is attached under
+   * Tells a named non-window peer of this system an event. Nobody waits. Delivered after the step commits,
+   * with no view hold; dropped (recorded in `StepLog.sent` with `outcome: 'dropped'`) if no peer has
    * that name.
    */
   tell<K extends PeersOf<N>>(to: { readonly peer: K }, event: Read<PeerEventOf<N, K>>): void
@@ -317,11 +317,11 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
 
   /**
    * Fires an ask this state declares under `calls`. It runs when the step commits, with the data as the handler left
-   * it. For `one` and `each`, one already in flight (or in flight for that key) is deduped and not started twice; for
+   * it. For `single` and `each`, one already in flight (or in flight for that key) is deduped and not started twice; for
    * `many`, each call runs concurrently. How each finishes goes to its declared `done` handler.
    */
   call<K extends keyof CallsAt<R, H> & string>(name: K, ...rest: CallParams<CallsAt<R, H>[K]>): void
-  /** Cancels an in-flight call (`one`/`each`), or all in-flight instances (`many`): the responder is aborted and `done` is not called. */
+  /** Cancels an in-flight call (`single`/`each`), or all in-flight instances (`many`): the responder is aborted and `done` is not called. */
   cancel<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CancelParams<CallsAt<R, H>[K]>): void
 
   /**
@@ -329,7 +329,7 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    * restarts it from now; with `whenArmed: 'ignore'`, arming while already armed is a no-op.
    */
   arm<K extends keyof ArmsAt<R, H> & string>(name: K, ...rest: ArmParams<ArmsAt<R, H>[K]>): void
-  /** Disarms an armed timer (`one`, or one key of `each`; omitting `key` on `each` disarms every active key). */
+  /** Disarms an armed timer (`single`, or one key of `each`; omitting `key` on `each` disarms every active key). */
   disarm<K extends keyof ArmsAt<R, H> & string>(name: K, ...key: DisarmParams<ArmsAt<R, H>[K]>): void
 
   /** A state this one started, as it is now: nothing while it is not running. */
@@ -434,7 +434,7 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
   answers?: Answering<R, H, E, A, N>
   /**
    * External push subscriptions held for as long as this state is the case (e.g. event emitters, watchers, DOM
-   * listeners). Runs synchronously on entry with a state-lifetime scope (so `send`/`tell`/`broadcast` stay live
+   * listeners). Runs synchronously on entry with a state-lifetime scope (so `raise`/`tell`/`broadcast` stay live
    * until the state exits) without blocking `sys.idle()`. Returning a cleanup function registers it with `onExit`
    * automatically.
    */
@@ -466,22 +466,22 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
    * The imperative asks fired when a handler calls `call(name)`. A read is loaded because the data says so, for as
    * long as it does. A write is not like that: it is fired once on demand, and its in-flight state lives on `pending`.
    */
-  calls: (calls: { one: CallOne<R, H, E, N>; each: CallEach<R, H, E, N>; many: CallMany<R, H, E, N> }) => {
+  calls: (calls: { single: CallSingle<R, H, E, N>; each: CallEach<R, H, E, N>; many: CallMany<R, H, E, N> }) => {
     [K in keyof CallsOf<S>]:
       CallKind<CallsOf<S>[K]> extends 'each' ? CalledEach<R, H, E, N, CallInput<CallsOf<S>[K]>>
       : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>>
-      : CalledOne<R, H, E, N, CallInput<CallsOf<S>[K]>>
+      : CalledSingle<R, H, E, N, CallInput<CallsOf<S>[K]>>
   }
 }) & ([keyof ArmsOf<S>] extends [never] ? { arms?: never } : {
   /**
    * The imperative timers armed when a handler calls `arm(name)`. Each is owned by this state (disarmed on exit),
    * does not block `idle()`, and exposes its armed status on `armed`.
    */
-  arms: (arms: { one: ArmOne<R, H, E, N>; each: ArmEach<R, H, E, N> }) => {
+  arms: (arms: { single: ArmSingle<R, H, E, N>; each: ArmEach<R, H, E, N> }) => {
     [K in keyof ArmsOf<S>]:
       ArmKind<ArmsOf<S>[K]> extends 'each'
         ? ArmedEach<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>
-        : ArmedOne<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>
+        : ArmedSingle<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>
   }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /** The state inside it that it enters first when whoever enters it does not say. */
@@ -569,7 +569,7 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
 }) => Followed<R, H, E, N>
 
-type OneArgsOpt<D, A, I> =
+type UnkeyedArgsOpt<D, A, I> =
   [I] extends [never]
     ? ({} extends Read<A> ? { args?: (data: Read<D>) => Read<A> } : { args: (data: Read<D>) => Read<A> })
     : ([Read<I>] extends [readonly unknown[]]
@@ -584,24 +584,24 @@ type EachArgsOpt<D, A, I> =
     ? ({} extends Read<A> ? { args?: (key: string, data: Read<D>) => Read<A> } : { args: (key: string, data: Read<D>) => Read<A> })
     : { args: (key: string, input: Read<I>, data: Read<D>) => Read<A> }
 
-/** An imperative ask called one at a time, as `one` builds it. */
-export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'one'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
+/** An imperative ask called one at a time, as `single` builds it. */
+export interface CalledSingle<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'single'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
 /** An imperative ask called per key, as `each` builds it. */
 export interface CalledEach<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'each'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
 /** An imperative ask called concurrently without keys, as `many` builds it. */
 export interface CalledMany<R, H extends string, E extends AnyEvent, N extends Net, I = never> { readonly kind: 'many'; readonly of: string; readonly ask: string; readonly args?: Function; readonly done: Function; readonly progress?: Function; readonly _?: { r: R; h: H; e: E; n: N; i: (input: I) => I } }
 /** Declares an imperative ask called one at a time (deduped). `args` may be omitted when the ask accepts `{}` or `input` directly. */
-export type CallOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+export type CallSingle<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: UnkeyedArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
-}) => CalledOne<R, H, E, N, I>
+}) => CalledSingle<R, H, E, N, I>
 /** Declares an imperative ask called per key. `args` may be omitted for bare `'each'` when the ask accepts `{}`. */
 export type CallEach<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: EachArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & { readonly key: string } & InputScope<NoInfer<I>>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & { readonly key: string } & InputScope<NoInfer<I>>) => Next<R, H> | void
 }) => CalledEach<R, H, E, N, I>
 /** Declares an unkeyed concurrent imperative ask. `args` may be omitted when the ask accepts `{}` or `input` directly. */
-export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: UnkeyedArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
 }) => CalledMany<R, H, E, N, I>
@@ -628,9 +628,9 @@ type StrictArmOptions<O, D> =
     : ArmOptions<D> & { readonly [K in Exclude<keyof O, keyof ArmOptions<D>>]: never }
 /** Whether each `arm` has to give the duration: it does when the options give none. */
 type ArmGivesNoDuration<O> = O extends { readonly after: number } ? false : true
-/** An imperative timer armed one at a time, as `one` builds it. */
-export interface ArmedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
-  readonly kind: 'one'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
+/** An imperative timer armed one at a time, as `single` builds it. */
+export interface ArmedSingle<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+  readonly kind: 'single'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
   readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
 }
 /** An imperative timer armed per key, as `each` builds it. */
@@ -638,10 +638,10 @@ export interface ArmedEach<R, H extends string, E extends AnyEvent, N extends Ne
   readonly kind: 'each'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
   readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
 }
-/** Declares an imperative timer (`one`). Give `after` for `'one'`, or leave it out for `{ one: 'at arm' }`. */
-export type ArmOne<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmDone<R, H, E, N>> = ArmOptions<ArmDone<R, H, E, N>>>(
+/** Declares an imperative timer (`single`). Give `after` for `'single'`, or leave it out for `{ single: 'at arm' }`. */
+export type ArmSingle<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmDone<R, H, E, N>> = ArmOptions<ArmDone<R, H, E, N>>>(
   options?: O & StrictArmOptions<O, ArmDone<R, H, E, N>>,
-) => ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>
+) => ArmedSingle<R, H, E, N, ArmGivesNoDuration<O>>
 /** Declares an imperative keyed timer (`each`). Give `after` for `'each'`, or leave it out for `{ each: 'at arm' }`. */
 export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmEachDone<R, H, E, N>> = ArmOptions<ArmEachDone<R, H, E, N>>>(
   options?: O & StrictArmOptions<O, ArmEachDone<R, H, E, N>>,
@@ -747,7 +747,7 @@ type RejectConflicting<S, BadCalls extends string, BadArms extends string> =
     ? { states: { [P in keyof T]: RejectConflicting<T[P], BadCalls, BadArms> } }
     : unknown)
 /**
- * Refuses declaring the same `calls` or `arms` name with conflicting kinds (`one` vs `each` vs `many`) across
+ * Refuses declaring the same `calls` or `arms` name with conflicting kinds (`single` vs `each` vs `many`) across
  * states of one machine: `pending` and `armed` each have one flat namespace per machine, so conflicting kinds would
  * clash on the snapshot.
  */

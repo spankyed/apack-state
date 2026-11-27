@@ -69,7 +69,7 @@ type SvcNet = {
 const netState = forNet<SvcNet>()
 
 const checks: Array<[string, () => Promise<void>]> = [
-  ['one and each timers arm, expose frozen armed, fire done (transitions, data, send, tell, call), and keep idle() true', async () => {
+  ['one and each timers arm, expose frozen armed, fire done (transitions, data, raise, tell, call), and keep idle() true', async () => {
     const manual = manualClock()
     const svcEvents: string[] = []
     const svcCalls: string[] = []
@@ -81,9 +81,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     type Shape = {
       data: { fired: string[]; saved: string[]; internalHits: number }
       internal: { type: 'BUMP' }
-      calls: { save: { one: { tag: string } } }
+      calls: { save: { single: { tag: string } } }
       arms: {
-        debounce: 'one'
+        debounce: 'single'
         t: 'each' // 1-char name exercises slash index boundary in valueOf
       }
       states: { editing: {}; submitted: {} }
@@ -93,14 +93,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     const form = netState<Shape, Ev>()({
       data: { fired: [], saved: [], internalHits: 0 },
       initial: 'editing',
-      calls: ({ one }) => ({
-        save: one('svc', 'SAVE', {
+      calls: ({ single }) => ({
+        save: single('svc', 'SAVE', {
           done: (outcome) => (outcome.ok ? { data: (d) => { d.saved.push(outcome.value) } } : undefined),
         }),
       }),
-      arms: ({ one, each }) => ({
-        debounce: one({ after: 200, done: ({ send, tell, call }) => {
-          send({ type: 'BUMP' })
+      arms: ({ single, each }) => ({
+        debounce: single({ after: 200, done: ({ raise, tell, call }) => {
+          raise({ type: 'BUMP' })
           tell('svc', { type: 'NOTIFIED', tag: 'debounced' })
           call('save', { tag: 'doc' })
           return { at: 'submitted', data: (d) => { d.fired.push('debounce') } }
@@ -169,13 +169,13 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     type FlagShape = {
       data: { label: string }
-      arms: { pulse: 'one'; highlight: 'each' }
+      arms: { pulse: 'single'; highlight: 'each' }
     }
     type FlagEv = { type: 'PULSE' } | { type: 'FLASH'; id: string } | { type: 'RENAME'; label: string }
     const flags = state<FlagShape, FlagEv>()({
       data: { label: 'init' },
-      arms: ({ one, each }) => ({
-        pulse: one({ after: 150 }),
+      arms: ({ single, each }) => ({
+        pulse: single({ after: 150 }),
         highlight: each({ after: 300 }),
       }),
       on: {
@@ -277,15 +277,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     type Shape = {
       data: { debounced: number; throttled: number; selfRearms: number }
-      arms: { deb: 'one'; thr: 'one'; loop: 'one' }
+      arms: { deb: 'single'; thr: 'single'; loop: 'single' }
     }
     type Ev = { type: 'DEB' } | { type: 'THR' } | { type: 'LOOP' }
     const machine = state<Shape, Ev>()({
       data: { debounced: 0, throttled: 0, selfRearms: 0 },
-      arms: ({ one }) => ({
-        deb: one({ after: 100, done: ({ data }) => ({ data: { debounced: data.debounced + 1 } }) }),
-        thr: one({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
-        loop: one({
+      arms: ({ single }) => ({
+        deb: single({ after: 100, done: ({ data }) => ({ data: { debounced: data.debounced + 1 } }) }),
+        thr: single({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
+        loop: single({
           after: 50,
           whenArmed: 'ignore',
           done: ({ data, arm }) => {
@@ -350,19 +350,19 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(h).armed.loop, false)
   }],
 
-  ['a duration given at arm ({ one: "at arm" } / { each: "at arm" }) and an optional ms override on a timer with `after` work with and without done and whenArmed', async () => {
+  ['a duration given at arm ({ single: "at arm" } / { each: "at arm" }) and an optional ms override on a timer with `after` work with and without done and whenArmed', async () => {
     const manual = manualClock()
-    let builtOneKind: string | undefined
+    let builtSingleKind: string | undefined
     let builtEachKind: string | undefined
     type Shape = {
       data: { log: string[] }
       arms: {
-        fixedOne: 'one'
+        fixedSingle: 'single'
         fixedEach: 'each'
-        undefinedAfter: 'one'
-        dynOneBare: { one: 'at arm' }
-        dynOneDone: { one: 'at arm' }
-        dynOneOpts: { one: 'at arm' }
+        undefinedAfter: 'single'
+        dynSingleBare: { single: 'at arm' }
+        dynSingleDone: { single: 'at arm' }
+        dynSingleOpts: { single: 'at arm' }
         dynEachBare: { each: 'at arm' }
         dynEachDone: { each: 'at arm' }
         dynEachOpts: { each: 'at arm' }
@@ -374,18 +374,18 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { log: [] },
-      arms: ({ one, each }) => {
-        const fixedOne = one({ after: 500, whenArmed: 'restart', done: () => ({ data: (d) => { d.log.push('fixedOne') } }) })
+      arms: ({ single, each }) => {
+        const fixedSingle = single({ after: 500, whenArmed: 'restart', done: () => ({ data: (d) => { d.log.push('fixedSingle') } }) })
         const fixedEach = each({ after: 500, whenArmed: 'restart', done: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
-        builtOneKind = fixedOne.kind
+        builtSingleKind = fixedSingle.kind
         builtEachKind = fixedEach.kind
         return {
-          fixedOne,
+          fixedSingle,
           fixedEach,
-          undefinedAfter: one({ after: undefined as unknown as number, done: () => ({ data: (d) => { d.log.push('undefinedAfterOverride') } }) }),
-          dynOneBare: one(),
-          dynOneDone: one({ done: () => ({ data: (d) => { d.log.push('dynOneDone') } }) }),
-          dynOneOpts: one({ whenArmed: 'ignore', done: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
+          undefinedAfter: single({ after: undefined as unknown as number, done: () => ({ data: (d) => { d.log.push('undefinedAfterOverride') } }) }),
+          dynSingleBare: single(),
+          dynSingleDone: single({ done: () => ({ data: (d) => { d.log.push('dynSingleDone') } }) }),
+          dynSingleOpts: single({ whenArmed: 'ignore', done: () => ({ data: (d) => { d.log.push('dynSingleOpts') } }) }),
           dynEachBare: each(),
           dynEachDone: each({ done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachDone:${key}`) } }) }),
           dynEachOpts: each({ whenArmed: 'ignore', done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
@@ -393,14 +393,14 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
       on: {
         FIXED_OVERRIDE: (_, { arm }) => {
-          arm('fixedOne', 25)
+          arm('fixedSingle', 25)
           arm('fixedEach', 'k', 40)
           arm('undefinedAfter', 30)
         },
         DYN_ALL: (_, { arm }) => {
-          arm('dynOneBare', 10)
-          arm('dynOneDone', 20)
-          arm('dynOneOpts', 30)
+          arm('dynSingleBare', 10)
+          arm('dynSingleDone', 20)
+          arm('dynSingleOpts', 30)
           arm('dynEachBare', 'a', 15)
           arm('dynEachDone', 'b', 25)
           arm('dynEachOpts', 'c', 35)
@@ -410,24 +410,24 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const sys = system({ side: 'backend', clock: manual.clock })
     const h = sys.start('m', m)
-    strictEqual(builtOneKind, 'one')
+    strictEqual(builtSingleKind, 'single')
     strictEqual(builtEachKind, 'each')
 
     sys.send(h, { type: 'FIXED_OVERRIDE' })
     manual.advance(25)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle'])
     manual.advance(15)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'undefinedAfterOverride', 'fixedEach:k'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle', 'undefinedAfterOverride', 'fixedEach:k'])
 
     sys.send(h, { type: 'DYN_ALL' })
-    strictEqual(sys.read(h).armed.dynOneBare, true)
+    strictEqual(sys.read(h).armed.dynSingleBare, true)
     strictEqual(sys.read(h).armed.dynEachBare.a, true)
     manual.advance(10)
-    strictEqual(sys.read(h).armed.dynOneBare, false)
+    strictEqual(sys.read(h).armed.dynSingleBare, false)
     manual.advance(5)
     strictEqual(sys.read(h).armed.dynEachBare.a, undefined)
     manual.advance(20)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'undefinedAfterOverride', 'fixedEach:k', 'dynOneDone', 'dynEachDone:b', 'dynOneOpts', 'dynEachOpts:c'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle', 'undefinedAfterOverride', 'fixedEach:k', 'dynSingleDone', 'dynEachDone:b', 'dynSingleOpts', 'dynEachOpts:c'])
   }],
 
   ['ms === 0 schedules on a subsequent step (never synchronously), and invalid ms or missing clock report exact defects without arming', async () => {
@@ -436,7 +436,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const order: string[] = []
     type Shape = {
       data: { ran: number }
-      arms: { zero: 'one'; dyn: { one: 'at arm' }; keyed: { each: 'at arm' }; fixedKeyed: 'each' }
+      arms: { zero: 'single'; dyn: { single: 'at arm' }; keyed: { each: 'at arm' }; fixedKeyed: 'each' }
     }
     type Ev =
       | { type: 'ZERO' }
@@ -447,9 +447,9 @@ const checks: Array<[string, () => Promise<void>]> = [
       | { type: 'NON_STRING_KEY' }
     const m = state<Shape, Ev>()({
       data: { ran: 0 },
-      arms: ({ one, each }) => ({
-        zero: one({ after: 0, done: ({ data }) => { order.push('done'); return { data: { ran: data.ran + 1 } } } }),
-        dyn: one({ done: () => { order.push('dyn') } }),
+      arms: ({ single, each }) => ({
+        zero: single({ after: 0, done: ({ data }) => { order.push('done'); return { data: { ran: data.ran + 1 } } } }),
+        dyn: single({ done: () => { order.push('dyn') } }),
         keyed: each({ done: () => { order.push('keyed') } }),
         fixedKeyed: each({ after: 100 }),
       }),
@@ -520,14 +520,14 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['clock.after throwing on fresh arm or re-arm and cancel throwing on disarm/exit are isolated with exact defects', async () => {
     const manual = manualClock()
     const defects: Defect[] = []
-    type Shape = { data: { fired: number; bump: number }; states: { on: { arms: { w: 'one' } }; off: {} } }
+    type Shape = { data: { fired: number; bump: number }; states: { on: { arms: { w: 'single' } }; off: {} } }
     type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'LEAVE' } | { type: 'BUMP' }
     const m = state<Shape, Ev>()({
       data: { fired: 0, bump: 0 },
       initial: 'on',
       states: {
         on: {
-          arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+          arms: ({ single }) => ({ w: single({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           on: {
             ARM: (_, { arm }) => { arm('w') },
             DISARM: (_, { disarm }) => { disarm('w') },
@@ -595,7 +595,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     type Shape = {
       data: { fired: string[] }
-      arms: { a: 'each'; b: 'each'; c: 'one' }
+      arms: { a: 'each'; b: 'each'; c: 'single' }
     }
     type Ev =
       | { type: 'ARM_ALL' }
@@ -604,10 +604,10 @@ const checks: Array<[string, () => Promise<void>]> = [
       | { type: 'DISARM_C' }
     const m = state<Shape, Ev>()({
       data: { fired: [] },
-      arms: ({ one, each }) => ({
+      arms: ({ single, each }) => ({
         a: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.fired.push(`a:${key}`) } }) }),
         b: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.fired.push(`b:${key}`) } }) }),
-        c: one({ after: 100, done: () => ({ data: (d) => { d.fired.push('c') } }) }),
+        c: single({ after: 100, done: () => ({ data: (d) => { d.fired.push('c') } }) }),
       }),
       on: {
         ARM_ALL: (_, { arm }) => {
@@ -663,14 +663,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     type Shape = {
       data: { fired: number }
-      arms: { thr: 'one' }
+      arms: { thr: 'single' }
     }
     type Ev = { type: 'ARM' } | { type: 'DISARM_THEN_ARM' } | { type: 'ARM_THEN_DISARM' }
     const m = state<Shape, Ev>()({
       data: { fired: 0 },
-      arms: ({ one }) => ({
+      arms: ({ single }) => ({
         // whenArmed: 'ignore' proves `disarm; arm` truly disarmed before arming (restarting it to expire at t+100).
-        thr: one({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
+        thr: single({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
       }),
       on: {
         ARM: (_, { arm }) => { arm('thr') },
@@ -704,7 +704,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const defects: Defect[] = []
     type Shape = {
       data: { n: number }
-      arms: { w: 'one' }
+      arms: { w: 'single' }
     }
     type Ev =
       | { type: 'ARM' }
@@ -715,7 +715,7 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { n: 0 },
-      arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { n: data.n + 1 } }) }) }),
+      arms: ({ single }) => ({ w: single({ after: 100, done: ({ data }) => ({ data: { n: data.n + 1 } }) }) }),
       on: {
         ARM: (_, { arm }) => { arm('w') },
         ARM_AND_THROW: (_, { arm }) => {
@@ -768,9 +768,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     const lateDisarmParent: Array<() => void> = []
     type Shape = {
       data: { fired: number }
-      arms: { parentTimer: 'one' }
+      arms: { parentTimer: 'single' }
       states: {
-        active: { arms: { w: 'one' } }
+        active: { arms: { w: 'single' } }
         idle: {}
       }
     }
@@ -778,7 +778,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { fired: 0 },
       initial: 'active',
-      arms: ({ one }) => ({ parentTimer: one({ after: 100 }) }),
+      arms: ({ single }) => ({ parentTimer: single({ after: 100 }) }),
       on: {
         ENTER: () => ({ at: 'active' }),
         ARM_PARENT: (_, { arm }) => { arm('parentTimer') },
@@ -789,7 +789,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
       states: {
         active: {
-          arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+          arms: ({ single }) => ({ w: single({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           listen: ({ arm, disarm }) => {
             lateArmParent.push(() => { arm('parentTimer') })
             lateDisarmParent.push(() => { disarm('parentTimer') })
@@ -880,13 +880,13 @@ const checks: Array<[string, () => Promise<void>]> = [
         }),
       },
     })
-    type Shape = { data: { fired: number; batches: string[][] }; arms: { w: 'one' }; calls: { stream: 'one' } }
+    type Shape = { data: { fired: number; batches: string[][] }; arms: { w: 'single' }; calls: { stream: 'single' } }
     type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'STREAM' }
     const m = netState<Shape, Ev>()({
       data: { fired: 0, batches: [] },
-      arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
-      calls: ({ one }) => ({
-        stream: one('svc', 'STREAM', {
+      arms: ({ single }) => ({ w: single({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+      calls: ({ single }) => ({
+        stream: single('svc', 'STREAM', {
           progress: (updates) => ({ data: (d) => { d.batches.push([...updates]) } }),
           done: () => {},
         }),
@@ -952,15 +952,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     type Shape = {
       data: { sideEffect: number }
       internal: { type: 'AFTER' }
-      arms: { w: 'one' }
+      arms: { w: 'single' }
     }
     type Ev = { type: 'ARM' }
     const m = state<Shape, Ev>()({
       data: { sideEffect: 0 },
-      arms: ({ one }) => ({
-        w: one({ after: 50, done: ({ send }) => {
+      arms: ({ single }) => ({
+        w: single({ after: 50, done: ({ raise }) => {
           store.put('thread', '1', { topic: 'ok' })
-          send({ type: 'AFTER' })
+          raise({ type: 'AFTER' })
           throw boom
         } }),
       }),
@@ -996,7 +996,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       data: { expired: number; tags: string[] }
       states: {
         session: {
-          arms: { keepalive: 'one'; tagged: 'each' }
+          arms: { keepalive: 'single'; tagged: 'each' }
           states: { a: {}; b: {} }
         }
         signedOut: {}
@@ -1010,8 +1010,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       states: {
         session: {
           initial: 'a',
-          arms: ({ one, each }) => ({
-            keepalive: one({ after: 100, done: ({ data }) => ({ data: { expired: data.expired + 1 } }) }),
+          arms: ({ single, each }) => ({
+            keepalive: single({ after: 100, done: ({ data }) => ({ data: { expired: data.expired + 1 } }) }),
             tagged: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.tags.push(key) } }) }),
           }),
           answers: {
@@ -1064,13 +1064,13 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['virtual-clock explore determinism across orderings', async () => {
     type Shape = {
       data: { count: number; settled: boolean }
-      arms: { settle: 'one' }
+      arms: { settle: 'single' }
     }
     type Ev = { type: 'TOUCH' }
     const debouncer = state<Shape, Ev>()({
       data: { count: 0, settled: false },
-      arms: ({ one }) => ({
-        settle: one({ after: 50, done: () => ({ data: { settled: true } }) }),
+      arms: ({ single }) => ({
+        settle: single({ after: 50, done: () => ({ data: { settled: true } }) }),
       }),
       on: {
         TOUCH: (_, { data, arm }) => {
@@ -1101,11 +1101,11 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     const sys = system({ side: 'backend', clock: manual.clock })
 
-    const sameKind = state<{ states: { a: { arms: { retry: 'one' } }; b: { arms: { retry: { one: 'at arm' } } } } }>()({
+    const sameKind = state<{ states: { a: { arms: { retry: 'single' } }; b: { arms: { retry: { single: 'at arm' } } } } }>()({
       initial: 'a',
       states: {
-        a: { arms: ({ one }) => ({ retry: one({ after: 100 }) }) },
-        b: { arms: ({ one }) => ({ retry: one() }) },
+        a: { arms: ({ single }) => ({ retry: single({ after: 100 }) }) },
+        b: { arms: ({ single }) => ({ retry: single() }) },
       },
     })
     const okHandle = sys.start('same-timer', sameKind)
@@ -1115,7 +1115,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       def: {
         initial: 'a',
         states: {
-          a: { arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }) },
+          a: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
           outer: {
             initial: 'inner',
             states: {
@@ -1127,15 +1127,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     }
     throws(
       () => sys.start('bad-timers', conflicting as never),
-      { message: 'bad-timers declares timer retry with conflicting kinds (one and each)' },
+      { message: 'bad-timers declares timer retry with conflicting kinds (single and each)' },
     )
 
     const directShadow = {
       def: {
         initial: 'a',
-        arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }),
+        arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
         states: {
-          a: { arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }) },
+          a: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
         },
       },
     }
@@ -1148,12 +1148,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     const deepShadow = {
       def: {
         initial: 'mid',
-        arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }),
+        arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
         states: {
           mid: {
             initial: 'leaf',
             states: {
-              leaf: { arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }) },
+              leaf: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
             },
           },
         },
@@ -1171,9 +1171,9 @@ const checks: Array<[string, () => Promise<void>]> = [
         states: {
           mid: {
             initial: 'leaf',
-            arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }),
+            arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
             states: {
-              leaf: { arms: ({ one }: { one: Function }) => ({ retry: one({ after: 100 }) }) },
+              leaf: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
             },
           },
         },

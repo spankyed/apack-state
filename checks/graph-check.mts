@@ -103,13 +103,13 @@ const kid = state<{}, { type: 'HI' }>()({ on: { HI: () => {} } })
 type PanelShape = {
   data: { flag: boolean }
   starts: { kid: typeof kid }
-  calls: { save: 'one' }
+  calls: { save: 'single' }
 }
 export const panel = state<PanelShape, { type: 'GO' } | { type: 'STOP' }>()({
   data: { flag: false },
   starts: () => ({ kid }),
-  calls: ({ one }) => ({
-    save: one('svc', 'SAVE', { done: () => undefined }),
+  calls: ({ single }) => ({
+    save: single('svc', 'SAVE', { done: () => undefined }),
   }),
   async run(scope) {
     await scope.ask('svc', 'GET', {})
@@ -162,12 +162,12 @@ type Net = {
 }
 const state = forNet<Net>()
 
-type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'one' } }
+type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'single' } }
 const nextTarget = (): string => 'b'
 const dynSys = (): string => 'svc'
 const dynPeer = (): string => 'audit'
 const buildFollows = (follow: any) => ({ docs: follow('docs', 'all', { updated: () => undefined }) })
-const calls = ({ one }: any) => ({ save: one('svc', 'GET', { done: () => undefined }) })
+const calls = ({ single }: any) => ({ save: single('svc', 'GET', { done: () => undefined }) })
 const loadOpts = { done: () => undefined }
 const extraLoads = {}
 const subB = {}
@@ -240,12 +240,12 @@ type Net = {
 }
 const state = forNet<Net>()
 type WatcherShape = {
-  calls: { save: 'one' }
+  calls: { save: 'single' }
   states: { active: {}; paused: {} }
 }
 export const watcher = state<WatcherShape, { type: 'PAUSE' } | { type: 'RESUME' }>()({
   initial: 'active',
-  calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => undefined }) }),
+  calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: () => undefined }) }),
   listen({ tell, broadcast }) {
     tell('svc', { type: 'PING' })
     broadcast('panel', { type: 'UPDATED' })
@@ -294,23 +294,23 @@ import { state } from '${stateIndex}'
 type Shape = {
   data: { count: number }
   arms: {
-    pulse: 'one'
-    timeout: 'one'
-    backoff: { one: 'at arm' }
+    pulse: 'single'
+    timeout: 'single'
+    backoff: { single: 'at arm' }
     flash: 'each'
-    unused: 'one'
+    unused: 'single'
   }
   states: { active: {}; timedOut: {} }
 }
 export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
   data: { count: 0 },
   initial: 'active',
-  arms: ({ one, each }) => ({
-    pulse: one({ after: 300 }),
-    timeout: one({ after: 5000, done: () => ({ at: 'timedOut' }) }),
-    backoff: one({ whenArmed: 'ignore', done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+  arms: ({ single, each }) => ({
+    pulse: single({ after: 300 }),
+    timeout: single({ after: 5000, done: () => ({ at: 'timedOut' }) }),
+    backoff: single({ whenArmed: 'ignore', done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
     flash: each({ after: 200, done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
-    unused: one({ after: 100 }),
+    unused: single({ after: 100 }),
   }),
   on: {
     GO: (_, { arm }) => {
@@ -368,39 +368,39 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
 import { state, type EventScope, type Net } from '${stateIndex}'
 
 type AliasShape = {
-  arms: { viaAlias: 'one'; dead: 'one' }
+  arms: { viaAlias: 'single'; dead: 'single' }
 }
 export const withAlias = state<AliasShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaAlias: one({ after: 100 }), dead: one({ after: 200 }) }),
+  arms: ({ single }) => ({ viaAlias: single({ after: 100 }), dead: single({ after: 200 }) }),
   on: {
     GO: (_, { arm: startTimer }) => { startTimer('viaAlias') },
   },
 })
 
 function armViaHelper(schedule: (name: 'viaArm') => void) { schedule('viaArm') }
-export const withArmEscape = state<{ arms: { viaArm: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaArm: one({ after: 50 }) }),
+export const withArmEscape = state<{ arms: { viaArm: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ viaArm: single({ after: 50 }) }),
   on: { GO: (_, { arm }) => { armViaHelper(arm) } },
 })
 
-type ScopeShape = { arms: { viaScope: 'one' } }
+type ScopeShape = { arms: { viaScope: 'single' } }
 type ScopeEv = { type: 'GO' }
 const armViaScope = (s: Pick<EventScope<ScopeShape, '', ScopeEv, Net>, 'arm'>) => { s.arm('viaScope') }
 export const withScopeEscape = state<ScopeShape, ScopeEv>()({
-  arms: ({ one }) => ({ viaScope: one({ after: 50 }) }),
+  arms: ({ single }) => ({ viaScope: single({ after: 50 }) }),
   on: { GO: (_, scope) => { armViaScope(scope) } },
 })
 
-type HandlerShape = { arms: { t: 'one' } }
+type HandlerShape = { arms: { t: 'single' } }
 const onGo = (_: { type: 'GO' }, { arm }: EventScope<HandlerShape, '', { type: 'GO' }, Net>) => { arm('t') }
 export const withExternalHandler = state<HandlerShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ t: one({ after: 50 }) }),
+  arms: ({ single }) => ({ t: single({ after: 50 }) }),
   on: { GO: onGo },
 })
 
 const onTable = { GO: onGo }
 export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ t: one({ after: 50 }) }),
+  arms: ({ single }) => ({ t: single({ after: 50 }) }),
   on: onTable,
 })
 `)
@@ -426,63 +426,63 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       writeFileSync(file, `
 import { state } from '${stateIndex}'
 
-type SelfLoopShape = { arms: { loop: 'one' } }
+type SelfLoopShape = { arms: { loop: 'single' } }
 export const selfLoop = state<SelfLoopShape, never>()({
-  arms: ({ one }) => ({
-    loop: one({ after: 100, done: ({ arm }) => { arm('loop') } }),
+  arms: ({ single }) => ({
+    loop: single({ after: 100, done: ({ arm }) => { arm('loop') } }),
   }),
 })
 
-type DeadChainShape = { arms: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
+type DeadChainShape = { arms: { first: 'single'; second: 'single'; ping: 'single'; pong: 'single' } }
 export const deadChain = state<DeadChainShape, never>()({
-  arms: ({ one }) => ({
-    first: one({ after: 100, done: ({ arm }) => { arm('second') } }),
-    second: one({ after: 100, done: ({ arm }) => { arm('second') } }),
-    ping: one({ after: 100, done: ({ arm }) => { arm('pong') } }),
-    pong: one({ after: 100, done: ({ arm }) => { arm('ping') } }),
+  arms: ({ single }) => ({
+    first: single({ after: 100, done: ({ arm }) => { arm('second') } }),
+    second: single({ after: 100, done: ({ arm }) => { arm('second') } }),
+    ping: single({ after: 100, done: ({ arm }) => { arm('pong') } }),
+    pong: single({ after: 100, done: ({ arm }) => { arm('ping') } }),
   }),
 })
 
-type LiveChainShape = { arms: { step2: 'one'; step1: 'one'; step3: 'one' } }
+type LiveChainShape = { arms: { step2: 'single'; step1: 'single'; step3: 'single' } }
 export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({
+  arms: ({ single }) => ({
     // Declared out of topological order so reachability must propagate across multiple hops (step1 -> step2 -> step3).
-    step2: one({ after: 100, done: ({ arm }) => { arm('step3') } }),
-    step1: one({ after: 100, done: ({ arm }) => { arm('step2') } }),
-    step3: one({ after: 100, done: ({ arm }) => { arm('step3') } }),
+    step2: single({ after: 100, done: ({ arm }) => { arm('step3') } }),
+    step1: single({ after: 100, done: ({ arm }) => { arm('step2') } }),
+    step3: single({ after: 100, done: ({ arm }) => { arm('step3') } }),
   }),
   on: { GO: (_, { arm }) => { arm('step1') } },
 })
 
 type SiblingsShape = {
   states: {
-    a: { arms: { t: 'one' } }
-    b: { arms: { t: 'one' } }
+    a: { arms: { t: 'single' } }
+    b: { arms: { t: 'single' } }
   }
 }
 export const siblingTimers = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'a',
   states: {
     a: {
-      arms: ({ one }) => ({ t: one({ after: 100 }) }),
+      arms: ({ single }) => ({ t: single({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm('t') },
         NEXT: () => ({ at: 'b' }),
       },
     },
     b: {
-      arms: ({ one }) => ({ t: one({ after: 100 }) }),
+      arms: ({ single }) => ({ t: single({ after: 100 }) }),
     },
   },
 })
 
 type ParentArmedFromChildShape = {
-  arms: { keepalive: 'one' }
+  arms: { keepalive: 'single' }
   states: { active: {}; idle: {} }
 }
 export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO' } | { type: 'STOP' }>()({
   initial: 'active',
-  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keepalive: single({ after: 100 }) }),
   states: {
     active: {
       on: {
@@ -496,18 +496,18 @@ export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO
 
 type QuotedTimersShape = {
   arms: {
-    'live-first': 'one'
-    'live-next': 'one'
-    'dead-first': 'one'
-    'dead-next': 'one'
+    'live-first': 'single'
+    'live-next': 'single'
+    'dead-first': 'single'
+    'dead-next': 'single'
   }
 }
 export const quotedTimers = state<QuotedTimersShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({
-    'live-first': one({ after: 100, done: ({ arm }) => { arm('live-next') } }),
-    'live-next': one({ after: 100 }),
-    'dead-first': one({ after: 100, done: ({ arm }) => { arm('dead-next') } }),
-    'dead-next': one({ after: 100 }),
+  arms: ({ single }) => ({
+    'live-first': single({ after: 100, done: ({ arm }) => { arm('live-next') } }),
+    'live-next': single({ after: 100 }),
+    'dead-first': single({ after: 100, done: ({ arm }) => { arm('dead-next') } }),
+    'dead-next': single({ after: 100 }),
   }),
   on: { GO: (_, { arm }) => { arm('live-first') } },
 })
@@ -516,7 +516,7 @@ const SUB = 'active' as const
 const W = 'pulse' as const
 type ComputedNamesShape = {
   states: {
-    [SUB]: { arms: { [W]: 'one' } }
+    [SUB]: { arms: { [W]: 'single' } }
     idle: {}
   }
 }
@@ -524,7 +524,7 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
   initial: SUB,
   states: {
     [SUB]: {
-      arms: ({ one }) => ({ [W]: one({ after: 100 }) }),
+      arms: ({ single }) => ({ [W]: single({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm(W) },
         STOP: () => ({ at: 'idle' }),
@@ -535,16 +535,16 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
 })
 
 type UnenteredArmShape = {
-  arms: { keepalive: 'one' }
-  states: { live: {}; dead: { arms: { inner: 'one' } } }
+  arms: { keepalive: 'single' }
+  states: { live: {}; dead: { arms: { inner: 'single' } } }
 }
 export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
   initial: 'live',
-  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keepalive: single({ after: 100 }) }),
   states: {
     live: ({ on: { GO: () => {} } }),
     dead: ({
-      arms: ({ one }) => ({ inner: one({ after: 50 }) }),
+      arms: ({ single }) => ({ inner: single({ after: 50 }) }),
       on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
     }),
   },
@@ -552,19 +552,19 @@ export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
 
 type LocalArmVarShape = {
   data: { arm: number }
-  arms: { dead: 'one' }
+  arms: { dead: 'single' }
 }
 export const localArmVar = state<LocalArmVarShape, { type: 'SET'; arm: number }>()({
   data: { arm: 0 },
-  arms: ({ one }) => ({ dead: one({ after: 100 }) }),
+  arms: ({ single }) => ({ dead: single({ after: 100 }) }),
   on: {
     SET: ({ arm }) => ({ data: { arm } }),
   },
 })
 
 function armFromBox(box: { arm: (name: 'viaBox') => void }) { box.arm('viaBox') }
-export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaBox: one({ after: 100 }) }),
+export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ viaBox: single({ after: 100 }) }),
   on: {
     GO: (_, { arm }) => { armFromBox({ arm }) },
   },

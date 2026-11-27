@@ -33,9 +33,9 @@ export const list = state<List, ListEvent>()({
   on: {
     // Tells the surface beside it, in this window.
     PICK: ({ id }, { tell }) => { tell({ surface: 'detail' }, { type: 'SHOW', id }); return { data: { picked: id } } },
-    REFRESH: (_, { send }) => { send({ type: 'TICK' }) },
+    REFRESH: (_, { raise }) => { raise({ type: 'TICK' }) },
     // What others may send it, it may send itself too.
-    PICK_AGAIN: (_, { data, send }) => { send({ type: 'PICK', id: `${data.picked} again` }) },
+    PICK_AGAIN: (_, { data, raise }) => { raise({ type: 'PICK', id: `${data.picked} again` }) },
     // A name alone is a backend system, though a surface here is called the same.
     TELL_THE_STORE: ({ id }, { tell }) => { tell('detail', { type: 'SAVE', id }) },
   },

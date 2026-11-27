@@ -71,9 +71,9 @@ mutations. It matters for three reasons: the kernel never changes a state's data
 is in flight, and restoring a state reads again but does not write again.
 
 The same split holds for imperative timers under **`arms`**: armed on demand with `arm(name, ...)` and cleared with
-`disarm(name, key?)`. A timer is `one` or keyed `each`, and is built from one labelled object,
-`one({ after: 100, done, whenArmed })`: `after` is how long it runs, which an `arm` may override, and a timer declared
-`{ one: 'at arm' }` / `{ each: 'at arm' }` leaves it out and is given its duration by each `arm`; `whenArmed` says what
+`disarm(name, key?)`. A timer is `single` or keyed `each`, and is built from one labelled object,
+`single({ after: 100, done, whenArmed })`: `after` is how long it runs, which an `arm` may override, and a timer declared
+`{ single: 'at arm' }` / `{ each: 'at arm' }` leaves it out and is given its duration by each `arm`; `whenArmed` says what
 arming it while it is armed does, `'restart'` (a debounce, the default) or `'ignore'` (a throttle); `done` is what its
 expiring does, left out for a pure-TTL flag.
 Which timers are armed lives on `armed` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
@@ -99,7 +99,7 @@ type Commit = {
     pushPhase: string | null
     gitError: string | null
   }
-  calls: { stage: 'each'; push: 'one' }                 // staging for each of many paths, one push at a time
+  calls: { stage: 'each'; push: 'single' }              // staging for each of many paths, one push at a time
 }
 
 const commit = state<Commit, CommitEvent>()({
@@ -123,13 +123,13 @@ const commit = state<Commit, CommitEvent>()({
   }),
 
   // Writes. Each is called when a handler says so.
-  calls: ({ one, each }) => ({
+  calls: ({ single, each }) => ({
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
       done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
     }),
 
-    push: one('code', 'commit.PUBLISH_BRANCH', {
+    push: single('code', 'commit.PUBLISH_BRANCH', {
       args: () => ({}),
       progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
       done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
@@ -187,28 +187,28 @@ follows: (follow) => ({
 |---|---|
 | A value fetched for some arguments | `loads`, with `from` |
 | A value fetched for each of many things | `loads`, with `each` |
-| A write to fire, one at a time | `calls`, with `one`, and `call(name, input?)` (`pending.<name>: boolean`) |
+| A write to fire, one at a time | `calls`, with `single`, and `call(name, input?)` (`pending.<name>: boolean`) |
 | A write to fire, one per key | `calls`, with `each`, and `call(name, key, input?)` (`pending.<name>: Record<string, true>`) |
 | A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
-| A timer to arm on demand (debounce, throttle, TTL flag, retry) | `arms`, with `one` or `each`, and `arm(name, ...)` / `disarm(name, key?)` (`armed.<name>`) |
+| A timer to arm on demand (debounce, throttle, TTL flag, retry) | `arms`, with `single` or `each`, and `arm(name, ...)` / `disarm(name, key?)` (`armed.<name>`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
 | External push events (emitters, watchers, DOM listeners) | `listen` (state-lifetime scope, automatic cleanup, keeps `idle()` true) |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
 
-A call may declare a typed input in `Shape.calls` (`{ one: In }`, `{ each: In }`, `{ many: In }`). The frozen input is
+A call may declare a typed input in `Shape.calls` (`{ single: In }`, `{ each: In }`, `{ many: In }`). The frozen input is
 passed to `args`, `progress` (`scope.input`), and `done` (`scope.input`), and is never written to `StepLog`. When the
-ask takes `{}` — or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object already assignable to the
+ask takes `{}` — or, for `{ single: In }` / `{ many: In }`, when `Read<In>` is a plain object already assignable to the
 ask's args — `args` may be omitted.
 
 ## Talking to other states
 
 | Verb | From | To |
 |---|---|---|
-| `send(event)` | A state | Itself: an event only it sends, or one others may send it |
+| `raise(event)` | A state | Itself: an event only it raises, or one others may send it |
 | `tell(name, event)` | A state | A backend system. Nobody waits |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
-| `tell({ peer }, event)` | A state | A named non-window peer attached via `attach(name, peer)`. Delivered after commit with no view hold |
+| `tell({ peer }, event)` | A state | A non-window peer named with `sys.peer(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
@@ -219,7 +219,7 @@ ask's args — `args` may be omitted.
 A component reads and sends. It does not ask.
 
 `tell({ peer: name }, event)` calls `port.tell(name, event)`, passing the peer name as the target `to`. To reach several
-systems behind one `@apackdev/link` connection, attach that same port under each peer name (and detach each on `link.onEnd`);
+systems behind one `@apackdev/link` connection, name that same port once for each (`sys.peer(name, port)`, and remove each on `link.onEnd`);
 if a remote system uses a different name than the local peer, wrap `tell` at the wiring site
 (`{ tell: (_, event) => port.tell('remoteName', event) }`).
 
@@ -245,7 +245,7 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   its pending calls or armed timers changed.
 - **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
-  `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
+  `dropped` when no peer has that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
 - **How it finished (`status`)**: `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it
   ran away.
@@ -276,7 +276,7 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and everything it started without touching sibling top-level states; `stop()` ends them all. `listen` keeps a
   state-lifetime scope until the state exits without blocking `idle()`, unsubscribes automatically on exit, and ignores
   late callbacks after exit. When `run` or an ask's handler finishes (returns or throws),
-  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`send`, `tell`,
+  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`raise`, `tell`,
   `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
   stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
   when `run` or an ask returns.

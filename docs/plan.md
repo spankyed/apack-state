@@ -289,13 +289,13 @@ points at.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
     says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
-    declared apart, under `calls`, in three cardinalities (`one`, `each`, `many`), with an optional typed input
-    (`{ one: In }`, `{ each: In }`, `{ many: In }`), and fired with a verb, as a state tells or broadcasts:
+    declared apart, under `calls`, in three cardinalities (`single`, `each`, `many`), with an optional typed input
+    (`{ single: In }`, `{ each: In }`, `{ many: In }`), and fired with a verb, as a state tells or broadcasts:
 
     ```ts
-    calls: ({ one, each, many }) => ({
+    calls: ({ single, each, many }) => ({
       stage:  each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), done: (outcome, { key }) => … }),
-      push:   one('code', 'commit.PUBLISH_BRANCH', { progress: (updates) => …, done: (outcome) => … }),
+      push:   single('code', 'commit.PUBLISH_BRANCH', { progress: (updates) => …, done: (outcome) => … }),
       revert: many('code', 'commit.REVERT_FILES', { done: (outcome, { input }) => … }),
     }),
     on: {
@@ -307,14 +307,14 @@ points at.
 
     It is fired when the step commits, with the data as the handler left it (and its frozen `input`, if declared, which
     is also passed as `scope.input` to `progress` and `done` and never logged in `StepLog`). When an ask accepts `{}` —
-    or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object assignable to the ask's args — `args` may
-    be omitted. For `one` and `each`, one that is already in flight (or in flight for that key) is deduplicated and not
+    or, for `{ single: In }` / `{ many: In }`, when `Read<In>` is a plain object assignable to the ask's args — `args` may
+    be omitted. For `single` and `each`, one that is already in flight (or in flight for that key) is deduplicated and not
     started twice; for `many`, every call starts a new ask tracked under a kernel-assigned monotonic id. `cancel`
     cancels the in-flight call (or all in-flight calls for `many`): the one answering is told, and `done` is not called.
     Leaving the state that declares it cancels all of its in-flight calls.
 
     **Which writes are in flight is the kernel's to keep**, and is read beside `at` and `data`, as `pending`:
-    `pending.push` (`boolean`) for `one`, `pending.stage[path]` (`Readonly<Record<string, true>>`) for `each`, and
+    `pending.push` (`boolean`) for `single`, `pending.stage[path]` (`Readonly<Record<string, true>>`) for `each`, and
     `pending.revert` (`number` in-flight count) for `many`. Nothing else writes it. So the kernel
     never changes a state's data, the record has one writer, and a state that is restored reads again and does not
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
@@ -322,14 +322,14 @@ points at.
 
     **Imperative timers follow the same split under `arms`.** The words are one family: a timer is declared under
     `arms`, armed with `arm`, cleared with `disarm`, read on `armed`, and logged as `arm`, `disarm` and `expired`. A
-    state declares them in `Shape.arms` (`'one'`, `'each'`, `{ one: 'at arm' }`, `{ each: 'at arm' }`) and builds them
-    in `arms: ({ one, each }) => ({ ... })`, each from one labelled object: `one({ after: 100, done, whenArmed })`.
+    state declares them in `Shape.arms` (`'single'`, `'each'`, `{ single: 'at arm' }`, `{ each: 'at arm' }`) and builds them
+    in `arms: ({ single, each }) => ({ ... })`, each from one labelled object: `single({ after: 100, done, whenArmed })`.
     `after` is how long it runs (overridable per `arm`), and is left out of a timer declared `'at arm'`, whose every
     `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `done` is the
     handler for its expiring (omitted for pure-TTL flags). A misspelled option does not compile. Handlers arm and disarm them transactionally
     with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
     clears every active key). Which timers are armed lives on `armed` beside `at`, `data`, and `pending` (`boolean`
-    for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
+    for `single`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
     never blocks `sys.idle()`.
 
     **A name under `calls` or `arms` stands for one thing.** `pending` and `armed` have one entry for a name,
@@ -358,7 +358,7 @@ points at.
 
 | Verb | From | To | Waits |
 |---|---|---|---|
-| `send(event)` | A state | Itself: an event only it sends, or one others may send it too | No |
+| `raise(event)` | A state | Itself: an event only it raises, or one others may send it too | No |
 | `tell(name, event)` | Anywhere | A backend system, by name | No |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window | No |
 | `ask(name, ask, args, progress?)` | A state's `run`, or an ask's handler | A backend system, by name | One answer, refusal or failure |
@@ -373,7 +373,7 @@ states it starts, and reaches each through `child`: rule 14.
 The events it sends itself as its own work goes on, a result found or a piece arrived, are declared apart, in its
 shape as `internal`, and taken under `internal`. Nothing outside a state reaches those: what is told, broadcast or
 sent to it from outside is looked for under `on` alone, and one that only the state sends itself is ignored and
-said to be. `send` takes both, so a state may send itself what others may send it. This is the app's own split of a
+said to be. `raise` takes both, so a state may raise what others may send it. This is the app's own split of a
 contract into `incoming` and `internal`.
 
 **A write is told when losing it does not matter, and asked when it does.** There is no third way to make one. A
@@ -838,7 +838,7 @@ thing declined here: one transaction over two stores.
 | Each of the three is a function of the helper its entries are made with | The helpers as imports, `follow(…)` called in an object. TypeScript then has to work out the state's types backwards from where the call's result is put, and while it is doing that it cannot type a draft edit nested in a handler: `(d) => { d.tabs[key] = … }` came out untyped. Handing the helper in already typed leaves nothing to work out |
 | A read that is not a state's work is loaded (`loads`), declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
 | A write is fired, with `call`, and the kernel keeps `pending` | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is fired once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |
-| `call` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `send` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `call` and not `ask` |
+| `call` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `raise` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `call` and not `ask` |
 | What runs is matched once, when a step has handled everything | Matching after each thing handled, which was built first so that a state started part-way through a step would be there for what came next. It made what ran depend on the route: a key taken out and put back by one handler kept its state, and by two events in one step lost it. Holding what is sent to a state that is not running, until the match, keeps the one thing the first way was for |
 | A started state is given its data once | Data that follows the starter's as it changes. That keeps one fact in two states and needs a rule for which of them may write it |
 | A started state reports to its starter with one verb, into the starter's own events | A table of handlers per started state, which would have been a fourth beside `on`, `answers` and `follows` |
@@ -1245,11 +1245,11 @@ projects. Each would loosen the fit to this app.
   an agent's loop is one thing leading to the next for as long as it runs, and so is reading results a page at a
   time, so a limit would stop what the app is for. A circle of views is different, and is refused (rule 14), because
   what a view is asked for is declared and a circle among declarations is a mistake whatever its length.
-- **A peer that is not a window.** Built: any system can attach a named tell-only peer via
-  `attach(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
+- **A peer that is not a window.** Built: any system can name a tell-only peer with
+  `peer(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
   one-method sink), declare optional `peers` on `Net`, and send to it via `tell({ peer: name }, event)`. Tells
   deliver `peer.tell(name, event)` after the step commits with no view hold (or record `outcome: 'dropped'` in
-  `StepLog.sent` if unattached).
+  `StepLog.sent` if no peer has the name).
 - **Field names unique along a path** are enforced at compile time (`NoShadowedData`) and at runtime (`cannotBegin()`).
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
@@ -1322,7 +1322,7 @@ projects. Each would loosen the fit to this app.
    checks as specs, run in Node and in a browser, type tests held to TypeScript 5.7, an API report, mutation testing,
    a release of each commit as `pkg-<commit>`, and a kit for packs' checks (`@apackdev/state/testing`).
 3. **The kernel on a link.** Done. Each system exposes `port` (matching `@apackdev/link`'s `Port` structurally with
-   no runtime dependency) and `attach(peer)` (returning a detach callback), with no in-memory `connect(System)` or
+   no runtime dependency) and `attach(port)` (returning a detach callback), with no in-memory `connect(System)` or
    kernel-side hold. A backend's `port` passes straight to `join(link, backend.port)` with its views' `caughtUp`, and
    `@apackdev/link` owns the single per-connection hold. `@apackdev/state/testing` exports `connect(window, backend,
    schedule?)` over `@apackdev/link`'s `memoryPair`, `dial`, `listen` and `join`, so every check exercises the real

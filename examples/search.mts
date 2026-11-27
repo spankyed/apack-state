@@ -168,7 +168,7 @@ const searchSurface = state<SearchSurface, SearchSurfaceEvent>()({
     searching: {
       data: { searchProgress: null },
 
-      async run({ data, ask, send }) {
+      async run({ data, ask, raise }) {
         const found = await ask(
           'code/search', 'SEARCH_FILES',
           {
@@ -185,7 +185,7 @@ const searchSurface = state<SearchSurface, SearchSurfaceEvent>()({
             const results: SearchResult[] = []
             let progress: SearchProgress | null = null
             for (const update of updates) { if ('result' in update) results.push(update.result); else progress = update.progress }
-            send({ type: 'FOUND', results, progress })
+            raise({ type: 'FOUND', results, progress })
           },
         )
 

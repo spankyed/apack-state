@@ -186,7 +186,7 @@ Recorded here so they are not re-proposed without new evidence:
 - **`reenter: true` (XState v6):** Unnecessary because `{ data }` updates in place while `{ at }` always enters the
   target state afresh.
 - **Standalone `peersFor<Net>()` curried helper (PR #63):** Declined to avoid `xxxFor<Net>()` export sprawl;
-  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.attach(name, peer)`
+  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.peer(name, peer)`
   directly with zero new runtime exports.
 - **Runtime `(ref, askName)` membership banning for ask cycles (PR #64):** Declined because `answers` handlers are
   concurrent and reentrant rather than per-`(ref, askName)` mutexes; `chain.includes(edge)` falsely rejects finite

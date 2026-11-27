@@ -112,7 +112,7 @@ const wired = (connected = true, frame?: (run: () => void) => void) => {
 
 type Lingering = {
   data: { heard: string[] }
-  calls: { save: 'one' }
+  calls: { save: 'single' }
   reports: { type: 'REPORTED' }
   states: { working: {}; idle: {} }
 }
@@ -124,7 +124,7 @@ const lingers = forNet<Lingered>()
 const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, LingerAsks>()({
   data: { heard: [] },
   initial: 'working',
-  calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: () => ({ turns: 1 }), done: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
+  calls: ({ single }) => ({ save: single('slow', 'WAIT', { args: () => ({ turns: 1 }), done: () => ({ data: (d) => { d.heard.push('saved') } }) }) }),
   on: {
     STOP_WORKING: () => ({ at: 'idle' }),
     SELF: () => ({ data: (d) => { d.heard.push('SELF') } }),
@@ -133,9 +133,9 @@ const lingering = (gate: Promise<void>) => lingers<Lingering, LingerEvent, Linge
     working: {
       on: { SAVE: (_, { call }) => { call('save') } },
       answers: { TALK_LATER: async (_, { progress }) => { await gate; progress('late'); return 'talked' } },
-      async run({ send, tell, report, broadcast, call, cancel }) {
+      async run({ raise, tell, report, broadcast, call, cancel }) {
         await gate
-        send({ type: 'SELF' })
+        raise({ type: 'SELF' })
         tell('slow', { type: 'NOTE' } as never)
         report({ type: 'REPORTED' })
         broadcast('listener', { type: 'NOTE' })
@@ -398,9 +398,9 @@ const checks: Array<[string, () => Promise<void>]> = [
           void ask('svc', 'SLOW', { label: 'ask:syncReturn' })
           return 'ok'
         },
-        SYNC_THROW: (_, { signal, ask, send }) => {
+        SYNC_THROW: (_, { signal, ask, raise }) => {
           signal.addEventListener('abort', () => publicAborted.push('ask:syncThrow'))
-          straySends.push(() => send({ type: 'STRAY' }))
+          straySends.push(() => raise({ type: 'STRAY' }))
           strayAsks.push(() => ask('svc', 'SLOW', { label: 'stray:ask:syncThrow' }))
           throw new Error('sync boom')
         },
@@ -431,9 +431,9 @@ const checks: Array<[string, () => Promise<void>]> = [
           },
         },
         syncThrow: {
-          run({ signal, ask, send }) {
+          run({ signal, ask, raise }) {
             signal.addEventListener('abort', () => publicAborted.push('run:syncThrow'))
-            straySends.push(() => send({ type: 'STRAY' }))
+            straySends.push(() => raise({ type: 'STRAY' }))
             strayAsks.push(() => ask('svc', 'SLOW', { label: 'stray:run:syncThrow' }))
             throw new Error('sync run boom')
           },
@@ -482,7 +482,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.stop()
     await rest()
   }],
-  ['a finished ask or run scope drops any stray progress, send, tell, broadcast or use, while in-flight post-leave use releases immediately', async () => {
+  ['a finished ask or run scope drops any stray progress, raise, tell, broadcast or use, while in-flight post-leave use releases immediately', async () => {
     const heard: string[] = []
     const events: string[] = []
     const broadcasts: string[] = []
@@ -501,13 +501,13 @@ const checks: Array<[string, () => Promise<void>]> = [
         NOTE: () => { events.push('NOTE') },
         SAVE_USE: (_, { onExit }) => { onUse = onExit },
       },
-      run({ send, tell, broadcast, onExit }) {
-        strayRun = () => { send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-run') }) }
+      run({ raise, tell, broadcast, onExit }) {
+        strayRun = () => { raise({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-run') }) }
       },
       answers: {
-        PING: async (_, { progress, send, tell, broadcast, onExit }) => {
+        PING: async (_, { progress, raise, tell, broadcast, onExit }) => {
           progress('live')
-          strayAsk = () => { progress('stale'); send({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-ask') }) }
+          strayAsk = () => { progress('stale'); raise({ type: 'NOTE' }); tell('svc', { type: 'NOTE' }); broadcast('panel', { type: 'BCAST' }); onExit(() => { released.push('stray-ask') }) }
           return 'ok'
         },
       },
@@ -606,7 +606,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       states: {
         idle: {},
         racing: {
-          async run({ ask, send, tell, onExit, signal }) {
+          async run({ ask, raise, tell, onExit, signal }) {
             const fast = Promise.resolve('won' as const)
             const kernelLoser = ask('slow', 'HANG', {}).then(
               () => { loserAskOutcome = 'resolved' },
@@ -614,7 +614,7 @@ const checks: Array<[string, () => Promise<void>]> = [
             )
             const detachedLoser = new Promise<void>((resolve) => { releaseLoser = resolve }).then(() => {
               winnerLeftSignal = signal.aborted
-              send({ type: 'STRAY' })
+              raise({ type: 'STRAY' })
               tell('slow', { type: 'PING' })
               onExit(() => { events.push('detached:onExit') })
             })

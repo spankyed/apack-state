@@ -20,7 +20,7 @@ const counter = (store: Rows) => state<{ data: { count: number } }, Events>()({
     TOUCH: (_, { data }) => ({ data: { count: data.count + 1 } }),
     NOTE: ({ id }, { data }) => { store.put('thread', id, { topic: 'noted' }); return { data: { count: data.count + 1 } } },
     // One step in which `count` handlers each write a row.
-    MANY: ({ from, count }, { send }) => { for (let at = 0; at < count; at++) send({ type: 'NOTE', id: String(from + at) }) },
+    MANY: ({ from, count }, { raise }) => { for (let at = 0; at < count; at++) raise({ type: 'NOTE', id: String(from + at) }) },
   },
 })
 

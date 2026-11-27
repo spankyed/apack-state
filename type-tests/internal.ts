@@ -26,8 +26,8 @@ state<List, ListEvent>()({
     PICK: (_, { tell }) => { tell({ surface: 'detail' }, { type: 'HIDE' }) },
     // @ts-expect-error there is no such surface
     REFRESH: (_, { tell }) => { tell({ surface: 'sidebar' }, { type: 'SHOW', id: 'a' }) },
-    // @ts-expect-error it sends itself a tick, or what others may send it, and nothing else
-    PICK_AGAIN: (_, { send }) => { send({ type: 'TOCK' }) },
+    // @ts-expect-error it raises a tick, or what others may send it, and nothing else
+    PICK_AGAIN: (_, { raise }) => { raise({ type: 'TOCK' }) },
   },
   internal: {
     // @ts-expect-error what others may send it is taken under `on`

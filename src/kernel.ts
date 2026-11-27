@@ -92,8 +92,8 @@ type Plain = Record<string, unknown>
 type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>; internal?: Record<string, Function>; answers?: Record<string, Function>; listen?: Function; run?: Function; failed?: Function; states?: Record<string, LooseDef>; starts?: (start: Function) => Record<string, { def: unknown; resolve?: (name: string) => string } | { state: { def: unknown; resolve?: (name: string) => string }; given: Function; each?: string }>
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
-  calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
-  arms?: (arms: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }>
+  calls?: (calls: { single: Function; each: Function; many: Function }) => Record<string, { kind: 'single' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
+  arms?: (arms: { single: Function; each: Function }) => Record<string, { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }>
 }
 
 interface Armed { stop?: () => void }
@@ -129,9 +129,9 @@ interface Active {
 interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
-  calls: Map<string, 'one' | 'each' | 'many'>
+  calls: Map<string, 'single' | 'each' | 'many'>
   /** Every imperative timer it can arm, whichever of its states declares it, and which kind each is. */
-  arms: Map<string, 'one' | 'each'>
+  arms: Map<string, 'single' | 'each'>
   /** Optional name resolver attached by `forNet(resolve)` for bare-to-qualified target resolution. */
   readonly resolve?: (name: string) => string
   /** Memoized bare-to-qualified name mappings for this running state's lifetime. */
@@ -251,13 +251,13 @@ export interface System<N extends Net = Net> {
    * Attaches another system's port to this one, and returns what detaches it. On a backend, each attached port is a
    * window that `broadcast` reaches; on a window, the attached port is its backend (one at a time).
    */
-  attach(peer: Port): () => void
+  attach(port: Port): () => void
   /**
-   * Attaches a named non-window peer to this system, and returns what detaches it. `tell({ peer: name }, event)`
-   * delivers the event after the step commits, with no view hold. Accepts either a direct event callback or a
+   * Names a non-window peer of this system, and returns what removes it. `tell({ peer: name }, event)` delivers the
+   * event to it after the step commits, with no view hold. Accepts either a direct event callback or a
    * `PeerPort`-shaped object. Duplicate names throw.
    */
-  attach<K extends NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? keyof NonNullable<N['peers']> & string : never>(
+  peer<K extends NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? keyof NonNullable<N['peers']> & string : never>(
     name: K,
     peer: TypedPeer<NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? NonNullable<N['peers']>[K]['events'] : never>,
   ): () => void
@@ -440,7 +440,7 @@ export function system<N extends Net = Net>(host: {
   let up: Port | undefined
   /** A backend's attached window ports. */
   const down = new Set<Port>()
-  /** Named non-window peers attached to this system. */
+  /** This system's non-window peers, by name. */
   const peers = new Map<string, PeerPort>()
 
   /**
@@ -649,7 +649,7 @@ export function system<N extends Net = Net>(host: {
       get snapshot() { return valueOf(mine.top) },
       get now() { return stepNow ?? readNow() },
       signal: mine.controller.signal,
-      send: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
+      raise: (event: AnyEvent) => { if (alive()) enqueue({ kind: 'event', ref, event, own: true }) },
       tell: (to: string | { ref: string } | { surface: string } | { peer: string }, event: AnyEvent) => {
         if (!alive()) return
         if (typeof to === 'string') {
@@ -877,7 +877,7 @@ export function system<N extends Net = Net>(host: {
     descend(kept, names.slice(shared), entering)
   }
 
-  const armEntry = (kind: 'one' | 'each', options?: { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }): { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function } =>
+  const armEntry = (kind: 'single' | 'each', options?: { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }): { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function } =>
     ({ kind, after: options?.after, whenArmed: options?.whenArmed, done: options?.done })
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
   const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>>; arms: ReturnType<NonNullable<LooseDef['arms']>> }>()
@@ -889,12 +889,12 @@ export function system<N extends Net = Net>(host: {
         follows: def.follows?.((feature: string, view: string, options: object) => ({ feature, view, ...options })) ?? {},
         loads: def.loads?.((of: string, ask: string, options: object) => ({ of, ask, ...options })) ?? {},
         calls: def.calls?.({
-          one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }),
+          single: (of: string, ask: string, options: object) => ({ kind: 'single', of, ask, ...options }),
           each: (of: string, ask: string, options: object) => ({ kind: 'each', of, ask, ...options }),
           many: (of: string, ask: string, options: object) => ({ kind: 'many', of, ask, ...options }),
         }) ?? {},
         arms: def.arms?.({
-          one: (options?: object) => armEntry('one', options),
+          single: (options?: object) => armEntry('single', options),
           each: (options?: object) => armEntry('each', options),
         }) ?? {},
       }
@@ -1141,8 +1141,8 @@ export function system<N extends Net = Net>(host: {
     }
     const shadow = shadowed(def, new Set(), new Set(), new Set(), '')
     if (shadow) return shadow
-    const seenCalls = new Map<string, 'one' | 'each' | 'many'>()
-    const seenArms = new Map<string, 'one' | 'each'>()
+    const seenCalls = new Map<string, 'single' | 'each' | 'many'>()
+    const seenArms = new Map<string, 'single' | 'each'>()
     const conflicts = (node: LooseDef): string | undefined => {
       for (const [name, entry] of Object.entries(declaredBy(node).calls)) {
         const prev = seenCalls.get(name)
@@ -1176,8 +1176,8 @@ export function system<N extends Net = Net>(host: {
   }
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter'], resolve?: (name: string) => string): void => {
-    const calls = new Map<string, 'one' | 'each' | 'many'>()
-    const arms = new Map<string, 'one' | 'each'>()
+    const calls = new Map<string, 'single' | 'each' | 'many'>()
+    const arms = new Map<string, 'single' | 'each'>()
     const survey = (of: LooseDef): void => {
       for (const [name, called] of Object.entries(declaredBy(of).calls)) calls.set(name, called.kind)
       for (const [name, armed] of Object.entries(declaredBy(of).arms)) arms.set(name, armed.kind)
@@ -1376,7 +1376,7 @@ export function system<N extends Net = Net>(host: {
         return NOT_MADE
       }
       const id = declared.kind === 'many' ? `${name}/${++manySeq}` : key === undefined ? name : `${name}/${key}`
-      // For `one` and `each`, one already in flight is the same one: a second push while one is pending is that push.
+      // For `single` and `each`, one already in flight is the same one: a second push while one is pending is that push.
       if (at.pending.has(id)) return MADE
       let asked: object
       try {
@@ -1808,24 +1808,24 @@ export function system<N extends Net = Net>(host: {
       listeners.push(listener)
       return () => { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1) }
     },
-    attach: ((peerOrName: Port | string, peer?: PeerPort | ((event: AnyEvent) => void)) => {
-      if (typeof peerOrName === 'string') {
-        const port: PeerPort = typeof peer === 'function'
-          ? { tell: (_peer, event) => peer(event as AnyEvent) }
-          : peer!
-        if (peers.has(peerOrName)) throw new Error(`${called} already has a peer named ${peerOrName}`)
-        peers.set(peerOrName, port)
-        return () => { if (peers.get(peerOrName) === port) peers.delete(peerOrName) }
-      }
+    peer: ((name: string, peer: PeerPort | ((event: AnyEvent) => void)) => {
+      const port: PeerPort = typeof peer === 'function'
+        ? { tell: (_peer, event) => peer(event as AnyEvent) }
+        : peer
+      if (peers.has(name)) throw new Error(`${called} already has a peer named ${name}`)
+      peers.set(name, port)
+      return () => { if (peers.get(name) === port) peers.delete(name) }
+    }) as System['peer'],
+    attach: (port) => {
       if (host.side === 'backend') {
-        down.add(peerOrName)
-        return () => { down.delete(peerOrName) }
+        down.add(port)
+        return () => { down.delete(port) }
       }
       if (up) throw new Error(`${called} is already attached to a backend`)
-      up = peerOrName
+      up = port
       if (!host.views && running.size && !broken) run(() => { for (const ref of running.keys()) stale.set(ref, 'all') })
       return () => {
-        if (up !== peerOrName) return
+        if (up !== port) return
         up = undefined
         if (host.views) return
         for (const top of running.values()) {
@@ -1835,7 +1835,7 @@ export function system<N extends Net = Net>(host: {
           }
         }
       }
-    }) as System['attach'],
+    },
     idle: () => pending === 0 && !due && !stepping && !flushing && !outside.any,
     stop: (of) => {
       if (of === undefined) { run(() => { for (const ref of [...running.keys()].reverse()) end(ref) }, true); return }
