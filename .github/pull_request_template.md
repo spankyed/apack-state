@@ -6,6 +6,16 @@ Plain words, short sentences. Say what holds, not how it was built. Delete what 
 
 <!-- What changed, as what now holds. A decision the design changes is in docs/plan.md and docs/design.md as well. -->
 
+## Design bar
+
+<!--
+Required whenever `src/kernel.ts` or `etc/*.api.md` changes; delete if neither changed.
+- Consumer leverage: which real `apack` call sites does this simplify, and what workaround does it delete?
+- Surface minimalism: if `etc/*.api.md` adds an export or `Def` key, why could it not live on an existing one?
+- False-positive check: what valid program could this reject, block, or surprise?
+- Precedent: how does this fit `apack-state`'s own mechanisms (`RUNAWAY`, standing vs. imperative) and actor/RPC precedent?
+-->
+
 ## How it is known to hold
 
 <!--
