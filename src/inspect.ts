@@ -220,6 +220,13 @@ interface Op {
   readonly sent?: Pending
   /** For one sent from here: the step in another system that answered it. */
   reply?: Pending
+  /**
+   * For one sent from here: the step in another system that said something of it and has not been heard here yet,
+   * and whether more have said something since, which may or may not be heard with it.
+   */
+  said?: { readonly first: Pending; more: boolean }
+  /** For one sent from here: which step said what is heard next can no longer be told. */
+  deaf?: true
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message || error.name : String(error))
@@ -469,6 +476,13 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       if (!op) continue
       // What is done with an answer follows the step that answered; everything before follows the step it began in.
       cause(h.kind as CausalEdge['kind'], { system: systemName, step: op.answered ?? op.flight.startedStep, opId: h.id }, h)
+      // What is heard is a list of what was said, oldest first: the oldest not yet heard is surely in it. Whether a
+      // later one is, nothing in a log says, so with more than one waiting none after the first is told apart again.
+      if (h.kind === 'progress' && op.said) {
+        cause('progress', op.said.first, h)
+        if (op.said.more) op.deaf = true
+        op.said = undefined
+      }
       if (h.kind === 'answer') {
         op.answered = log.number
         if (op.reply) cause('answer', op.reply, h)
@@ -506,6 +520,14 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
         if (asking?.open) asking.reply = sent
         // Nothing more is heard here of an ask that came across a link. One made here is kept for what is done with it.
         if (op.across) ops.delete(opKey)
+      } else if (s.kind === 'progress') {
+        // What an ask taken from a link says is heard where it was asked.
+        const asker = ops.get(opKey)?.asker
+        const asking = asker && ops.get(`${asker.system}\0${asker.opId}`)
+        if (asking?.open && !asking.deaf) {
+          if (asking.said) asking.said.more = true
+          else asking.said = { first: sent, more: false }
+        }
       } else if (s.kind === 'tell') {
         leave(tells, key, sent)
       } else if (s.kind === 'broadcast') {

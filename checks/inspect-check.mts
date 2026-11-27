@@ -1497,4 +1497,85 @@ await run([
     sys.send(sys.start('sender', sender), { type: 'GO' })
     deepStrictEqual(inspector.whyIgnored().map((entry) => entry.detail), ['a was sent SECRET from outside, which only it raises: ignored'])
   }],
+  ['what an ask says before it ends is given the step that said it, where only one could be; of two steps said before any was heard, the first is and no later one', async () => {
+    type StreamAsks = { STREAM: { args: {}; progress: string; answer: null } }
+    const streaming = forNet<{ systems: { feed: { events: never; asks: StreamAsks } }; surfaces: {}; views: {} }>()
+    const inspector = createInspector()
+    const frames: Array<() => void> = []
+    let say!: (piece: string) => void
+    let end!: (value: null) => void
+    const backend = system({ side: 'backend', ...inspector.hooks('backend') })
+    backend.start('feed', streaming<{}, never, StreamAsks>()({ answers: { STREAM: (_, { progress }) => { say = progress; return new Promise<null>((resolve) => { end = resolve }) } } }))
+    const win = system({ side: 'window', frame: (run) => { frames.push(run) }, ...inspector.hooks('window') })
+    connect(win, backend)
+    win.start('reader', streaming<{ data: { heard: number }; calls: { stream: 'single' } }>()({
+      data: { heard: 0 },
+      calls: ({ single }) => ({ stream: single('feed', 'STREAM', { progress: (pieces, { data }) => ({ data: { heard: data.heard + pieces.length } }), done: () => {} }) }),
+      run: ({ call }) => { call('stream') },
+    }))
+    await turns()
+    const frame = async (): Promise<void> => { await turns(); for (const run of frames.splice(0)) run(); await turns() }
+    /** The step in which the backend said a piece, said in a step of its own. */
+    const said = (piece: string): number => { say(piece); return inspector.steps.findLast((step) => step.system === 'backend' && step.log.sent.some((sent) => sent.kind === 'progress'))!.log.number }
+    /** For each step in which the window heard something: the step of another system it is said to come of, where one is, and nothing else from outside. */
+    const heardFrom = (): Array<number | undefined> => inspector.steps.filter((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'progress')).map((step) => {
+      const outside = step.causes.filter((edge) => edge.fromSystem !== 'window')
+      ok(outside.length <= 1 && outside.every((edge) => edge.kind === 'progress' && edge.fromSystem === 'backend'), JSON.stringify(step.causes))
+      return outside[0]?.fromStep
+    })
+
+    // One piece, heard alone: it is from the step that said it.
+    const first = said('a')
+    await frame()
+    deepStrictEqual(heardFrom(), [first])
+    // Two pieces said in two steps before the window's frame: they are heard as one list. The first is surely in it;
+    // whether the second was is not known, so it is given no edge here, and nothing after it is given one.
+    const second = said('b')
+    said('c')
+    await frame()
+    deepStrictEqual(heardFrom(), [first, second])
+    said('d')
+    await frame()
+    deepStrictEqual(heardFrom(), [first, second, undefined])
+    end(null)
+    await rest()
+    // How it ended comes of the step that answered, and of nothing that was said before.
+    const ended = inspector.steps.findLast((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'answer'))!
+    deepStrictEqual(ended.causes.filter((edge) => edge.fromSystem === 'backend').map((edge) => edge.kind), ['answer'])
+    deepStrictEqual(inspector.defects, [])
+    win.stop(); backend.stop()
+  }],
+  ['what is said of an ask nobody hears with, or of one the inspector no longer knows, is given to no step, and breaks nothing', async () => {
+    type StreamAsks = { STREAM: { args: {}; progress: string; answer: null } }
+    const streaming = forNet<{ systems: { feed: { events: never; asks: StreamAsks } }; surfaces: {}; views: {} }>()
+    const inspector = createInspector()
+    let say!: (piece: string) => void
+    let end!: (value: null) => void
+    const backend = system({ side: 'backend', ...inspector.hooks('backend') })
+    backend.start('feed', streaming<{}, never, StreamAsks>()({ answers: { STREAM: (_, { progress }) => { say = progress; return new Promise<null>((resolve) => { end = resolve }) } } }))
+    const win = system({ side: 'window', ...inspector.hooks('window') })
+    connect(win, backend)
+    // It hears nothing said before the end: it has no `progress`.
+    win.start('reader', streaming<{ calls: { stream: 'single' } }>()({ calls: ({ single }) => ({ stream: single('feed', 'STREAM', { done: () => {} }) }), run: ({ call }) => { call('stream') } }))
+    await turns()
+    say('a')
+    await turns()
+    end(null)
+    await rest()
+    const ended = inspector.steps.findLast((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'answer'))!
+    deepStrictEqual(ended.causes.filter((edge) => edge.fromSystem === 'backend').map((edge) => edge.kind), ['answer'])
+    const done = inspector.steps.findLast((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'done'))!
+    deepStrictEqual(done.causes.map((edge) => edge.kind), ['done'])
+    // Said of an ask taken before the inspector was cleared: it knows of no such ask, and takes it as nothing.
+    win.start('later', streaming<{ calls: { stream: 'single' } }>()({ calls: ({ single }) => ({ stream: single('feed', 'STREAM', { done: () => {} }) }), run: ({ call }) => { call('stream') } }))
+    await turns()
+    inspector.clear()
+    say('b')
+    await turns()
+    deepStrictEqual(inspector.defects, [])
+    strictEqual(inspector.steps.some((step) => step.log.sent.some((sent) => sent.kind === 'progress')), true)
+    end(null)
+    await rest()
+    win.stop(); backend.stop()
+  }],
 ])
