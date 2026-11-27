@@ -10,6 +10,7 @@ import { Clock } from '@apackdev/orderings';
 import { everyOrder } from '@apackdev/orderings';
 import { explore } from '@apackdev/orderings';
 import { Explored } from '@apackdev/orderings';
+import { ExploreOptions } from '@apackdev/orderings';
 import { Link } from '@apackdev/link';
 import { replay } from '@apackdev/orderings';
 import { sample } from '@apackdev/orderings';
@@ -39,6 +40,7 @@ export interface Defect {
     readonly error?: unknown;
     readonly message: string;
     readonly ref?: string;
+    readonly step?: number;
 }
 
 // @public
@@ -59,6 +61,8 @@ export { everyOrder }
 export { explore }
 
 export { Explored }
+
+export { ExploreOptions }
 
 // Warning: (ae-forgotten-export) The symbol "Shape" needs to be exported by the entry point testing.d.ts
 // Warning: (ae-forgotten-export) The symbol "AnyEvent" needs to be exported by the entry point testing.d.ts
@@ -81,6 +85,24 @@ export type FromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 
 // @public
 export function fromEvents<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(options: FromEvents<S, E, A, G>): Promise<void>;
+
+// @public
+export function inspectOrder(scenario: (schedule: Schedule, hooks: (name: string) => InspectorHooks) => () => void | Promise<void>, options?: InspectOrderOptions): Promise<Explored>;
+
+// @public
+export interface InspectOrderOptions extends ExploreOptions {
+    readonly last?: number;
+}
+
+// @public
+export interface InspectorHooks {
+    // Warning: (ae-forgotten-export) The symbol "StepLog" needs to be exported by the entry point testing.d.ts
+    //
+    // (undocumented)
+    readonly log: (step: StepLog) => void;
+    // (undocumented)
+    readonly onDefect: (defect: Defect) => void;
+}
 
 // @public
 export type Makers<E extends AnyEvent> = {
@@ -127,10 +149,10 @@ export interface WaitForOptions {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/testing.d.ts:28:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:47:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:52:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
-// .temp/api-types/testing.d.ts:60:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:30:5 - (ae-forgotten-export) The symbol "Lane" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:49:5 - (ae-forgotten-export) The symbol "State" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:54:5 - (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point testing.d.ts
+// .temp/api-types/testing.d.ts:62:5 - (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

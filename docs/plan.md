@@ -1300,6 +1300,52 @@ The design is the smaller half of the value. In the order they would pay:
    Built: a system given `log` is told of each step as it ends ([design.md](design.md), "A step's log"). Recording
    one to replay, and a step on the backend naming the window's step that caused it, are not built: the second is a
    cause carried across the link, which `@apackdev/link` already carries.
+
+   Built beside it: `@apackdev/state/inspect`, which reads the logs of several systems as one timeline, says what is
+   under way, what was ignored and which declared moves were made, and gives each step the steps it came of. What
+   the log had to say for that, it now says:
+
+   - An ask and everything of it, and a view and its updates, carry one `id` in the system that logs them. An ask
+     its asker gives up is said (`sent: cancelled`), since nothing else tells a reader the ask is over: a cancelled
+     call left only `handled: cancel`, by the call's name, and a load left at a move left nothing.
+   - A follow and its unfollow are said wherever the view is served, and an unfollow is said whether or not the
+     link still holds the view.
+   - What ends outside any step is said first in the next step logged. A window leaving its backend takes no step
+     and opens no unit to stop following (`link-check`, "detaching a window port stops all views directly in zero
+     steps"), and an ask is given up outside a step when the work that made it ends. Said late is the cost; a step
+     taken to say each was the alternative, and it would take a step at the limit, open a unit as a link ends, and
+     put a step between a handler's end and its answer.
+   - What came through a port says so (`across`), with the side it came from. Without it a tell from a window and
+     the same event sent on the backend are one line in a log, and an edge between systems is a guess.
+   - What moved a state says so, and where to (`handled.at`). A step handles everything queued in it, so an event a
+     state took and the event it raised in taking it are one step: `changed` says the state moved, and only the
+     handled thing can say which of them moved it. Read off the first thing handled, a move was given to an event
+     that made none.
+   - What an earlier step led to says which (`handled.since`), where no `id` does: a timer's expiry, what a state's
+     work came to, and what work or a listener sent after its step was over. It is the number of the step, kept as
+     the timer is armed, the work begun, the scope made. Without it a chain of causes ended at every timer and at
+     everything work did after its first wait.
+   - An ignored event says why (`'internal'`, `'unhandled'`). The inspector read that from what the kernel traced,
+     word for word.
+   - A step the kernel threw out of keeps its number. A defect is stamped with its step as it is reported, before
+     the step is known to end; the next step, given the same number, was taken for the one that reported it.
+
+   **A state is a ref in a system.** A feature's system and its surface run under one ref, in two systems. Coverage
+   is one overlay for each system that ran a ref, and `explain` is told which system where it matters. Each call of
+   `hooks(name)` is one system: a second under a name is recorded as `name (2)`, since its steps count from 1 again
+   and a step is told by its system and its number.
+
+   **Between systems, an edge is given only when one message could be the one.** A log says where a message went
+   and what it was called, never which. So the inspector keeps what was sent under each name and gives an edge when
+   exactly one of them could be what a step took: all that is waiting is one window's (a link keeps one sender's
+   order), or a window has one broadcast it has not taken. Two windows that told a backend the same thing, a burst
+   of broadcasts, an ask given up with another behind it, more waiting than the limit keeps: no edge, until as many
+   have been taken as were waiting. An arrival nothing sent explains (a sender that is not inspected, a port joined
+   in the same turn so that the taker is logged first) turns its name off. A missing edge under-explains; a wrong
+   one misleads, and `inspect-order-check` holds every edge to what was really taken, under every ordering. What
+   this cannot know is a tell or a broadcast a link dropped as it closed, and which windows were joined when a
+   broadcast left: a window hooked before a broadcast it was never sent is never caught up under that name, so it
+   is given no edges there rather than wrong ones. Exact edges are the cause carried across the link, above.
 5. **A pack rule against a promise nobody awaits.** The kernel keeps a dropped ask from taking the process down, but
    the code that dropped it also never sees its answer or its refusal. `no-floating-promises` over pack sources, as a
    pack rule beside the others, refuses it for every pack.

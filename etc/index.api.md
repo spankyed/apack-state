@@ -308,6 +308,7 @@ export interface Defect {
     readonly error?: unknown;
     readonly message: string;
     readonly ref?: string;
+    readonly step?: number;
 }
 
 // @public
@@ -409,6 +410,10 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
 
 // @public
 export interface Handled {
+    readonly across?: 'window' | 'backend';
+    readonly at?: string;
+    readonly id?: number;
+    readonly ignored?: 'unhandled' | 'internal';
     readonly key?: string;
     // (undocumented)
     readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired' | 'answer';
@@ -416,6 +421,7 @@ export interface Handled {
     readonly own?: true;
     // (undocumented)
     readonly ref: string;
+    readonly since?: number;
 }
 
 // @public (undocumented)
@@ -573,8 +579,9 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
 
 // @public
 export interface Sent {
+    readonly id?: number;
     // (undocumented)
-    readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
+    readonly kind: 'answer' | 'abandoned' | 'cancelled' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
     // (undocumented)
     readonly name?: string;
     readonly outcome?: string;
