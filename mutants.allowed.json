@@ -355,12 +355,12 @@
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates }) }) | true",
+    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates, opId }) }) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome }) }, () => {}) | true",
+    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome, opId }) }, () => {}) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
@@ -385,12 +385,12 @@
     "why": "manySeq is a strictly internal uniqueness counter for unkeyed many calls and is never exposed in pending, scope.key, or StepLog, so counting up or down produces unique ids alike"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates }) }) | true",
+    "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates, opId }) }) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {}) | true",
+    "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome, opId }) }, () => {}) | true",
     "original": "mine()",
     "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
   },
@@ -540,12 +540,7 @@
     "why": "The lane the events are sent from is named in a list of what was run, which fromEvents does not report: a failure says its seed and the events it sent"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | case 'view': case 'done': case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) } | case 'progress':",
-    "original": "case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }",
-    "why": "Switch cases with one body: a case whose test can never match falls through to the next case, which has the same body, so every kind still gets it"
-  },
-  {
-    "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number: ++logged, ...told })) | log || told",
+    "key": "src/kernel.ts | LogicalOperator | if (log && told) safely('the step log', () => log({ number, ...told })) | log || told",
     "original": "log && told",
     "why": "What a step logs is made at its start when there is a log and only then, so there is a log exactly when there is something to tell it"
   },

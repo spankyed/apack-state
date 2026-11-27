@@ -481,16 +481,20 @@ await run([
     const throwDefect = defects.find((d) => d.message.includes('boom-in-step'))!
     strictEqual(throwDefect.step, throwStep.number)
 
-    // Follow -> view -> unfollow share one id on the window.
+    // Follow -> view -> unfollow share one id on the window, and unkeyed view/call entries omit `key`.
     const followSent = sentIn(logs.window).find((s) => s.kind === 'follow')!
-    ok(typeof followSent.id === 'number')
+    ok(typeof followSent.id === 'number' && followSent.id > 0)
     const viewHandled = handledIn(logs.window).find((h) => h.kind === 'view' && h.name === 'count')!
     strictEqual(viewHandled.id, followSent.id)
+    strictEqual('key' in viewHandled, false)
+    const callHandled = handledIn(logs.window).find((h) => h.kind === 'call' && h.ref === 'caller' && h.name === 'run')!
+    strictEqual('key' in callHandled, false)
 
-    // Concurrent `many` asks get distinct ids correlated across window sent(ask) -> handled(progress/answer/done).
+    // Concurrent `many` asks get strictly increasing positive ids correlated across window sent(ask) -> handled(progress/answer/done).
     const winAsks = sentIn(logs.window).filter((s) => s.kind === 'ask' && s.name === 'WORK')
     strictEqual(winAsks.length, 2)
-    ok(typeof winAsks[0]!.id === 'number' && typeof winAsks[1]!.id === 'number' && winAsks[0]!.id !== winAsks[1]!.id)
+    ok(typeof winAsks[0]!.id === 'number' && typeof winAsks[1]!.id === 'number')
+    ok(winAsks[0]!.id! > 0 && winAsks[1]!.id! > winAsks[0]!.id!)
     for (const askSent of winAsks) {
       ok(handledIn(logs.window).some((h) => h.kind === 'progress' && h.id === askSent.id))
       ok(handledIn(logs.window).some((h) => h.kind === 'answer' && h.id === askSent.id))
@@ -505,7 +509,7 @@ await run([
       ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.id === askHandled.id && s.outcome === 'ok'))
     }
 
-    // Same-system load preserves one opId across ask, progress, answer, and done.
+    // Same-system load preserves one increasing positive opId across ask, progress, answer, and done.
     const localLoader = net<{ data: { out: string } }, never>()({
       data: { out: '' },
       loads: (load) => ({
@@ -519,27 +523,28 @@ await run([
     backend.start('localLoader', localLoader)
     await rest()
     const localDone = handledIn(logs.backend).find((h) => h.kind === 'done' && h.ref === 'localLoader' && h.name === 'w')!
-    ok(typeof localDone.id === 'number')
+    ok(typeof localDone.id === 'number' && localDone.id > 0 && localDone.id > backendAsks.at(-1)!.id!)
     ok(handledIn(logs.backend).some((h) => h.kind === 'ask' && h.ref === 'svc' && h.id === localDone.id))
     ok(handledIn(logs.backend).some((h) => h.kind === 'progress' && h.ref === 'localLoader' && h.id === localDone.id))
     ok(sentIn(logs.backend).some((s) => s.kind === 'answer' && s.to === 'svc' && s.id === localDone.id))
 
-    // Failed start declaration (!handled throw) clears activeStep cleanly without shifting subsequent Defect.step.
-    let threwStart = false
-    try { backend.start('badDecl', { def: { starts: () => { throw new Error('bad-decl') } } } as never) } catch { threwStart = true }
-    strictEqual(threwStart, true)
+    // A defect thrown during commit flush (subscriber) carries the committed step's number.
     const unsub = backend.subscribe(() => { throw new Error('flush-sub-boom') })
-    backend.send(svcH, { type: 'THROW' })
-    const secondThrowStep = logs.backend.at(-1)!
-    const secondThrowDefect = defects.filter((d) => d.message.includes('boom-in-step')).at(-1)!
-    strictEqual(secondThrowDefect.step, secondThrowStep.number)
+    backend.start('subTrigger', net<{ data: { x: number } }, never>()({ data: { x: 1 } }))
+    const flushStep = logs.backend.at(-1)!
+    const flushDefect = defects.find((d) => d.message.includes('flush-sub-boom'))!
+    strictEqual(flushDefect.step, flushStep.number)
     unsub()
 
-    // Stop unfollows with the exact same follow id, and a late async onExit outside any step has no `step` field.
+    // Stop unfollows with the exact same follow id; a failed start declaration (!handled throw) clears activeStep
+    // immediately so an outside-step defect right after it has no `step` field.
     win.start('late', lateExit)
     win.stop()
     const unfollowSent = sentIn(logs.window).find((s) => s.kind === 'unfollow')!
     strictEqual(unfollowSent.id, followSent.id)
+    let threwStart = false
+    try { win.start('badDecl', { def: { starts: () => { throw new Error('bad-decl') } } } as never) } catch { threwStart = true }
+    strictEqual(threwStart, true)
     releaseLate()
     await rest()
     const lateDefect = defects.find((d) => d.message.includes('outside-step-exit'))!
