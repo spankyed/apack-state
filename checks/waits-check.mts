@@ -351,11 +351,14 @@ const checks: Array<[string, () => Promise<void>]> = [
 
   ['runtime ms ({ one: "ms" } / { each: "ms" }) and optional ms override on fixed-ms waits work for all builder forms', async () => {
     const manual = manualClock()
+    let builtOneKind: string | undefined
+    let builtEachKind: string | undefined
     type Shape = {
       data: { log: string[] }
       waits: {
         fixedOne: 'one'
         fixedEach: 'each'
+        twoArgUndefinedMs: 'one'
         dynOneBare: { one: 'ms' }
         dynOneFn: { one: 'ms' }
         dynOneOpts: { one: 'ms' }
@@ -370,20 +373,28 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { log: [] },
-      waits: ({ one, each }) => ({
-        fixedOne: one(500, { reset: true, done: () => ({ data: (d) => { d.log.push('fixedOne') } }) }),
-        fixedEach: each(500, { reset: true, done: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) }),
-        dynOneBare: one(),
-        dynOneFn: one(() => ({ data: (d) => { d.log.push('dynOneFn') } })),
-        dynOneOpts: one({ reset: false, done: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
-        dynEachBare: each(),
-        dynEachFn: each(({ key }) => ({ data: (d) => { d.log.push(`dynEachFn:${key}`) } })),
-        dynEachOpts: each({ reset: false, done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
-      }),
+      waits: ({ one, each }) => {
+        const fixedOne = one(500, { reset: true, done: () => ({ data: (d) => { d.log.push('fixedOne') } }) })
+        const fixedEach = each(500, { reset: true, done: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
+        builtOneKind = fixedOne.kind
+        builtEachKind = fixedEach.kind
+        return {
+          fixedOne,
+          fixedEach,
+          twoArgUndefinedMs: one(undefined as unknown as number, () => ({ data: (d) => { d.log.push('twoArgOverride') } })),
+          dynOneBare: one(),
+          dynOneFn: one(() => ({ data: (d) => { d.log.push('dynOneFn') } })),
+          dynOneOpts: one({ reset: false, done: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
+          dynEachBare: each(),
+          dynEachFn: each(({ key }) => ({ data: (d) => { d.log.push(`dynEachFn:${key}`) } })),
+          dynEachOpts: each({ reset: false, done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
+        }
+      },
       on: {
         FIXED_OVERRIDE: (_, { arm }) => {
           arm('fixedOne', 25)
           arm('fixedEach', 'k', 40)
+          arm('twoArgUndefinedMs', 30)
         },
         DYN_ALL: (_, { arm }) => {
           arm('dynOneBare', 10)
@@ -398,12 +409,14 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const sys = system({ side: 'backend', clock: manual.clock })
     const h = sys.start('m', m)
+    strictEqual(builtOneKind, 'one')
+    strictEqual(builtEachKind, 'each')
 
     sys.send(h, { type: 'FIXED_OVERRIDE' })
     manual.advance(25)
     deepStrictEqual(sys.read(h).data.log, ['fixedOne'])
     manual.advance(15)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'fixedEach:k'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'twoArgOverride', 'fixedEach:k'])
 
     sys.send(h, { type: 'DYN_ALL' })
     strictEqual(sys.read(h).waiting.dynOneBare, true)
@@ -413,7 +426,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(5)
     strictEqual(sys.read(h).waiting.dynEachBare.a, undefined)
     manual.advance(20)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'fixedEach:k', 'dynOneFn', 'dynEachFn:b', 'dynOneOpts', 'dynEachOpts:c'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'twoArgOverride', 'fixedEach:k', 'dynOneFn', 'dynEachFn:b', 'dynOneOpts', 'dynEachOpts:c'])
   }],
 
   ['ms === 0 schedules on a subsequent step (never synchronously), and invalid ms or missing clock report exact defects without arming', async () => {
@@ -756,7 +769,7 @@ const checks: Array<[string, () => Promise<void>]> = [
         ENTER: () => ({ at: 'active' }),
         ARM_PARENT: (_, { arm }) => { arm('parentWait') },
         UNKNOWN: (_, { arm, disarm }) => {
-          ;(arm as (n: string) => void)('missing')
+          ;(arm as (n: string, extra?: string) => void)('missing', 'extra')
           ;(disarm as (n: string) => void)('missing')
         },
       },
@@ -778,7 +791,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
     })
 
-    const sys = system({ side: 'backend', clock: manual.clock })
+    const logs: StepLog[] = []
+    const sys = system({ side: 'backend', clock: manual.clock, log: (s) => logs.push(s) })
     const h = sys.start('m', m)
     const waitingFlags: boolean[] = []
     sys.subscribe((_, _f, c) => { if (c.m) waitingFlags.push(c.m.waiting) })
@@ -798,10 +812,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(100)
     strictEqual(sys.read(h).waiting.parentWait, false)
 
-    // Unknown wait name via cast is a safe no-op.
+    // Unknown wait name via cast is a safe no-op and does not record a bogus key in StepLog.
     const afterUnknown = manual.afterCalls()
     sys.send(h, { type: 'UNKNOWN' })
     strictEqual(manual.afterCalls(), afterUnknown)
+    const unknownHandled = logs.flatMap((l) => l.handled).find((x) => x.kind === 'arm' && x.name === 'missing')
+    deepStrictEqual(unknownHandled, { kind: 'arm', ref: 'm', name: 'missing' })
 
     // Re-enter, arm, then leave: cancel called and waiting: true reported.
     sys.send(h, { type: 'ENTER' })
@@ -931,10 +947,10 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['ancestor resolution: parent waits armed from child survive sibling moves and disarm when leaving parent', async () => {
     const manual = manualClock()
     type Shape = {
-      data: { expired: number }
+      data: { expired: number; tags: string[] }
       states: {
         session: {
-          waits: { keepalive: 'one' }
+          waits: { keepalive: 'one'; tagged: 'each' }
           states: { a: {}; b: {} }
         }
         signedOut: {}
@@ -943,13 +959,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     type Ev = { type: 'ARM_IN_CHILD' } | { type: 'TO_B' } | { type: 'SIGN_OUT' }
     type Asks = { PING: { args: {}; answer: string } }
     const m = state<Shape, Ev, Asks>()({
-      data: { expired: 0 },
+      data: { expired: 0, tags: [] },
       initial: 'session',
       states: {
         session: {
           initial: 'a',
-          waits: ({ one }) => ({
+          waits: ({ one, each }) => ({
             keepalive: one(100, ({ data }) => ({ data: { expired: data.expired + 1 } })),
+            tagged: each(100, ({ key }) => ({ data: (d) => { d.tags.push(key) } })),
           }),
           answers: {
             PING: (_, { arm }) => { arm('keepalive'); return 'armed' },
@@ -960,7 +977,7 @@ const checks: Array<[string, () => Promise<void>]> = [
           },
           states: {
             a: {
-              on: { ARM_IN_CHILD: (_, { arm }) => { arm('keepalive') } },
+              on: { ARM_IN_CHILD: (_, { arm }) => { arm('keepalive'); arm('tagged', 'child-k') } },
             },
             b: {},
           },
@@ -974,14 +991,18 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     sys.send(h, { type: 'ARM_IN_CHILD' })
     strictEqual(sys.read(h).waiting.keepalive, true)
+    deepStrictEqual(sys.read(h).waiting.tagged, { 'child-k': true })
 
-    // Moving session.a -> session.b keeps `session` alive, so `keepalive` stays armed and fires!
+    // Moving session.a -> session.b keeps `session` alive, so `keepalive` and `tagged` stay armed and fire!
     sys.send(h, { type: 'TO_B' })
     strictEqual(sys.read(h).at, 'session.b')
     strictEqual(sys.read(h).waiting.keepalive, true)
+    deepStrictEqual(sys.read(h).waiting.tagged, { 'child-k': true })
     manual.advance(100)
     strictEqual(sys.read(h).data.expired, 1)
+    deepStrictEqual(sys.read(h).data.tags, ['child-k'])
     strictEqual(sys.read(h).waiting.keepalive, false)
+    deepStrictEqual(sys.read(h).waiting.tagged, {})
 
     // Arming from an `answers` handler (`Scope`) also works, and leaving `session` disarms it.
     const ans = await sys.ask(h, 'PING', {})

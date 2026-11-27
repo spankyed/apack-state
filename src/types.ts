@@ -605,6 +605,16 @@ export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <
 type WaitDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N>) => Next<R, H> | void
 type WaitEachDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
 type WaitOption<D> = D | { readonly reset?: boolean; readonly done?: D }
+type StrictWaitArg<A, D> =
+  [A] extends [undefined] ? WaitOption<D> | undefined
+  : A extends (...args: never[]) => unknown ? D
+  : A extends object ? { readonly reset?: boolean; readonly done?: D } & { readonly [K in Exclude<keyof A, 'reset' | 'done'>]: never }
+  : WaitOption<D>
+type StrictWaitArgs<Args, D> =
+  Args extends [number] ? [number]
+  : Args extends [number, infer O] ? [number, StrictWaitArg<O, D>]
+  : Args extends [infer O] ? [StrictWaitArg<O, D>]
+  : Args
 /** An imperative timer armed one at a time, as `one` builds it. */
 export interface WaitedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
   readonly kind: 'one'; readonly ms?: number; readonly reset?: boolean; readonly done?: Function
@@ -620,13 +630,13 @@ export type WaitOne<R, H extends string, E extends AnyEvent, N extends Net> = <
   Args extends
     | [ms: number, doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>]
     | [doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>],
->(...args: Args) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
+>(...args: Args & StrictWaitArgs<Args, WaitDone<R, H, E, N>>) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
 /** Declares an imperative keyed timer (`each`). Pass a default `ms` for `'each'`, or omit `ms` for `{ each: 'ms' }`. */
 export type WaitEach<R, H extends string, E extends AnyEvent, N extends Net> = <
   Args extends
     | [ms: number, doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>]
     | [doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>],
->(...args: Args) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
+>(...args: Args & StrictWaitArgs<Args, WaitEachDone<R, H, E, N>>) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
 
 /** A standing ask a state loads, as `load` makes it. */
 export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> {

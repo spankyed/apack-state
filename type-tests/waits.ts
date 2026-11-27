@@ -119,13 +119,21 @@ state<{ data: { n: number }; waits: { fixed: 'one'; dynamic: { one: 'ms' }; keye
   }),
 })
 
-state<{ data: { n: number }; waits: { badDone: 'one'; badEachDone: 'each' } }>()({
+state<{ data: { n: number }; waits: { badDone: 'one'; badEachDone: 'each'; badOptFixed: 'one'; badOptDyn: { one: 'ms' }; badEachOptFixed: 'each'; badEachOptDyn: { each: 'ms' } } }>()({
   data: { n: 0 },
   waits: ({ one, each }) => ({
     // @ts-expect-error a `one` wait's `done` return value is checked against the state's data
     badDone: one(100, () => ({ data: { n: 'wrong' } })),
     // @ts-expect-error an `each` wait's `done` return value is checked against the state's data
     badEachDone: each(100, { done: () => ({ data: { n: 'wrong' } }) }),
+    // @ts-expect-error unknown option keys on a fixed-ms `one` wait are rejected even when `done` is present
+    badOptFixed: one(100, { rest: false, done: () => {} }),
+    // @ts-expect-error unknown option keys on a runtime-ms `one` wait are rejected even when `done` is present
+    badOptDyn: one({ rest: false, done: () => {} }),
+    // @ts-expect-error unknown option keys on a fixed-ms `each` wait are rejected even when `done` is present
+    badEachOptFixed: each(100, { rest: false, done: () => {} }),
+    // @ts-expect-error unknown option keys on a runtime-ms `each` wait are rejected even when `done` is present
+    badEachOptDyn: each({ rest: false, done: () => {} }),
   }),
 })
 

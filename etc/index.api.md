@@ -693,9 +693,10 @@ export type ViewUpdate<T> = {
 
 // Warning: (ae-forgotten-export) The symbol "WaitOption" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "WaitEachDone" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "StrictWaitArgs" needs to be exported by the entry point index.d.ts
 //
 // @public
-export type WaitEach<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>]>(...args: Args) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
+export type WaitEach<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>]>(...args: Args & StrictWaitArgs<Args, WaitEachDone<R, H, E, N>>) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
 
 // @public
 export interface WaitedEach<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
@@ -740,7 +741,7 @@ export interface WaitedOne<R, H extends string, E extends AnyEvent, N extends Ne
 // Warning: (ae-forgotten-export) The symbol "WaitDone" needs to be exported by the entry point index.d.ts
 //
 // @public
-export type WaitOne<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>]>(...args: Args) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
+export type WaitOne<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>]>(...args: Args & StrictWaitArgs<Args, WaitDone<R, H, E, N>>) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
 
 // @public (undocumented)
 export function windowFrame(env: WindowFrames): (run: () => void) => void;

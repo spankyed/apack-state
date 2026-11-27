@@ -359,4 +359,70 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['follows arm and scope passed to local helpers and destructured aliases without false-positive unused-wait findings', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-helpers-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'helpers.ts')
+      writeFileSync(file, `
+import { state, type EventScope, type Net } from '${stateIndex}'
+
+type HelperShape = {
+  data: { count: number }
+  waits: {
+    viaArmParam: 'one'
+    viaScopeParam: 'one'
+    viaAlias: 'one'
+    dead: 'one'
+  }
+}
+type HelperEv = { type: 'A' } | { type: 'B' } | { type: 'C' }
+
+function armViaCustomParam(_count: number, schedule: (name: 'viaArmParam') => void) {
+  schedule('viaArmParam')
+}
+
+const armViaScope = (s: Pick<EventScope<HelperShape, '', HelperEv, Net>, 'arm'>) => {
+  s.arm('viaScopeParam')
+}
+
+export const withHelpers = state<HelperShape, HelperEv>()({
+  data: { count: 0 },
+  waits: ({ one }) => ({
+    viaArmParam: one(100),
+    viaScopeParam: one(200),
+    viaAlias: one(300),
+    dead: one(400),
+  }),
+  on: {
+    A: (_, { data, arm }) => { armViaCustomParam(data.count, arm) },
+    B: (_, scope) => { armViaScope(scope) },
+    C: (_, { arm: startTimer }) => { startTimer('viaAlias') },
+  },
+})
+
+declare function externalHook(fn: (name: 'escaped') => void): void
+export const withOpaqueEscape = state<{ waits: { escaped: 'one'; untouched: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ escaped: one(50), untouched: one(50) }),
+  on: { GO: (_, { arm }) => { externalHook(arm) } },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 2, formatGraphs(graphs))
+
+      const g1 = graphs[0]!
+      deepStrictEqual(g1.reaches, [
+        "arm 'viaArmParam'",
+        "arm 'viaScopeParam'",
+        "arm 'viaAlias'",
+      ])
+      deepStrictEqual(g1.findings, ['nothing arms dead'])
+
+      const g2 = graphs[1]!
+      deepStrictEqual(g2.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

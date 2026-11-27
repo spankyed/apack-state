@@ -99,7 +99,7 @@ export function mirrors(sys: System): Mirrors {
       if (!latest || !into) { show(shared, latest); continue }
       if (changes[ref]?.moved) into.whole.at = latest.at
       if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending)
-      if (into.waiting) follow(into.waiting, latest.waiting!)
+      if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting)
       // A field the state replaced is written, and one it no longer has, having left the state that held it, goes.
       for (const field of fields[ref] ?? []) {
         if (Object.hasOwn(latest.data, field)) into.data[field] = latest.data[field]; else delete into.data[field]
