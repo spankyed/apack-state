@@ -284,4 +284,123 @@ export const watcher = state<WatcherShape, { type: 'PAUSE' } | { type: 'RESUME' 
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['inspects waits (direct done, options object, pure TTL, reset: false, transitions) and flags unused waits', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'waits.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+type Shape = {
+  data: { count: number }
+  waits: {
+    pulse: 'one'
+    timeout: 'one'
+    backoff: { one: 'ms' }
+    flash: 'each'
+    unused: 'one'
+  }
+  states: { active: {}; timedOut: {} }
+}
+export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
+  data: { count: 0 },
+  initial: 'active',
+  waits: ({ one, each }) => ({
+    pulse: one(300),
+    timeout: one(5000, () => ({ at: 'timedOut' })),
+    backoff: one({ reset: false, done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+    flash: each(200, ({ data }) => ({ data: { count: data.count + 1 } })),
+    unused: one(100),
+  }),
+  on: {
+    GO: (_, { arm }) => {
+      arm('pulse')
+      arm('timeout')
+      arm('backoff', 250)
+      arm('flash', 'k')
+    },
+    STOP: (_, { disarm }) => {
+      disarm('pulse')
+      disarm('flash')
+    },
+  },
+  states: {
+    active: {},
+    timedOut: {},
+  },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 1, formatGraphs(graphs))
+      const g = graphs[0]!
+      deepStrictEqual(g.waits, [
+        'pulse: 300ms, one at a time',
+        'timeout: 5000ms, one at a time',
+        'backoff: ms at arm, one at a time, no reset',
+        'flash: 200ms, for each key it is told',
+        'unused: 100ms, one at a time',
+      ])
+      deepStrictEqual(g.moves, [{ from: 'anywhere', on: 'timeout (done)', to: ['timedOut'] }])
+      ok(g.stays.includes('backoff (done)'), g.stays.join(', '))
+      ok(g.stays.includes('flash (done)'), g.stays.join(', '))
+      deepStrictEqual(g.reaches, [
+        "arm 'pulse'",
+        "arm 'timeout'",
+        "arm 'backoff'",
+        "arm 'flash'",
+        "disarm 'pulse'",
+        "disarm 'flash'",
+      ])
+      // `timedOut` is entered by `timeout (done)`, so only `unused` is flagged as never armed.
+      deepStrictEqual(g.findings, ['nothing arms unused'])
+      ok(g.text.includes('  waits   pulse: 300ms, one at a time'), g.text)
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
+  ['handles destructured arm aliases and suppresses unused-wait findings when arm or scope leaves the literal', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-helpers-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'helpers.ts')
+      writeFileSync(file, `
+import { state, type EventScope, type Net } from '${stateIndex}'
+
+type AliasShape = {
+  waits: { viaAlias: 'one'; dead: 'one' }
+}
+export const withAlias = state<AliasShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({ viaAlias: one(100), dead: one(200) }),
+  on: {
+    GO: (_, { arm: startTimer }) => { startTimer('viaAlias') },
+  },
+})
+
+function armViaHelper(schedule: (name: 'viaArm') => void) { schedule('viaArm') }
+export const withArmEscape = state<{ waits: { viaArm: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ viaArm: one(50) }),
+  on: { GO: (_, { arm }) => { armViaHelper(arm) } },
+})
+
+type ScopeShape = { waits: { viaScope: 'one' } }
+type ScopeEv = { type: 'GO' }
+const armViaScope = (s: Pick<EventScope<ScopeShape, '', ScopeEv, Net>, 'arm'>) => { s.arm('viaScope') }
+export const withScopeEscape = state<ScopeShape, ScopeEv>()({
+  waits: ({ one }) => ({ viaScope: one(50) }),
+  on: { GO: (_, scope) => { armViaScope(scope) } },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 3, formatGraphs(graphs))
+
+      deepStrictEqual(graphs[0]!.reaches, ["arm 'viaAlias'"])
+      deepStrictEqual(graphs[0]!.findings, ['nothing arms dead'])
+      deepStrictEqual(graphs[1]!.findings, [])
+      deepStrictEqual(graphs[2]!.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

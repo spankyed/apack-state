@@ -32,6 +32,7 @@ Its shape is a type. Its definition has the same keys at every depth.
 | `follows` | Views of the database it keeps up to date |
 | `loads` | Reads it is loading |
 | `calls` | Writes it calls on demand |
+| `waits` | Timers it arms on demand |
 
 ## Standing things follow the data
 
@@ -68,6 +69,14 @@ beside `at` and `data`, as `pending`.
 Keeping the two apart is what Elm does with subscriptions and commands, and TanStack Query with queries and
 mutations. It matters for three reasons: the kernel never changes a state's data, one thing owns the record of what
 is in flight, and restoring a state reads again but does not write again.
+
+The same split holds for imperative timers under **`waits`**: armed on demand with `arm(name, ...)` and cleared with
+`disarm(name, key?)` (`one` or keyed `each`, fixed default `ms` with optional override or runtime `{ one: 'ms' }` /
+`{ each: 'ms' }`, `reset: true` debounce by default or `reset: false` throttle, optional `done` for pure-TTL flags).
+Which timers are armed lives on `waiting` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
+never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that called it (so exiting or
+self-re-entering that state in the same step drops it); to arm a timer on state entry or self-transition, call `arm`
+from that state's `listen` or `run`.
 
 ## A complete example
 
@@ -176,6 +185,7 @@ follows: (follow) => ({
 | A write to fire, one at a time | `calls`, with `one`, and `call(name, input?)` (`pending.<name>: boolean`) |
 | A write to fire, one per key | `calls`, with `each`, and `call(name, key, input?)` (`pending.<name>: Record<string, true>`) |
 | A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
+| A timer to arm on demand (debounce, throttle, TTL flag, retry) | `waits`, with `one` or `each`, and `arm(name, ...)` / `disarm(name, key?)` (`waiting.<name>`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
 | External push events (emitters, watchers, DOM listeners) | `listen` (state-lifetime scope, automatic cleanup, keeps `idle()` true) |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
@@ -199,6 +209,7 @@ ask's args — `args` may be omitted.
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
 | `call(name, ...)` / `cancel(name, key?)` | A state | The kernel: fire a declared write (with key and/or typed input), or cancel it (or all in flight for `many`) |
+| `arm(name, ...)` / `disarm(name, key?)` | A state | The kernel: arm a declared timer (with key and/or `ms`), or disarm it (or all keys of `each`) |
 
 A component reads and sends. It does not ask.
 
@@ -227,7 +238,7 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   An event a state sent itself is marked `own`. When the system is given a `clock`, `now` stamps when the step began,
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
-  its pending calls changed.
+  its pending calls or armed waits changed.
 - **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
   `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.

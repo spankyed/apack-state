@@ -52,6 +52,10 @@ export {
   type Value,
   type ViewHost,
   type ViewUpdate,
+  type WaitEach,
+  type WaitOne,
+  type WaitedEach,
+  type WaitedOne,
 } from './types.ts'
 
 // What runs it: a system, its steps, and what it is given.

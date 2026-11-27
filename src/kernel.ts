@@ -93,7 +93,10 @@ type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>;
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
+  waits?: (waits: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; ms?: number; reset?: boolean; done?: Function }>
 }
+
+interface Armed { stop?: () => void }
 
 interface Active {
   readonly top: Running
@@ -116,6 +119,8 @@ interface Active {
   readonly awaiting: Map<string, Live>
   /** The imperative calls currently in flight, by name and key. */
   readonly pending: Map<string, Live>
+  /** The imperative timers currently armed, by name and key. */
+  readonly waiting: Map<string, Armed>
 }
 /**
  * One view being followed or one ask loaded: the values of the fields it named when it was asked, how to stop it,
@@ -125,6 +130,8 @@ interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySe
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
   calls: Map<string, 'one' | 'each' | 'many'>
+  /** Every imperative timer it can arm, whichever of its states declares it, and which kind each is. */
+  waits: Map<string, 'one' | 'each'>
   /** Optional name resolver attached by `forNet(resolve)` for bare-to-qualified target resolution. */
   readonly resolve?: (name: string) => string
   /** Memoized bare-to-qualified name mappings for this running state's lifetime. */
@@ -144,6 +151,9 @@ type Item =
   | { kind: 'progress'; made: boolean; of: Active; name: string; id: string; key: string | undefined; hasInput?: boolean; input?: unknown; live: Live; updates: unknown[] }
   | { kind: 'call'; of: Active; name: string; key: string | undefined; hasInput: boolean; input: unknown }
   | { kind: 'cancel'; of: Active; name: string; key: string | undefined }
+  | { kind: 'arm'; of: Active; name: string; key: string | undefined; ms: number | undefined }
+  | { kind: 'disarm'; of: Active; name: string; key: string | undefined }
+  | { kind: 'wait'; of: Active; name: string; id: string; key: string | undefined; live: Armed }
   | { kind: 'answer'; question: Question; outcome: AnyOutcome; change?: { of: Active; next: unknown } }
   | { kind: 'out'; leave: () => void; said?: Said }
 
@@ -157,9 +167,9 @@ export type Transact = <T>(run: () => T) => T
 
 /** One thing a step handled, as its log says it: what kind, for which running state, and its name. Never what it carried. */
 export interface Handled {
-  readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'answer'
+  readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'wait' | 'answer'
   readonly ref: string
-  /** An event's type, an ask's name, what is followed, loaded or called, as the state declares it. */
+  /** An event's type, an ask's name, what is followed, loaded, called, or waited on, as the state declares it. */
   readonly name?: string
   /** Which one, for one of many. */
   readonly key?: string
@@ -188,19 +198,21 @@ export interface StepLog {
   readonly status: 'committed' | 'lost' | 'halted'
   /** Everything it handled, in order: the first is what began it. */
   readonly handled: readonly Handled[]
-  /** Each running state that changed: the fields of its data that did, whether it moved and where it is, and whether its pending calls changed. */
-  readonly changed: Readonly<Record<string, { readonly fields: readonly string[]; readonly moved: boolean; readonly at: string; readonly pending: boolean }>>
+  /** Each running state that changed: the fields of its data that did, whether it moved and where it is, and whether its pending calls or armed waits changed. */
+  readonly changed: Readonly<Record<string, { readonly fields: readonly string[]; readonly moved: boolean; readonly at: string; readonly pending: boolean; readonly waiting: boolean }>>
   /** What was sent at the commit, in order. */
   readonly sent: readonly Sent[]
 }
 
 
-/** What changed in one running state in one step: whether it moved to another state, and whether its pending calls changed. */
+/** What changed in one running state in one step: whether it moved to another state, and whether its pending calls or armed waits changed. */
 export interface Changes {
   /** Whether the state moved to a different path. */
   readonly moved: boolean
   /** Whether its pending calls changed. */
   readonly pending: boolean
+  /** Whether its armed waits changed. */
+  readonly waiting: boolean
 }
 
 /** A programming mistake or unrecoverable failure reported by the kernel. */
@@ -404,11 +416,13 @@ export function system<N extends Net = Net>(host: {
     if (field === undefined) stale.set(ref, 'all'); else if (now !== 'all') stale.set(ref, (now ?? new Set<string>()).add(field))
   }
   const touch = (ref: string, field: string): void => { mark(ref, field); fields.set(ref, (fields.get(ref) ?? new Set()).add(field)) }
-  /** Whether each moved, and whether its pending calls changed, in this step. */
-  const places = new Map<string, { moved: boolean; pending: boolean }>()
-  const placesOf = (ref: string) => places.get(ref) ?? places.set(ref, { moved: false, pending: false }).get(ref)!
+  /** Whether each moved, and whether its pending calls or armed waits changed, in this step. */
+  const places = new Map<string, { moved: boolean; pending: boolean; waiting: boolean }>()
+  const placesOf = (ref: string) => places.get(ref) ?? places.set(ref, { moved: false, pending: false, waiting: false }).get(ref)!
   /** What a state has pending changed. That is not its data, so nothing it starts, follows or loads is looked at again. */
   const pendingChanged = (top: Running): void => { changed.add(top.ref); placesOf(top.ref).pending = true }
+  /** What timers a state has armed changed. That is not its data, so nothing it starts, follows or loads is looked at again. */
+  const waitingChanged = (top: Running): void => { changed.add(top.ref); placesOf(top.ref).waiting = true }
   /** A move can add and remove fields as states are left and entered: each one that differs afterwards changed. */
   const moved = (top: Running, was: Plain): void => {
     mark(top.ref)
@@ -449,21 +463,35 @@ export function system<N extends Net = Net>(host: {
     const at = innermost(top).path
     const data = frozen(top.data)
     const value: Plain = at ? { at, data } : { data }
-    if (!top.calls.size) return Object.freeze(value)
-    // Which of the imperative asks it declares are currently in flight, in the active states.
-    const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? {} : kind === 'many' ? 0 : false]))
-    for (let active: Active | undefined = top.root; active; active = active.inside) {
-      for (const id of active.pending.keys()) {
-        const cut = id.indexOf('/')
-        if (cut < 0) pending[id] = true
-        else {
-          const name = id.slice(0, cut)
-          if (top.calls.get(name) === 'many') pending[name] = (pending[name] as number) + 1
-          else (pending[name] as Plain)[id.slice(cut + 1)] = true
+    if (top.calls.size) {
+      // Which of the imperative asks it declares are currently in flight, in the active states.
+      const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? {} : kind === 'many' ? 0 : false]))
+      for (let active: Active | undefined = top.root; active; active = active.inside) {
+        for (const id of active.pending.keys()) {
+          const cut = id.indexOf('/')
+          if (cut < 0) pending[id] = true
+          else {
+            const name = id.slice(0, cut)
+            if (top.calls.get(name) === 'many') pending[name] = (pending[name] as number) + 1
+            else (pending[name] as Plain)[id.slice(cut + 1)] = true
+          }
         }
       }
+      value.pending = frozen(pending)
     }
-    return Object.freeze({ ...value, pending: frozen(pending) })
+    if (top.waits.size) {
+      // Which of the imperative timers it declares are currently armed, in the active states.
+      const waiting: Plain = Object.fromEntries([...top.waits].map(([name, kind]) => [name, kind === 'each' ? {} : false]))
+      for (let active: Active | undefined = top.root; active; active = active.inside) {
+        for (const id of active.waiting.keys()) {
+          const cut = id.indexOf('/')
+          if (cut === -1) waiting[id] = true
+          else (waiting[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true
+        }
+      }
+      value.waiting = frozen(waiting)
+    }
+    return Object.freeze(value)
   }
   const refOf = (to: string | { ref: string }): string => (typeof to === 'string' ? to : to.ref)
   const isSurface = (to: unknown): to is { surface: string } => typeof to === 'object' && to !== null && 'surface' in to
@@ -651,6 +679,14 @@ export function system<N extends Net = Net>(host: {
         enqueue({ kind: 'call', of: mine, name, key, hasInput, input })
       },
       cancel: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'cancel', of: mine, name, key: k }) },
+      arm: (name: string, ...rest: unknown[]) => {
+        if (!alive()) return
+        let of: Active | undefined = mine
+        while (of && !(name in declaredBy(of.def).waits)) of = of.around
+        const each = of ? declaredBy(of.def).waits[name]!.kind === 'each' : false
+        enqueue({ kind: 'arm', of: mine, name, key: each ? rest[0] as string : undefined, ms: (each ? rest[1] : rest[0]) as number | undefined })
+      },
+      disarm: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'disarm', of: mine, name, key: k }) },
       report: (event: AnyEvent) => {
         if (!alive()) return
         const starter = mine.top.starter
@@ -702,7 +738,7 @@ export function system<N extends Net = Net>(host: {
 
   const enter = (top: Running, def: LooseDef, name: string, around: Active | undefined, entering: Plain): Active => {
     const path = around?.path ? `${around.path}.${name}` : name
-    const active: Active = { top, def, name, path, around, inside: undefined, controller: new AbortController(), releases: [], questions: new Set(), started: new Set(), following: new Map(), awaiting: new Map(), pending: new Map() }
+    const active: Active = { top, def, name, path, around, inside: undefined, controller: new AbortController(), releases: [], questions: new Set(), started: new Set(), following: new Map(), awaiting: new Map(), pending: new Map(), waiting: new Map() }
     if (around) around.inside = active; else top.root = active
     const entries = Object.entries(def.data ?? {})
     if (entries.length) {
@@ -793,6 +829,12 @@ export function system<N extends Net = Net>(host: {
     active.following.clear()
     active.awaiting.clear()
     if (active.pending.size) { for (const live of active.pending.values()) live.stop(); active.pending.clear(); pendingChanged(active.top) }
+    if (active.waiting.size) {
+      const armed = [...active.waiting.values()]
+      active.waiting.clear()
+      for (const live of armed) live.stop!()
+      waitingChanged(active.top)
+    }
     for (const ref of [...active.started].reverse()) end(ref)
     active.started.clear()
     for (const question of active.questions) {
@@ -837,8 +879,14 @@ export function system<N extends Net = Net>(host: {
     descend(kept, names.slice(shared), entering)
   }
 
+  const waitEntry = (kind: 'one' | 'each', args: unknown[]): { kind: 'one' | 'each'; ms?: number; reset?: boolean; done?: Function } => {
+    const hasMs = args.length > 1 || typeof args[0] === 'number'
+    const rest = hasMs ? args[1] : args[0]
+    const opts = typeof rest === 'function' ? { done: rest } : (rest as { reset?: boolean; done?: Function } | undefined)
+    return { kind, ms: hasMs ? args[0] as number : undefined, reset: opts?.reset, done: opts?.done }
+  }
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
-  const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>> }>()
+  const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>>; waits: ReturnType<NonNullable<LooseDef['waits']>> }>()
   const declaredBy = (def: LooseDef) => {
     let found = declared.get(def)
     if (!found) {
@@ -850,6 +898,10 @@ export function system<N extends Net = Net>(host: {
           one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }),
           each: (of: string, ask: string, options: object) => ({ kind: 'each', of, ask, ...options }),
           many: (of: string, ask: string, options: object) => ({ kind: 'many', of, ask, ...options }),
+        }) ?? {},
+        waits: def.waits?.({
+          one: (...args: unknown[]) => waitEntry('one', args),
+          each: (...args: unknown[]) => waitEntry('each', args),
         }) ?? {},
       }
       declared.set(def, found)
@@ -1098,14 +1150,16 @@ export function system<N extends Net = Net>(host: {
 
   const begin = (ref: string, def: LooseDef, entering: Plain = {}, starter?: Running['starter'], resolve?: (name: string) => string): void => {
     const calls = new Map<string, 'one' | 'each' | 'many'>()
+    const waits = new Map<string, 'one' | 'each'>()
     const survey = (of: LooseDef): void => {
       for (const [name, called] of Object.entries(declaredBy(of).calls)) calls.set(name, called.kind)
+      for (const [name, waited] of Object.entries(declaredBy(of).waits)) waits.set(name, waited.kind)
       for (const inner of Object.values(of.states ?? {})) survey(inner)
     }
     survey(def)
     restarted.add(ref)
     mark(ref)
-    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, resolve, resolved: new Map(), reported: new Set() }
+    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, waits, resolve, resolved: new Map(), reported: new Set() }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
     top.data = frozen(top.data)
@@ -1226,7 +1280,7 @@ export function system<N extends Net = Net>(host: {
       case 'ask': return { kind: 'ask', ref: item.ref, name: item.name }
       case 'result': case 'failure': return { kind: item.kind, ref: item.of.top.ref, name: item.of.path || item.of.name }
       case 'view': case 'done': case 'progress': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
-      case 'call': case 'cancel': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
+      case 'call': case 'cancel': case 'arm': case 'disarm': case 'wait': return { kind: item.kind, ref: item.of.top.ref, name: item.name, ...(item.key === undefined ? {} : { key: item.key }) }
       // Every ask an answer comes back to was noted where it was made, or where it arrived to be answered.
       case 'answer': { const asked = askedOf.get(item.question)!; return { kind: 'answer', ref: asked.ref, name: asked.name } }
     }
@@ -1320,6 +1374,80 @@ export function system<N extends Net = Net>(host: {
       // Cancelled, it ends with `Cancelled`, which is that and nothing to hear of.
       made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome }) }, () => {})
       return MADE
+    }
+    if (item.kind === 'arm' || item.kind === 'disarm') {
+      const { name, key } = item
+      let of: Active | undefined = item.of
+      while (of && !(name in declaredBy(of.def).waits)) of = of.around
+      if (!of || of.controller.signal.aborted) return MADE
+      const at = of
+      const top = at.top
+      const declared = declaredBy(at.def).waits[name]!
+      if (item.kind === 'disarm') {
+        if (declared.kind === 'each' && key === undefined) {
+          const prefix = `${name}/`
+          let any = false
+          for (const [entryId, live] of [...at.waiting]) {
+            if (!entryId.startsWith(prefix)) continue
+            at.waiting.delete(entryId)
+            live.stop!()
+            any = true
+          }
+          if (any) waitingChanged(top)
+          return MADE
+        }
+        const id = key === undefined ? name : `${name}/${key}`
+        const now = at.waiting.get(id)
+        if (!now) return MADE
+        at.waiting.delete(id)
+        now.stop!()
+        waitingChanged(top)
+        return MADE
+      }
+      if (declared.kind === 'each' && typeof key !== 'string') {
+        defect(`${top.ref} cannot arm ${name} without a string key`, top.ref)
+        return NOT_MADE
+      }
+      const id = key === undefined ? name : `${name}/${key}`
+      const duration = item.ms ?? declared.ms
+      if (!Number.isFinite(duration) || (duration as number) < 0) {
+        defect(`${top.ref} cannot arm ${id} with invalid duration ${String(duration)}`, top.ref)
+        return NOT_MADE
+      }
+      if (!host.clock) {
+        defect(`${top.ref} cannot arm ${id}: ${called} was given no clock; pass clock to system()`, top.ref)
+        return NOT_MADE
+      }
+      const prev = at.waiting.get(id)
+      if (prev && declared.reset === false) return MADE
+      const live: Armed = {}
+      at.waiting.set(id, live)
+      let cancel: () => void
+      try {
+        cancel = host.clock.after(duration as number, () => {
+          if (at.waiting.get(id) === live) arrive({ kind: 'wait', of: at, name, id, key, live })
+        })
+      } catch (error) {
+        if (prev) at.waiting.set(id, prev); else at.waiting.delete(id)
+        defect(`${top.ref} could not arm ${id}: ${said(error)}`, top.ref, error)
+        return NOT_MADE
+      }
+      if (prev) prev.stop!()
+      live.stop = () => safely(`disarming ${top.ref}'s wait ${id}`, cancel, top.ref)
+      if (!prev) waitingChanged(top)
+      return MADE
+    }
+    if (item.kind === 'wait') {
+      if (item.of.waiting.get(item.id) !== item.live) return MADE
+      const declared = declaredBy(item.of.def).waits[item.name]!
+      const top = item.of.top
+      item.of.waiting.delete(item.id)
+      waitingChanged(top)
+      if (!declared.done) return MADE
+      try { return apply(item.of, declared.done(eventScopeOf(item.of, item.key))) } catch (error) {
+        defect(`${top.ref} threw in ${item.id} done, and nothing changed: ${said(error)}`, top.ref, error)
+        return NOT_MADE
+      }
     }
     if (item.kind === 'done' || item.kind === 'progress') {
       const table = item.made ? declaredBy(item.of.def).calls : declaredBy(item.of.def).loads
@@ -1489,7 +1617,7 @@ export function system<N extends Net = Net>(host: {
       const where = Object.fromEntries(places)
       places.clear()
       if (told) told.changed = Object.fromEntries(refs.map((ref) => [ref, {
-        fields: which[ref] ?? [], moved: where[ref]?.moved ?? false, pending: where[ref]?.pending ?? false,
+        fields: which[ref] ?? [], moved: where[ref]?.moved ?? false, pending: where[ref]?.pending ?? false, waiting: where[ref]?.waiting ?? false,
         at: (committed.get(ref) as { at?: string } | undefined)?.at ?? '',
       }]))
       leaving.push(() => { for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, which, where)) })

@@ -51,6 +51,8 @@ export interface StateGraph {
     readonly text: string;
     // (undocumented)
     readonly title: string;
+    // (undocumented)
+    readonly waits: readonly string[];
 }
 
 // (No @packageDocumentation comment for this package)

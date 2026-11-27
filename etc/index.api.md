@@ -185,6 +185,7 @@ export class Cancelled extends Error {
 export interface Changes {
     readonly moved: boolean;
     readonly pending: boolean;
+    readonly waiting: boolean;
 }
 
 // @public
@@ -196,6 +197,7 @@ export interface Clock {
 // Warning: (ae-forgotten-export) The symbol "Work" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "DataOf" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "CallsOf" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "WaitsOf" needs to be exported by the entry point index.d.ts
 //
 // @public
 export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N extends Net> = {
@@ -227,6 +229,15 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
         many: CallMany<R, H, E, N>;
     }) => {
         [K in keyof CallsOf<S>]: CallKind<CallsOf<S>[K]> extends 'each' ? CalledEach<R, H, E, N, CallInput<CallsOf<S>[K]>> : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>> : CalledOne<R, H, E, N, CallInput<CallsOf<S>[K]>>;
+    };
+}) & ([keyof WaitsOf<S>] extends [never] ? {
+    waits?: never;
+} : {
+    waits: (waits: {
+        one: WaitOne<R, H, E, N>;
+        each: WaitEach<R, H, E, N>;
+    }) => {
+        [K in keyof WaitsOf<S>]: WaitKind<WaitsOf<S>[K]> extends 'each' ? WaitedEach<R, H, E, N, WaitNeedsMs<WaitsOf<S>[K]>> : WaitedOne<R, H, E, N, WaitNeedsMs<WaitsOf<S>[K]>>;
     };
 }) & ([Names<S>] extends [never] ? {
     initial?: never;
@@ -348,7 +359,7 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
 export interface Handled {
     readonly key?: string;
     // (undocumented)
-    readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'answer';
+    readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'wait' | 'answer';
     readonly name?: string;
     readonly own?: true;
     // (undocumented)
@@ -470,6 +481,9 @@ export type Read<T> = T extends Whole ? T : T extends (...given: never[]) => unk
 
 // @public (undocumented)
 export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
+    // Warning: (ae-forgotten-export) The symbol "WaitsAt" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "ArmParams" needs to be exported by the entry point index.d.ts
+    arm<K extends keyof WaitsAt<R, H> & string>(name: K, ...rest: ArmParams<WaitsAt<R, H>[K]>): void;
     ask<K extends SystemsOf<N>, Q extends keyof N['systems'][K]['asks'] & string>(of: K, name: Q, args: Read<AskOf<N, K, Q>['args']>, progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, K, Q>>>) => void): Promise<OutcomeOf<AskOf<N, K, Q>>>;
     // (undocumented)
     ask<A2 extends Asks, Q extends keyof A2 & string>(of: Handle<unknown, never, A2>, name: Q, args: Read<A2[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A2[Q]>>) => void): Promise<OutcomeOf<A2[Q]>>;
@@ -482,6 +496,8 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
     // Warning: (ae-forgotten-export) The symbol "StartsAt" needs to be exported by the entry point index.d.ts
     child<K extends keyof StartsAt<R, H> & string>(name: K, ...key: StartsAt<R, H>[K] extends Each<any> ? [key: string] : []): HandleOf<StartsAt<R, H>[K]>;
     readonly data: Read<DataAt<R, H>>;
+    // Warning: (ae-forgotten-export) The symbol "DisarmParams" needs to be exported by the entry point index.d.ts
+    disarm<K extends keyof WaitsAt<R, H> & string>(name: K, ...key: DisarmParams<WaitsAt<R, H>[K]>): void;
     readonly now: number;
     onExit(release: () => void): void;
     read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined;
@@ -529,6 +545,11 @@ export type Shape = {
         readonly each: unknown;
     } | {
         readonly many: unknown;
+    }>;
+    waits?: Record<string, 'one' | 'each' | {
+        readonly one: 'ms';
+    } | {
+        readonly each: 'ms';
     }>;
 };
 
@@ -578,6 +599,7 @@ export interface StepLog {
         readonly moved: boolean;
         readonly at: string;
         readonly pending: boolean;
+        readonly waiting: boolean;
     }>>;
     readonly handled: readonly Handled[];
     readonly now?: number;
@@ -641,6 +663,7 @@ export type TypedPeer<E = unknown> = ((event: [AnyEvent] extends [E] ? unknown :
 
 // Warning: (ae-forgotten-export) The symbol "Leaves" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "AllCalls" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "AllWaits" needs to be exported by the entry point index.d.ts
 //
 // @public
 export type Value<S> = ([Names<S>] extends [never] ? {
@@ -652,6 +675,8 @@ export type Value<S> = ([Names<S>] extends [never] ? {
     };
 }[Leaves<S>]) & ([keyof AllCalls<S>] extends [never] ? {} : {
     readonly pending: PendingOf<AllCalls<S>>;
+}) & ([keyof AllWaits<S>] extends [never] ? {} : {
+    readonly waiting: WaitingOf<AllWaits<S>>;
 });
 
 // @public
@@ -665,6 +690,58 @@ export type ViewUpdate<T> = {
     readonly ok: false;
     readonly failure: Failure;
 };
+
+// Warning: (ae-forgotten-export) The symbol "WaitOption" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "WaitEachDone" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "StrictWaitArgs" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type WaitEach<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>]>(...args: Args & StrictWaitArgs<Args, WaitEachDone<R, H, E, N>>) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
+
+// @public
+export interface WaitedEach<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+    // (undocumented)
+    readonly _?: {
+        r: R;
+        h: H;
+        e: E;
+        n: N;
+        m: (needsMs: NeedsMs) => NeedsMs;
+    };
+    // (undocumented)
+    readonly done?: Function;
+    // (undocumented)
+    readonly kind: 'each';
+    // (undocumented)
+    readonly ms?: number;
+    // (undocumented)
+    readonly reset?: boolean;
+}
+
+// @public
+export interface WaitedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+    // (undocumented)
+    readonly _?: {
+        r: R;
+        h: H;
+        e: E;
+        n: N;
+        m: (needsMs: NeedsMs) => NeedsMs;
+    };
+    // (undocumented)
+    readonly done?: Function;
+    // (undocumented)
+    readonly kind: 'one';
+    // (undocumented)
+    readonly ms?: number;
+    // (undocumented)
+    readonly reset?: boolean;
+}
+
+// Warning: (ae-forgotten-export) The symbol "WaitDone" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type WaitOne<R, H extends string, E extends AnyEvent, N extends Net> = <Args extends [ms: number, doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>] | [doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>]>(...args: Args & StrictWaitArgs<Args, WaitDone<R, H, E, N>>) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>;
 
 // @public (undocumented)
 export function windowFrame(env: WindowFrames): (run: () => void) => void;
@@ -688,18 +765,21 @@ export function within<V extends {
 
 // Warnings were encountered during analysis:
 //
-// .temp/api-types/types.d.ts:244:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:468:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:473:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:475:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:487:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:498:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:519:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:519:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:535:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:630:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:711:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:711:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:278:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:280:5 - (ae-forgotten-export) The symbol "WaitingOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:511:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:516:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:518:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:530:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:541:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:562:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:562:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:576:5 - (ae-forgotten-export) The symbol "WaitKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:576:5 - (ae-forgotten-export) The symbol "WaitNeedsMs" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:591:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:686:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:767:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:767:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

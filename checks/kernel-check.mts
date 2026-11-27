@@ -513,10 +513,10 @@ const moves: Array<[string, () => void]> = [
   ['a subscriber is told a state moved, and the fields it gained, lost or changed, and no others', () => {
     const it = nested()
     it.send({ type: 'OPEN', id: 'a' })
-    deepStrictEqual(it.told.at(-1), { fields: ['draft', 'threadId'], changes: { moved: true, pending: false } })
+    deepStrictEqual(it.told.at(-1), { fields: ['draft', 'threadId'], changes: { moved: true, pending: false, waiting: false } })
     it.send({ type: 'SEND_TO', id: 'b' })
     // reply is gained though what it holds is undefined.
-    deepStrictEqual(it.told.at(-1), { fields: ['draft', 'reply', 'sent', 'threadId'], changes: { moved: true, pending: false } })
+    deepStrictEqual(it.told.at(-1), { fields: ['draft', 'reply', 'sent', 'threadId'], changes: { moved: true, pending: false, waiting: false } })
     const before = it.told.length
     it.send({ type: 'COUNT_THE_SAME' })
     strictEqual(it.told.length, before, 'a field given the value it holds is not a change')

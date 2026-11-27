@@ -90,6 +90,21 @@
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | changes[ref]?.waiting && into.waiting || latest.waiting",
+    "original": "changes[ref]?.waiting && into.waiting && latest.waiting",
+    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+  },
+  {
+    "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | true",
+    "original": "changes[ref]?.waiting && into.waiting",
+    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+  },
+  {
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | changes[ref]?.waiting || into.waiting",
+    "original": "changes[ref]?.waiting && into.waiting",
+    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+  },
+  {
     "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",
     "original": "[]",
     "why": "With no fields replaced, the loop is over a field that is not in the data, so it deletes a key the mirror does not have, which writes nothing"
