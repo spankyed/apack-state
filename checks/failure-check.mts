@@ -180,7 +180,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(it.at(), 'idle')
     ok(it.traced.some((line) => line.includes('threw handling BREAK')))
     it.send({ type: 'COUNT' })
-    // Two counts of its own. The one the broken handler sent itself before it threw was never sent.
+    // Two counts of its own. The one the broken handler raised before it threw was never sent.
     strictEqual(it.count(), 2)
     it.stop()
   }],

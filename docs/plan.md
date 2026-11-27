@@ -77,14 +77,14 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `initial` | Which state inside it it is at when entered |
 | `states` | Every state inside it. Leaving one out does not compile |
 | `on` | The events others may send it. Synchronous. A handler returns what happens next |
-| `internal` | The events it sends itself, which nothing else may send it. The same handlers |
+| `internal` | The events it raises, which nothing else may send it. The same handlers |
 | `answers` | The asks it answers. May be async. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `run` | What it does while it is the case. May be async. What it returns happens only if the state still is the case |
 | `starts` | The states it starts, which run while it is the case |
 | `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
 | `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
 | `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
-| `arms` | The timers it arms when a handler says `arm`, each with an optional `done` handler for when it expires |
+| `arms` | The timers it arms when a handler says `arm`, each with an optional `expired` handler for when it expires |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
 
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
@@ -234,7 +234,17 @@ points at.
     by hand. A state declares each, and each says which fields of the data it
     depends on, in one of two ways. With `from`, there is one, and it reads the fields named: it is asked again when
     one of them changes. With `each`, there is one for each key of the field named, or each item where the field is
-    a list: a key that appears starts one, and a key that goes stops it.
+    a list: a key that appears starts one, and a key that goes stops it. What is followed or loaded may say both,
+    `each: 'openDiffs', from: ['statusRev']`: one for each key, and every one asked again when a field in `from`
+    changes, the one before for that key stopped. A key that appears or goes starts or stops its own alone, whatever
+    `from` did in the same step: one that appears as a field changes is asked once, and one that goes is not asked.
+    `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it names
+    none. It may return nothing for a key, as it may for one alone, and that key is then not read until
+    there is something to ask for. The field its keys come from is not among the fields it names: each key would
+    give up and ask again whenever another came or went, so that is refused where the definition is written and
+    where it starts. One refused for leading round to itself has seen the values it was refused for, and is not
+    asked again for them at some later look. What a state starts is given
+    its data once, so it has no `from`.
 
     ```ts
     starts:  (start)  => ({ thread: start(thread(inference), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
@@ -285,7 +295,11 @@ points at.
     **An ask that is loaded is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
     asked again when one of them changes, the one before cancelled. Where `args` gives nothing, nothing is asked. A
     field that only counts has it asked again. With `each`, one is asked for each key of a field, and what it found
-    stays. How one finishes goes to `done`, and what it says before that to `progress`, as a list at most once a frame.
+    stays. With both, each key's is asked again when a field in `from` changes, and what the one before finds is
+    not heard: the app's commit surface reads a diff for each file open and all of them again when the repository
+    changes, which without this is a write called by hand for each key from every handler that knows the
+    repository changed. How one finishes goes to `done`, and what it says before that to `progress`, as a list at
+    most once a frame.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
     says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
@@ -323,9 +337,9 @@ points at.
     **Imperative timers follow the same split under `arms`.** The words are one family: a timer is declared under
     `arms`, armed with `arm`, cleared with `disarm`, read on `armed`, and logged as `arm`, `disarm` and `expired`. A
     state declares them in `Shape.arms` (`'single'`, `'each'`, `{ single: 'at arm' }`, `{ each: 'at arm' }`) and builds them
-    in `arms: ({ single, each }) => ({ ... })`, each from one labelled object: `single({ after: 100, done, whenArmed })`.
+    in `arms: ({ single, each }) => ({ ... })`, each from one labelled object: `single({ after: 100, expired, whenArmed })`.
     `after` is how long it runs (overridable per `arm`), and is left out of a timer declared `'at arm'`, whose every
-    `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `done` is the
+    `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `expired` is the
     handler for its expiring (omitted for pure-TTL flags). A misspelled option does not compile. Handlers arm and disarm them transactionally
     with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
     clears every active key). Which timers are armed lives on `armed` beside `at`, `data`, and `pending` (`boolean`
@@ -337,9 +351,38 @@ points at.
     name a state around it declares: the two could be under way at once, and the entry would say one while `cancel`
     or `disarm` ended the other. Both are refused where the definition is written and where it is started. States
     beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
-    reaches the timer its own state or the nearest state around it declares, and a timer counts as armed only if
-    something that can run without it arms it, so one armed only from its own `done`, or from the `done` of timers
-    nothing arms, is reported with which.
+    reaches the timer its own state or the nearest state around it declares.
+
+    **What can happen is one analysis, and what cannot is said by its cause.** A state that can be the case lets
+    the handlers written in it run: its `on`, `internal` and `answers`, its `run` and `listen`, what its calls,
+    reads and views come back to, and its `failed` where it has a `run` or a `listen` to fail. A handler that can
+    run can enter the states it moves to, with each state around them and what the target starts at, and arm the
+    timers it arms. A timer that can be armed lets its `expired` run. It begins with the state everything is in and what
+    that starts at, and takes the least of what follows; whether anyone sends an event is not asked. What it never
+    gets to is dead: a state never entered, a timer nothing arms. So a state entered only from a handler that cannot
+    run is never entered, and a timer armed only there is not armed.
+
+    Each dead thing is said once. A cause is one nothing dead leads to, or only what it leads to itself, and it is
+    said with what is dead because of it: `dead is never entered, so nothing arms keepalive; nothing enters
+    dead.sub`, `nothing arms first, so nothing arms second`, `nothing arms poll except its own expiry`. Of a circle the
+    first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A timer
+    declared in a state never entered is not named: the state says it.
+
+    Where a handler goes is read from the type it returns, and, where that type is written by hand, from each value
+    it returns as well: a type given to a return may say less than the values do, and a move it leaves out is still
+    made.
+    What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
+    written in the definition may arm any timer its own state or a state around it declares, and so may an `arm` of a
+    name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
+    that returns `any`, is not one function, is written as anything but a function or the name of one, is named by
+    something whose type may say less than it returns (a `const` given a type, a function declared without its
+    body), is under a name worked out, or moves to a state that is not known, may enter any state; an `initial` that
+    is not one name enters each it may be. A table of handlers not written out, what a read, a view or a call hears
+    with where its options are not all read, and a declaration made by anything but what its table is handed (`single`,
+    `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
+    in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
+    what is unread in a state never entered hides nothing, and the unread `expired` of a timer hides nothing until the
+    timer is armed.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
@@ -352,7 +395,10 @@ points at.
     asked what it is, and where a delivery would change what one of those is asked for, or the view itself, the
     kernel refuses the following again and reports it. The handler's change to data is made; the view goes on being
     asked what it was. A circle that would have settled after a round is refused as well: that it happens to settle
-    is not something to rest on.
+    is not something to rest on. Each of many is one of these by its key. Where how one key's ended changes a field
+    they are all asked from, that key's own is refused and the others are asked again, as one leading another; how
+    one of those ends may then lead to neither itself nor the first, so it comes to rest within as many rounds as
+    there are keys.
 
 ### Communication
 
@@ -370,9 +416,9 @@ Names are typed by one declaration of what can be reached, which a pack's genera
 states it starts, and reaches each through `child`: rule 14.
 
 **Who may send a state what.** A state is declared with the events others may send it, and takes them under `on`.
-The events it sends itself as its own work goes on, a result found or a piece arrived, are declared apart, in its
+The events it raises as its own work goes on, a result found or a piece arrived, are declared apart, in its
 shape as `internal`, and taken under `internal`. Nothing outside a state reaches those: what is told, broadcast or
-sent to it from outside is looked for under `on` alone, and one that only the state sends itself is ignored and
+sent to it from outside is looked for under `on` alone, and one that only the state raises is ignored and
 said to be. `raise` takes both, so a state may raise what others may send it. This is the app's own split of a
 contract into `incoming` and `internal`.
 
@@ -570,6 +616,14 @@ them. What follows from it is said where it applies: a step is cut short after t
 ([Not built](#not-built), a bound across steps), a send that leaves is written so that it shows, and a step is not
 all of its handlers or none: each handler's rows and change are kept or not on their own.
 
+What arrives from outside for something a state holds (a view's update, how a read or a write ended, its progress, a
+timer's expiry) is asked one question as its turn comes, before a step opens: does the state still hold the very one
+this belongs to? If it does not, because the state left, stopped following or awaiting it, cancelled or disarmed it,
+or began it again under the same name, it is dropped there: no step, no log, nothing against the limit. These four
+only ever arrive from outside a step, never from a handler within one, so that one place is the only place the
+question is asked. It is asked of these four and of nothing else: the answer to an ask already given up, and how
+work ended in a state that has since been left, are still taken in a step that does nothing.
+
 ### Rows
 
 **A step covers what a state holds. On the backend that is the small part.** What the backend holds for good is rows
@@ -636,7 +690,7 @@ one inside it, and a repository's command, which is a `transact` of its own, joi
    calls to a command stay as they are.
 2. **A handler that changes nothing has written nothing, and said nothing.** One that threw, refused, or returned
    a change that could not be made has its rows taken back, its commands' included, and the rows of everything
-   else in the step are kept. What it said goes with its rows: what it told, sent itself, asked, had made or
+   else in the step are kept. What it said goes with its rows: what it told, raised, asked, had made or
    dropped, broadcast and reported as progress, with or without a database behind the system. An ask among it is
    ended, since nothing will now answer it. Whoever asked the handler is still told that it failed: that is the
    kernel's word and not the handler's, and so is the trace. What a handler said before it waited was said in the
@@ -825,16 +879,17 @@ thing declined here: one transaction over two stores.
 | A value is a path and the data there | A nested `{ data, at, state: { … } }`. Reads were three hops and the nested key was confusing |
 | Data is under `data`, apart from `at` | Fields beside `at`. Framework words could not be told from the user's |
 | Every state inside must be defined | Optional entries. An example that left one out was unreadable |
+| A delivery that is stale when its turn comes takes no step | The same test made inside the step, once it was open, for a view, a read and a write, and before it only for a timer. A stale one then ran no handler but was still a step: logged as handled, numbered, and counted against a system's limit, for having done nothing. A log could not be read as what happened, and one rule was written four times, in two places |
 | A handler names the path to go to | `leave`, by which a state changed the state around it |
 | `answers` is a table of its own | One `on` table. An ask and an event follow different rules, and nothing marked which was which |
-| What a state sends itself is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
+| What a state raises is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
 | A surface is told as `{ surface }`, with the verb a system is told with | A verb of its own, as the app's `sendToSurface` is beside `tell`. A feature's system and its surface share a name, so the name alone cannot say which. Naming the kind of thing in the address keeps one verb for telling, and is how a role is to be named too: `tell({ role: 'brain' }, …)` |
 | An ask changes data only together with its answer, as `answered(answer, next)` | An ask that could not change data at all, which was the first decision: to change data it sent its own state an event and returned the answer separately. The answer could then say "created" before the event that did the creating was handled, and still say it if that event's handler threw. The handler could not see the result of its own change. And each such ask needed an event that existed only for it, which anything could tell the state. Every system this was checked against joins the two: Erlang's `gen_statem` replies and moves in one handler, Effect's `Machine` handlers return `[reply, newState]`, and Temporal added Updates beside its read-only queries. They are safe because their handlers do not interleave; these do, at each `await`, which is why a change after one must be a draft edit. The graph stays complete: the extractor reads `next` as it reads any handler's return |
 | Handlers that wait let others through, and the change checks what must hold | One handler at a time, as Effect's `Machine` and Erlang's `gen_server` run them. A handler then sees the same data throughout, and a reply that streams for half a minute keeps every other window out of that system until it ends. Each of those systems has a way round it (`fork` and reply later; a worker that replies), which is interleaving again with less around it; a caller that leaves cannot stop a handler already running; and a cycle of asks is a deadlock. Here every write was already one step. What could go wrong was a decision: check, wait, then act on a check no longer true. That is a long transaction, and the answer where work is long and conflicts are rare is to hold nothing and validate at the write. Locks, which Temporal suggests for this, bring the blocking back. A declared policy per ask, one at a time under a key, is left until a port needs it |
 | Where work is put says who owns it, and so when it stops | One rule for every handler. Stopping an ask's work when its asker goes is right for a search and wrong for a message being answered, and never stopping it, as Effect's `Machine` does once a handler is running, wastes the search. A flag on the ask saying it survives its asker, or a shield around part of a handler as Trio and Kotlin have, would each be a second way to say what a state's `run` already says: this work is the answerer's. The threads example had it wrong: a window that closed mid-reply aborted the reply, and the message it had sent was never stored |
 | What a state starts is declared and follows from its data | `start(name, state)` called from a handler, which the prototype had. A start was then something a handler did and not part of what it returned, so after an `await`, checking and starting could not be one step; nothing stopped a started state short of its starter ending; a handle was rebuilt from the definition at every use; and a state that was restored would have had nothing it started. And naming the starts in what a handler returns, beside `at` and `data`, which makes them one step and leaves them to be remembered: a start with no stop is a leak, and what runs is kept in two places. Working it out from data is what a view layer does with a keyed list, and what Effect's `forkOne` and `forkReplace` do by hand under a key: a key that stays is theirs "only if missing", and replacing is a key that changes |
 | What says which there are is a field, by name | A function from the data to the keys, which was built first: `each((data) => Object.keys(data.titles), …)`. It could throw, so there had to be a rule for what ran when it did. It had to be run again after every change, since nothing said what it read. And the graph could not say where the keys came from. Tracking what the function reads, as a signals library does, would fix the second and not the others |
-| One grammar for what a state starts, follows and loads: `each` a field, or `from` fields | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
+| One grammar for what a state starts, follows and loads: `each` a field, or `from` fields, or for what is followed or loaded both | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
 | Each of the three is a function of the helper its entries are made with | The helpers as imports, `follow(…)` called in an object. TypeScript then has to work out the state's types backwards from where the call's result is put, and while it is doing that it cannot type a draft edit nested in a handler: `(d) => { d.tabs[key] = … }` came out untyped. Handing the helper in already typed leaves nothing to work out |
 | A read that is not a state's work is loaded (`loads`), declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
 | A write is fired, with `call`, and the kernel keeps `pending` | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is fired once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |
@@ -916,11 +971,11 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   busy by the thread itself, whose `writing` state answers the same ask its `idle` state accepts; accepting and
   starting to write are one step. The threads system takes no events: the two it had existed so that two asks could
   change data, and went when those asks returned `answered`.
-- **Only a state sends itself what is its own** (`checks/internal-check.mts`, 7 checks). What a state sends itself is taken
+- **Only a state raises what is its own** (`checks/internal-check.mts`, 7 checks). What a state raises is taken
   by its internal handler; the same event from outside is not taken, and that is said; what others may send a state
-  it may send itself too; one surface tells another in its own window with no backend there to go through; a surface
+  it may raise too; one surface tells another in its own window with no backend there to go through; a surface
   and a backend system called the same are told apart by how each is named; and the backend telling a surface is
-  reported and sends nothing. Six mistakes do not compile: sending a state from outside what only it sends itself,
+  reported and sends nothing. Six mistakes do not compile: sending a state from outside what only it raises,
   taking an internal event under `on` or an incoming one under `internal`, telling a surface an event it does not
   take, telling a surface there is not, and a state sending itself an event it does not declare. `examples/search.mts` runs
   on it: what its search found is the search's own to say.
@@ -987,7 +1042,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   waits. **One after another**, ten to a run, each run is held against a model of a few lines that knows nothing of
   the kernel and says the order as well: the rows kept, the count, whether each ask was answered as made, and that
   nobody was told of a step while it was still writing. 1,500 runs hold in memory and 150 on elmdb. Its first two
-  failures were the model's, which had the events a handler sends itself handled before its change and depth first:
+  failures were the model's, which had the events a handler raises handled before its change and depth first:
   they are handled after, in the order they were sent. **Under way together**, six to a run from two windows, each
   ask that waits waiting on work a schedule ends when it chooses: the order is then the schedule's, so the model
   follows what was handled in the order it was, and says what the rule makes of each. 200 runs under 25 orderings
@@ -1079,7 +1134,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   afterwards; and an async `run` without `failed` does not compile. Before this a `run` or a handler that threw at once escaped the step
   and left the kernel refusing everything after it.
 - **What was not made has said nothing** (`checks/unsaid-check.mts`, 27 checks): a handler that throws, or whose
-  change cannot be made, has told no state, sent itself nothing and broadcast to no window, and what was said before
+  change cannot be made, has told no state, raised nothing and broadcast to no window, and what was said before
   and after it keeps its order; an ask whose handler throws or refuses, or whose change throws, refuses or cannot be
   made, has also reported no progress and asked nothing, the ask it made is ended so that nothing waits on it, and
   what leaves its step is its answer alone; work that fails at once and a `failed` that throws have said nothing; and

@@ -1,4 +1,4 @@
-// Who may send a state what: the events it sends itself, and the surfaces it tells.
+// Who may send a state what: the events it raises, and the surfaces it tells.
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
@@ -13,14 +13,14 @@ type ListEvent = from.ListEvent
 {
   const window = system({ side: 'window' })
   const theList = window.start('typed', list)
-  // @ts-expect-error only the list sends itself a tick
+  // @ts-expect-error only the list raises a tick
   window.send(theList, { type: 'TICK' })
   window.stop()
 }
 state<List, ListEvent>()({
   data: { picked: null, ticks: 0 },
   on: {
-    // @ts-expect-error a tick is what it sends itself, and is taken under `internal`
+    // @ts-expect-error a tick is what it raises, and is taken under `internal`
     TICK: () => ({ data: { ticks: 1 } }),
     // @ts-expect-error the detail surface takes no such event
     PICK: (_, { tell }) => { tell({ surface: 'detail' }, { type: 'HIDE' }) },

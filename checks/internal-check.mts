@@ -1,4 +1,4 @@
-// Who may send a state what. A state is declared with the events others may send it. The ones it sends itself are
+// Who may send a state what. A state is declared with the events others may send it. The ones it raises are
 // declared apart, as `internal`, and nothing outside it reaches them. And one surface tells another in its own
 // window what that surface says it takes.
 //
@@ -25,7 +25,7 @@ export const state = forNet<App>()
 
 export type List = {
   data: { picked: string | null; ticks: number }
-  /** What it sends itself as its own work goes on. Nothing else may send it this. */
+  /** What it raises as its own work goes on. Nothing else may send it this. */
   internal: { type: 'TICK' }
 }
 export const list = state<List, ListEvent>()({
@@ -34,7 +34,7 @@ export const list = state<List, ListEvent>()({
     // Tells the surface beside it, in this window.
     PICK: ({ id }, { tell }) => { tell({ surface: 'detail' }, { type: 'SHOW', id }); return { data: { picked: id } } },
     REFRESH: (_, { raise }) => { raise({ type: 'TICK' }) },
-    // What others may send it, it may send itself too.
+    // What others may send it, it may raise too.
     PICK_AGAIN: (_, { data, raise }) => { raise({ type: 'PICK', id: `${data.picked} again` }) },
     // A name alone is a backend system, though a surface here is called the same.
     TELL_THE_STORE: ({ id }, { tell }) => { tell('detail', { type: 'SAVE', id }) },
@@ -78,7 +78,7 @@ const wired = (connected = false) => {
 }
 
 const checks: Array<[string, () => Promise<void> | void]> = [
-  ['what a state sends itself is taken by its internal handler', () => {
+  ['what a state raises is taken by its internal handler', () => {
     const it = wired()
     it.send({ type: 'REFRESH' })
     strictEqual(it.list().ticks, 1)
@@ -88,9 +88,9 @@ const checks: Array<[string, () => Promise<void> | void]> = [
     // The types refuse this, which is why it is cast: the check is what the kernel does with one that gets through.
     it.window.send(it.theList, { type: 'TICK' } as never)
     strictEqual(it.list().ticks, 0)
-    ok(it.traced.some((line) => line.includes('list was sent TICK from outside, which only it sends itself')), it.traced.join(' / '))
+    ok(it.traced.some((line) => line.includes('list was sent TICK from outside, which only it raises')), it.traced.join(' / '))
   }],
-  ['what others may send a state, it may send itself too', () => {
+  ['what others may send a state, it may raise too', () => {
     const it = wired()
     it.send({ type: 'PICK', id: 'a' })
     it.send({ type: 'PICK_AGAIN' })
