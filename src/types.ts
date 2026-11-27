@@ -483,8 +483,8 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
   }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /**
-   * The state inside it that it enters first when whoever enters it does not say. It has to be one that needs no
-   * data given, which `NoInitialGiven` holds the definition to, saying which state was named and why it cannot be.
+   * The state inside it that it enters first when whoever enters it does not say. It is entered with nothing given,
+   * so no field of its data may be `given`, which `NoInitialGiven` holds the definition to, field by field.
    */
   initial: { [K in Names<S>]: K }[Names<S>]
   /** Every state inside it. */
@@ -689,25 +689,27 @@ type Refused<Why extends string> = { readonly [refused]: Why }
 type RefusedValue<Written, Why extends string> = 0 extends 1 & Written ? never : Refused<Why>
 
 /**
- * Refuses what an `initial` cannot be, at any depth: a state whose data has to be given, since it is entered with
- * nothing given, and a `given` field in the state it does name, which would never be provided.
+ * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
+ * with no supplied fields, so a `given` field there would never be provided. A state whose data all has values of
+ * its own can be entered first like any other.
  */
-type NoInitialGiven<S, D> =
+/** The fields of written data that are `given`: the ones an initial state cannot have. */
+type GivenIn_<X> = { [F in keyof X]: [X[F]] extends [Given] ? F : never }[keyof X]
+type NoInitialGiven<D> =
   D extends { initial: infer K extends string; states: infer T extends Record<string, unknown> }
-    ? (K extends Names<S>
-        ? ({} extends DataOf<StatesOf<S>[K]> ? unknown : { initial: Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`> })
-        : unknown)
-      & {
+    ? {
         states: {
           [P in keyof T]: P extends K
             ? (T[P] extends { data: infer X }
-                ? { data: { [F in keyof X]: [X[F]] extends [Given] ? RefusedValue<X[F], `data field '${F & string}' cannot be given: an initial state is entered with nothing given`> : unknown } }
-                : unknown) & NoInitialGiven<Sub<S, P>, T[P]>
-            : NoInitialGiven<Sub<S, P>, T[P]>
+                ? ([GivenIn_<X>] extends [never]
+                    ? unknown
+                    : { data: { [F in GivenIn_<X>]: RefusedValue<X[F], `data field '${F & string}' cannot be given: an initial state is entered with nothing given`> } })
+                : unknown) & NoInitialGiven<T[P]>
+            : NoInitialGiven<T[P]>
         }
       }
     : D extends { states: infer T extends Record<string, unknown> }
-      ? { states: { [P in keyof T]: NoInitialGiven<Sub<S, P>, T[P]> } }
+      ? { states: { [P in keyof T]: NoInitialGiven<T[P]> } }
       : unknown
 
 /**
@@ -785,7 +787,7 @@ type NoConflictingKinds<S> =
  * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
  * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<S, NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })
 }
 

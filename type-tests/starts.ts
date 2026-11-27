@@ -208,20 +208,18 @@ state<Board, BoardEvent, BoardAsks>()({
   states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} },
 })
 
-// An initial state is entered with nothing given, so one whose data has to be given cannot be named as `initial`,
-// at the top or in a state inside.
+// A state whose data has values of its own can be entered first, at the top or in a state inside: what cannot be
+// there is a field that has to be given, which is refused field by field (above).
 state<{ states: { waiting: {}; editing: { data: { draft: string } } } }>()({
-  // @ts-expect-error a state whose data has to be given cannot be entered first
   initial: 'editing',
   states: { waiting: {}, editing: { data: { draft: '' } } },
 })
 state<{ states: { outer: { states: { waiting: {}; editing: { data: { draft: string } } } } } }>()({
   initial: 'outer',
-  states: {
-    outer: {
-      // @ts-expect-error a nested state whose data has to be given cannot be entered first either
-      initial: 'editing',
-      states: { waiting: {}, editing: { data: { draft: '' } } },
-    },
-  },
+  states: { outer: { initial: 'editing', states: { waiting: {}, editing: { data: { draft: '' } } } } },
+})
+state<{ states: { waiting: {}; editing: { data: { draft: string } } } }>()({
+  // @ts-expect-error a name that is no state is told the states there are
+  initial: 'editting',
+  states: { waiting: {}, editing: { data: { draft: '' } } },
 })

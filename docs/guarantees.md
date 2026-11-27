@@ -70,6 +70,11 @@ network) that already ran.
   `done` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
   `waiting`.
 
+- **What starts first.** A state named by `initial` is entered with nothing given, so a field of its data that is
+  `given` is refused, by its name, where the definition is written, and the state does not start (`cannot start at
+  <state> without <field>`). A state whose data all has values of its own may be entered first. An `initial` written
+  as a value typed `any` is past the compiler, as anything typed `any` is, and is refused where it starts.
+
 ## Handle semantics
 
 A `Handle` (`sys.start(...)`, `sys.child(...)`, or `scope.child(...)`) is a **logical `{ ref }` address**, not an

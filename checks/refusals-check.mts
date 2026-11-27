@@ -3,12 +3,13 @@
 // reason itself, for each rule that gives one.
 //
 //   npx vitest run refusals
-import { ok } from 'node:assert'
+import { deepStrictEqual, ok, throws } from 'node:assert'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ts from 'typescript'
-import { run } from './checks.mts'
+import { given, state } from '../src/index.ts'
+import { run, system } from './checks.mts'
 
 const root = join(import.meta.dirname, '..')
 /** Every error the compiler has for this source, each as one text with all it says beneath its first line. */
@@ -70,18 +71,24 @@ export const wait = state<{ states: { a: { waits: { retry: 'one' } }; b: { waits
       says(errors, `${what} is declared with more than one kind across states: '${second}' is one of them`, 2)
     }
   }],
-  ['a state that cannot be entered first is refused by name, alone, and a name that is no state is told the states there are', () => {
-    const shape = `{ states: { idle: {}; a: { data: { m: number } }; b: { data: { m: number } }; c: { data: { m: number } } } }`
-    const states = `{ idle: {}, a: { data: { m: 1 } }, b: { data: { m: 1 } }, c: { data: { m: 1 } } }`
+  ['a field that has to be given is refused in the state entered first, by name; a state whose data has its own values is not; and a name that is no state is told the states there are', () => {
+    const shape = `{ states: { idle: {}; a: { data: { m: number } }; b: { data: { m: number } } } }`
     const errors = errorsIn(`
-export const named = state<${shape}>()({ initial: 'b', states: ${states} })
-export const typo = state<${shape}>()({ initial: 'idel', states: ${states} })
-export const fine = state<${shape}>()({ initial: 'idle', states: ${states} })
+import { given } from '${join(root, 'src', 'index.ts').replaceAll('\\', '/')}'
+export const defaulted = state<${shape}>()({ initial: 'b', states: { idle: {}, a: { data: { m: 1 } }, b: { data: { m: 1 } } } })
+export const needing = state<${shape}>()({ initial: 'b', states: { idle: {}, a: { data: { m: given } }, b: { data: { m: given } } } })
+export const typo = state<${shape}>()({ initial: 'idel', states: { idle: {}, a: { data: { m: 1 } }, b: { data: { m: 1 } } } })
 `)
     ok(errors.length === 2, errors.join('\n---\n'))
-    says(errors, `state 'b' cannot be entered first: its data has to be given, and nothing is given to an initial state`)
-    // The others that could not be entered first are not what was written, and are not spoken of.
-    ok(!errors.some((error) => error.includes(`state 'a' cannot`) || error.includes(`state 'c' cannot`)), errors.join('\n---\n'))
-    ok(errors.some((error) => error.includes(`'"idel"' is not assignable to type '"idle" | "a" | "b" | "c"'`)), errors.join('\n---\n'))
+    // Only the state named is entered first: `a` has the same field to be given, and is not spoken of.
+    says(errors, `data field 'm' cannot be given: an initial state is entered with nothing given`)
+    ok(errors.some((error) => error.includes(`'"idel"' is not assignable to type '"idle" | "a" | "b"'`)), errors.join('\n---\n'))
+  }],
+  ['what is refused there is what cannot start, and what is not, starts', () => {
+    const sys = system({ side: 'backend' })
+    const it = sys.start('defaulted', state<{ states: { idle: {}; b: { data: { m: number } } } }>()({ initial: 'b', states: { idle: {}, b: { data: { m: 1 } } } }))
+    deepStrictEqual(sys.read(it), { at: 'b', data: { m: 1 } })
+    throws(() => sys.start('needing', { def: { initial: 'b', states: { idle: {}, b: { data: { m: given } } } } } as never), { message: 'needing cannot start at b without m' })
+    sys.stop()
   }],
 ])
