@@ -137,6 +137,14 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     walk(def, '')
 
     const text = (node: any): string => (ts.isStringLiteralLike(node) ? node.text : node.getText())
+    const isInlineFn = (node: any): boolean => {
+      let cur = node
+      while (cur && ts.isParenthesizedExpression(cur)) cur = cur.expression
+      return Boolean(cur && (ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)))
+    }
+    const isInlineHandlerProp = (prop: any): boolean =>
+      ts.isMethodDeclaration(prop) || (ts.isPropertyAssignment(prop) && isInlineFn(prop.initializer))
+    let hasOpaqueHandler = false
     const declarations = (object: any, path: string): void => {
       for (const property of object.properties) {
         if (ts.isSpreadAssignment(property)) {
@@ -146,6 +154,14 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property) && !ts.isMethodDeclaration(property)) continue
         const name = property.name.getText()
         const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
+        if (name === 'on' || name === 'internal' || name === 'answers') {
+          if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) hasOpaqueHandler = true
+          continue
+        }
+        if (name === 'listen' || name === 'run' || name === 'failed') {
+          if (!isInlineHandlerProp(property)) hasOpaqueHandler = true
+          continue
+        }
         if (name === 'states') {
           if (!made || !ts.isObjectLiteralExpression(made)) {
             uncertain.add(`could not statically read ${where(path, 'states')}`)
@@ -197,9 +213,11 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
               const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
               if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
               const doneProp = rest.properties.find((each: any) => each.name?.getText() === 'done')
+              if (doneProp && !isInlineHandlerProp(doneProp)) hasOpaqueHandler = true
               const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
               if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (done)`)
             } else if (rest) {
+              if (!isInlineFn(rest)) hasOpaqueHandler = true
               const restType = checker.getTypeAtLocation(rest)
               const sigs = restType.getCallSignatures()
               if (sigs.length) {
@@ -232,6 +250,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
           for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
             const handler = option(hears)
+            if (handler && !isInlineHandlerProp(handler)) hasOpaqueHandler = true
             const signature = handler && checker.getTypeAtLocation(handler.initializer ?? handler).getCallSignatures()[0]
             if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears})`)
           }
@@ -271,7 +290,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
-    if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !uncertain.size) {
+    if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !hasOpaqueHandler && !uncertain.size) {
       for (const w of declaredWaits) if (!armedWaits.has(w.name)) findings.push(`nothing arms ${where(w.within, w.name)}`)
     }
     for (const note of uncertain) findings.push(note)

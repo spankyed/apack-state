@@ -74,7 +74,7 @@ The same split holds for imperative timers under **`waits`**: armed on demand wi
 `disarm(name, key?)` (`one` or keyed `each`, fixed default `ms` with optional override or runtime `{ one: 'ms' }` /
 `{ each: 'ms' }`, `reset: true` debounce by default or `reset: false` throttle, optional `done` for pure-TTL flags).
 Which timers are armed lives on `waiting` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
-never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that called it (so exiting or
+never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that declared it (so exiting or
 self-re-entering that state in the same step drops it); to arm a timer on state entry or self-transition, call `arm`
 from that state's `listen` or `run`.
 

@@ -390,15 +390,30 @@ export const withScopeEscape = state<ScopeShape, ScopeEv>()({
   waits: ({ one }) => ({ viaScope: one(50) }),
   on: { GO: (_, scope) => { armViaScope(scope) } },
 })
+
+type HandlerShape = { waits: { t: 'one' } }
+const onGo = (_: { type: 'GO' }, { arm }: EventScope<HandlerShape, '', { type: 'GO' }, Net>) => { arm('t') }
+export const withExternalHandler = state<HandlerShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({ t: one(50) }),
+  on: { GO: onGo },
+})
+
+const onTable = { GO: onGo }
+export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({ t: one(50) }),
+  on: onTable,
+})
 `)
       const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
       const graphs = all.get(file) ?? []
-      strictEqual(graphs.length, 3, formatGraphs(graphs))
+      strictEqual(graphs.length, 5, formatGraphs(graphs))
 
       deepStrictEqual(graphs[0]!.reaches, ["arm 'viaAlias'"])
       deepStrictEqual(graphs[0]!.findings, ['nothing arms dead'])
       deepStrictEqual(graphs[1]!.findings, [])
       deepStrictEqual(graphs[2]!.findings, [])
+      deepStrictEqual(graphs[3]!.findings, [])
+      deepStrictEqual(graphs[4]!.findings, [])
     } finally {
       rmSync(work, { recursive: true, force: true })
     }

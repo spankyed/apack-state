@@ -119,6 +119,20 @@ state<{ data: { n: number }; waits: { fixed: 'one'; dynamic: { one: 'ms' }; keye
   }),
 })
 
+declare const flag: boolean
+// Conditional `done` / options unions with `undefined` compile cleanly while misspelled option keys are still rejected.
+state<{ data: { n: number }; waits: { optFn: 'one'; optObj: 'one'; optDyn: { one: 'ms' }; optEach: 'each'; badOptUnion: 'one' } }>()({
+  data: { n: 0 },
+  waits: ({ one, each }) => ({
+    optFn: one(100, flag ? ({ data }) => ({ data: { n: data.n + 1 } }) : undefined),
+    optObj: one(100, flag ? { reset: false } : undefined),
+    optDyn: one(flag ? { reset: false } : undefined),
+    optEach: each(100, flag ? ({ key }) => { void key } : undefined),
+    // @ts-expect-error unknown option keys are still rejected when unioned with `undefined`
+    badOptUnion: one(100, flag ? { rest: false, done: () => {} } : undefined),
+  }),
+})
+
 state<{ data: { n: number }; waits: { badDone: 'one'; badEachDone: 'each'; badOptFixed: 'one'; badOptDyn: { one: 'ms' }; badEachOptFixed: 'each'; badEachOptDyn: { each: 'ms' } } }>()({
   data: { n: 0 },
   waits: ({ one, each }) => ({

@@ -609,7 +609,7 @@ type WaitDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: 
 type WaitEachDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
 type WaitOption<D> = D | { readonly reset?: boolean; readonly done?: D }
 type StrictWaitArg<A, D> =
-  [A] extends [undefined] ? WaitOption<D> | undefined
+  A extends undefined ? undefined
   : A extends (...args: never[]) => unknown ? D
   : A extends object ? { readonly reset?: boolean; readonly done?: D } & { readonly [K in Exclude<keyof A, 'reset' | 'done'>]: never }
   : WaitOption<D>
