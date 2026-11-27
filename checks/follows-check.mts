@@ -721,7 +721,59 @@ const shown = (it: ReturnType<typeof atBoard>): void => {
 /** Every step `shown` takes: one for each event, and one for each update of a view followed when its turn came. */
 const SHOWN_STEPS = ['', 'view total', 'event CURRENCY', 'view total', 'event WATCH', 'view price/a', 'event WATCH', 'event NOTE', 'event TURN', 'event TURN', 'view total']
 
-const staleChecks: Array<[string, () => void]> = [
+type Feed = { NEWS: { args: {}; progress: string; answer: null } }
+const fed = forNet<{ systems: { feed: { events: never; asks: Feed } }; surfaces: {}; views: App['views'] }>()
+/** Follows a total and, all the while, hears news as it comes: each list of it is written down as one entry. */
+const reader = (heard: string[]) => fed<{ data: { currency: string } }, { type: 'CURRENCY'; currency: string }>()({
+  data: { currency: 'EUR' },
+  on: { CURRENCY: ({ currency }) => ({ data: { currency } }) },
+  follows: (follow) => ({ total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => ({ currency }), updated: () => {} }) }),
+  async run({ ask }) { await ask('feed', 'NEWS', {}, (pieces) => { heard.push(pieces.join('+')) }) },
+  failed: () => {},
+})
+
+const staleChecks: Array<[string, () => void | Promise<void>]> = [
+  ['an update of a view no longer followed does not hand over the progress gathered for the frame', async () => {
+    const frames: Array<() => void> = []
+    const followed: Array<(value: number) => void> = []
+    const heard: string[] = []
+    let say: ((piece: string) => void) | undefined
+    const sys = system({
+      side: 'window',
+      frame: (run) => { frames.push(run) },
+      views: (_feature, _view, _args, hears) => { followed.push((value) => hears({ ok: true, value })); return () => {} },
+    })
+    // Sends its news when the check says, and never answers.
+    const backend = system({ side: 'backend' })
+    backend.start('feed', fed<{}, never, Feed>()({ answers: { NEWS: (_, { progress }) => { say = progress; return new Promise<null>(() => {}) } } }))
+    connect(sys, backend)
+    const it = sys.start('reader', reader(heard))
+    // The news crosses from the backend, so it is gathered in the window some turns after it is said.
+    const crossed = async (): Promise<void> => { for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve)) }
+    await crossed()
+    ok(say, 'the feed was asked')
+    // The total is followed again, so what the first following delivers from here on is of a view no longer followed.
+    sys.send(it, { type: 'CURRENCY', currency: 'USD' })
+    strictEqual(followed.length, 2)
+    say('a')
+    await crossed()
+    strictEqual(frames.length, 1)
+    followed[0]!(1)
+    say('b')
+    await crossed()
+    // Nothing that arrived handed it over: both pieces wait for the frame, and come as one list.
+    deepStrictEqual(heard, [])
+    for (const run of frames.splice(0)) run()
+    deepStrictEqual(heard, ['a+b'])
+    // One that is followed is something arriving, and what was gathered is handed over ahead of it.
+    say('c')
+    await crossed()
+    followed[1]!(2)
+    deepStrictEqual(heard, ['a+b', 'c'])
+    sys.stop()
+    backend.stop()
+  }],
+
   ['an update of a view no longer followed when its turn comes takes no step, and one of a view followed takes one', () => {
     const it = atBoard()
     shown(it)

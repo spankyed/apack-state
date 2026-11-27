@@ -49,7 +49,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
 | `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |
-| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data; and that an update of one no longer followed takes no step. Runs |
+| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data; and that an update of one no longer followed takes no step and hands nothing over. Runs |
 | `checks/answer-check.mts` | An ask that changes something as it answers: the change is there with the answer, a refused change fails the ask, nothing is lost across a wait. Runs |
 | `checks/unsaid-check.mts` | What a handler said when it was not made: one that threw, refused, or returned a change that could not be made has told, sent, asked and broadcast nothing, on a backend and in a window. Runs |
 | `checks/failure-check.mts` | What happens when a state's work or a handler throws: where the state goes, and that the kernel goes on. Runs |
