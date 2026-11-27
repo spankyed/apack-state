@@ -336,7 +336,17 @@ points at.
     beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
     reaches the wait its own state or the nearest state around it declares, and a wait counts as armed only if
     something that can run without it arms it, so one armed only from its own `done`, or from the `done` of waits
-    nothing arms, is reported with which.
+    nothing arms, is reported with which. An `arm` counts only where it can run: one written in a state the graph
+    finds is never entered arms nothing, and a wait armed only there is reported with the state. A wait declared in
+    such a state is not reported of its own: that the state is never entered says it. What the graph
+    cannot read hides only what it could arm: a handler not written in the definition, an `arm` of a name that is
+    not known, and an `arm` or a scope handed to other code each leave unreported the waits their own state and the
+    states around it declare, and no others, and hide nothing from a state never entered. What cannot be placed
+    hides every wait: a definition, a spread, a state or a table of declarations that could not be read, and a move
+    to a state that is not known. Where a way into a state could not be read (a handler that returns `any` or is not
+    one function, one written as anything but a function or the name of one, handlers not each written out under a
+    name of their own, what a read or a call hears with where its options are spread in, an `initial` that is not
+    one name), an `arm` counts wherever it is written.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
