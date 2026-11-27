@@ -577,6 +577,14 @@ them. What follows from it is said where it applies: a step is cut short after t
 ([Not built](#not-built), a bound across steps), a send that leaves is written so that it shows, and a step is not
 all of its handlers or none: each handler's rows and change are kept or not on their own.
 
+What arrives from outside for something a state holds (a view's update, how a read or a write ended, its progress, a
+timer's expiry) is asked one question as its turn comes, before a step opens: does the state still hold the very one
+this belongs to? If it does not, because the state left, stopped following or awaiting it, cancelled or disarmed it,
+or began it again under the same name, it is dropped there: no step, no log, nothing against the limit. These four
+only ever arrive from outside a step, never from a handler within one, so that one place is the only place the
+question is asked. It is asked of these four and of nothing else: the answer to an ask already given up, and how
+work ended in a state that has since been left, are still taken in a step that does nothing.
+
 ### Rows
 
 **A step covers what a state holds. On the backend that is the small part.** What the backend holds for good is rows
@@ -832,6 +840,7 @@ thing declined here: one transaction over two stores.
 | A value is a path and the data there | A nested `{ data, at, state: { … } }`. Reads were three hops and the nested key was confusing |
 | Data is under `data`, apart from `at` | Fields beside `at`. Framework words could not be told from the user's |
 | Every state inside must be defined | Optional entries. An example that left one out was unreadable |
+| A delivery that is stale when its turn comes takes no step | The same test made inside the step, once it was open, for a view, a read and a write, and before it only for a timer. A stale one then ran no handler but was still a step: logged as handled, numbered, and counted against a system's limit, for having done nothing. A log could not be read as what happened, and one rule was written four times, in two places |
 | A handler names the path to go to | `leave`, by which a state changed the state around it |
 | `answers` is a table of its own | One `on` table. An ask and an event follow different rules, and nothing marked which was which |
 | What a state sends itself is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
