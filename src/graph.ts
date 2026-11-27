@@ -137,8 +137,17 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
   }
 
   const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, literal: any): StateGraph => {
-    const moves: Array<{ from: string; on: string; to: string[] }> = []
-    const stays: string[] = []
+    /**
+     * Each handler read, in the order they are read: the state it is written in, what it is listed under, the table
+     * it is an entry of where a state has two that may take the same event (`on` and `internal`), the states it
+     * moves to, and whether it may move to one not known.
+     */
+    const handled: Array<{ path: string; on: string; table: string; to: Set<string>; unknown: boolean }> = []
+    const handlerAt = (path: string, on: string, table: string): { to: Set<string>; unknown: boolean } => {
+      let found = handled.find((each) => each.path === path && each.on === on && each.table === table)
+      if (!found) { found = { path, on, table, to: new Set(), unknown: false }; handled.push(found) }
+      return found
+    }
     const answers: string[] = []
     const takes = new Set<string>()
     const follows: string[] = []
@@ -239,36 +248,56 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
 
     /**
-     * Where a function written out goes by what it returns, for one whose return is given a type: that type may say
-     * less than the values do, and a move it leaves out is still made. Each value returned is read for itself.
+     * Where a handler goes by what its function returns. The type of what it returns may say less than the values
+     * do, whether it is given or worked out from them (of two values, one with a move and one that is the same
+     * without it, the type worked out is the one without), and a move it leaves out is still made. Each value
+     * returned is read for itself: each one a return may be, under a type it is said to be, and what a `const` it
+     * names was given. What a function inside it returns is not what it returns. What one of `answers` returns is
+     * its answer, and goes somewhere only as an answer that comes with a change.
      */
-    const readWritten = (fn: any, at: Site): void => {
-      const returned: any[] = []
+    const readWritten = (fn: any, at: Site, path: string, on: string, table: string): void => {
+      const answering = table === 'answers'
+      const listed = (): { to: Set<string>; unknown: boolean } => handlerAt(path, on, table === 'internal' ? table : '')
+      const anywhere = (): void => { at.anywhere = true; listed().unknown = true }
+      const returned = new Set<any>()
+      const value = (expression: any): void => {
+        if (returned.has(expression)) return
+        if (ts.isParenthesizedExpression(expression)) value(expression.expression)
+        else if (ts.isConditionalExpression(expression)) { value(expression.whenTrue); value(expression.whenFalse) }
+        else if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) { value(expression.left); value(expression.right) }
+        // What is left of `&&` is given back only when it is nothing, and what is left of a comma never.
+        else if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.CommaToken].includes(expression.operatorToken.kind)) value(expression.right)
+        else {
+          returned.add(expression)
+          if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isNonNullExpression(expression)) value(expression.expression)
+          // A `const` is what it was given, whatever type it was given beside.
+          else if (ts.isIdentifier(expression)) { const given = unwrapConst(expression); if (given !== expression) value(given) }
+        }
+      }
       const gather = (node: any): void => {
-        if (ts.isReturnStatement(node)) { if (node.expression) returned.push(node.expression); return }
+        if (ts.isReturnStatement(node)) { if (node.expression) value(node.expression); return }
         if (ts.isFunctionLike(node)) return
         ts.forEachChild(node, gather)
       }
-      if (ts.isBlock(fn.body)) ts.forEachChild(fn.body, gather); else returned.push(fn.body)
+      if (ts.isBlock(fn.body)) ts.forEachChild(fn.body, gather); else value(fn.body)
       for (const expression of returned) {
-        for (const value of unwrap(checker.getTypeAtLocation(expression))) {
-          if (value.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+        for (const made of unwrap(checker.getTypeAtLocation(expression))) {
+          if (made.flags & ts.TypeFlags.Any) { anywhere(); continue }
           // An answer that comes with a change goes where the change does.
-          const change = value.getProperty?.('next') && value.getProperty?.('answer') ? real(typeOf(value.getProperty('next'))) : [value]
+          const change = made.getProperty?.('next') && made.getProperty?.('answer') ? real(typeOf(made.getProperty('next'))) : answering ? [] : [made]
           for (const each of change) {
-            if (each.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+            if (each.flags & ts.TypeFlags.Any) { anywhere(); continue }
             const next = each.getProperty?.('at')
             if (!next) continue
-            for (const member of real(typeOf(next))) { if (member.isStringLiteral()) at.moves.add(member.value as string); else at.anywhere = true }
+            for (const member of real(typeOf(next))) {
+              if (member.isStringLiteral()) { at.moves.add(member.value as string); listed().to.add(member.value as string) } else anywhere()
+            }
           }
         }
       }
     }
 
     const scan = (inner: any, at: Site): void => {
-      // A handler is written as an entry of a table or handed to what makes one; a function kept under a name of its
-      // own inside one is not what the handler returns.
-      if (inner.type && inner.body && (ts.isMethodDeclaration(inner) || ((ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) && !ts.isVariableDeclaration(inner.parent)))) readWritten(inner, at)
       if (!isDeclName(inner)) {
         const p = inner.parent
         if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
@@ -305,7 +334,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       ts.forEachChild(inner, (child: any) => scan(child, at))
     }
 
-    const read = (returned: Type[], path: string, on: string, at: Site): void => {
+    const read = (returned: Type[], path: string, on: string, at: Site, table = ''): void => {
       const to = new Set<string>()
       let dynamicAt: string | undefined
       for (const value of returned) {
@@ -317,10 +346,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           else dynamicAt = checker.typeToString(atType)
         }
       }
-      if (dynamicAt !== undefined) { uncertain.add(`dynamic move target in ${where(path, on)} (at is ${dynamicAt})`); at.anywhere = true }
-      for (const target of to) at.moves.add(target)
-      if (to.size) moves.push({ from: path || 'anywhere', on, to: [...to] })
-      else if (dynamicAt === undefined) stays.push(where(path, on))
+      const entry = handlerAt(path, on, table)
+      if (dynamicAt !== undefined) { uncertain.add(`dynamic move target in ${where(path, on)} (at is ${dynamicAt})`); at.anywhere = true; entry.unknown = true }
+      for (const target of to) { at.moves.add(target); entry.to.add(target) }
     }
 
     const walk = (level: Type, path: string): void => {
@@ -333,7 +361,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           for (const handler of type.getProperties()) {
             takes.add(handler.name)
             const returned = returnedBy(real(typeOf(handler))[0], here)
-            if (returned) read(returned, path, handler.name, here)
+            if (returned) read(returned, path, handler.name, here, property.name === 'internal' ? property.name : '')
           }
         } else if (property.name === 'answers') {
           for (const handler of type.getProperties()) {
@@ -386,32 +414,43 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       return Boolean(cur && (ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)))
     }
     /**
-     * Whether a name is one function whose type is read off its own code: a function declared with its body, or a
-     * `const` given no type that is a function written out, or the name of one. A type written beside a function may
-     * say less than the function returns, and so may the type of one chosen between two.
+     * The one function a name is, where that is read off its own code: a function declared with its body, or a
+     * `const` given no type that is a function written out, or the name of one. A type written beside a name may
+     * say less than its function returns, and so may the type of one chosen between two.
      */
-    const saysItsReturn = (symbol: any, seen = new Set<any>()): boolean => {
+    const namedFunction = (symbol: any, seen = new Set<any>()): any => {
       const named = symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
       const decl = named?.valueDeclaration
-      if (!decl || seen.has(decl)) return false
+      if (!decl || seen.has(decl)) return undefined
       seen.add(decl)
-      if (ts.isFunctionDeclaration(decl)) return Boolean(decl.body)
-      if (!ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || decl.type || !decl.initializer) return false
+      if (ts.isFunctionDeclaration(decl)) return decl.body ? decl : undefined
+      if (!ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || decl.type || !decl.initializer) return undefined
       const made = unwrapParens(decl.initializer)
-      return isInlineFn(made) || (ts.isIdentifier(made) && saysItsReturn(checker.getSymbolAtLocation(made), seen))
+      return isInlineFn(made) ? made : ts.isIdentifier(made) ? namedFunction(checker.getSymbolAtLocation(made), seen) : undefined
     }
     /**
-     * What a handler leaves unread by how it is written. One written out here leaves nothing. The name of a function
-     * leaves what it arms, since its code is elsewhere. Anything else (either of two, what a call gives back), and a
-     * name whose type may say less than its function returns, leaves where it goes as well.
+     * What a handler leaves unread by how it is written, and the function it is where that is known. One written out
+     * here leaves nothing. The name of a function leaves what it arms, since its code is elsewhere. Anything else
+     * (either of two, what a call gives back), and a name whose type may say less than its function returns, leaves
+     * where it goes as well.
      */
-    const unreadBy = (written: any, at: Site, moves = true): void => {
-      if (ts.isMethodDeclaration(written)) return
+    const unreadBy = (written: any, at: Site, moves = true): any => {
+      if (ts.isMethodDeclaration(written)) return written
       const value = ts.isShorthandPropertyAssignment(written) ? written.name : unwrapParens(ts.isPropertyAssignment(written) ? written.initializer : written)
-      if (isInlineFn(value)) return
+      if (isInlineFn(value)) return value
       at.armsAround = true
       const symbol = ts.isShorthandPropertyAssignment(written) ? checker.getShorthandAssignmentValueSymbol(written) : ts.isIdentifier(value) ? checker.getSymbolAtLocation(value) : undefined
-      if (moves && !saysItsReturn(symbol)) at.anywhere = true
+      const fn = namedFunction(symbol)
+      if (moves && !fn) at.anywhere = true
+      return fn
+    }
+    /**
+     * A handler, where the definition names it: what it leaves unread, and where it goes by what it returns. `on` is
+     * what it is listed under in the state at `path`, and `table` the table it is an entry of, where it is of one.
+     */
+    const handler = (written: any, at: Site, path: string, on: string, table = ''): void => {
+      const fn = unreadBy(written, at)
+      if (fn) readWritten(fn, at, path, on, table)
     }
     /**
      * Whether an entry of a table of declarations is made by what the table is handed: `single(...)` or `helpers.single(...)`
@@ -450,17 +489,20 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         if (name === 'on' || name === 'internal' || name === 'answers') {
           // Handlers that are not each written out under a name of their own are not all read.
           if (!made || !ts.isObjectLiteralExpression(made)) unreadHandler(here)
-          else for (const handler of made.properties) {
-            unreadBy(handler, here)
-            if (handler.name && propName(handler.name) === undefined) here.anywhere = true
+          else for (const entry of made.properties) {
+            const taken = entry.name ? propName(entry.name) : undefined
+            if (taken === undefined) { unreadBy(entry, here); here.anywhere = true }
+            else handler(entry, here, path, name === 'answers' ? `${taken} (answering)` : taken, name)
           }
           scan(property, here)
           continue
         }
         if (name === 'listen' || name === 'run' || name === 'failed') {
-          const at = name === 'failed' ? failedIn(path) : here
-          unreadBy(property, at, name !== 'listen')
-          scan(property, at)
+          // What a `listen` returns is how it stops hearing, not where the state goes.
+          if (name === 'listen') unreadBy(property, here, false)
+          else if (name === 'run') handler(property, here, path, '(its work ends)')
+          else handler(property, failedIn(path), path, '(its work fails)')
+          scan(property, name === 'failed' ? failedIn(path) : here)
           continue
         }
         if (name === 'states') {
@@ -533,9 +575,11 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           const entryName = entry.name ? propName(entry.name) : undefined
           if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer) || entryName === undefined || !madeByHelper(entry.initializer.expression, made)) {
             uncertain.add(`could not statically read ${where(path, `${name}.${entryName ?? (entry.name ? entry.name.getText() : '?')}`)}`)
-            if (name === 'arms' && entryName !== undefined && byTimerKey.has(timerKey(path, entryName))) unreadHandler(expiredOf(timerKey(path, entryName)))
+            // What is written in a timer's entry is its `expired`, which runs once that timer is armed.
+            const expired = name === 'arms' && entryName !== undefined && byTimerKey.has(timerKey(path, entryName)) ? expiredOf(timerKey(path, entryName)) : undefined
+            if (expired) unreadHandler(expired)
             else unreadEntries()
-            scan(entry, here)
+            scan(entry, expired ?? here)
             continue
           }
           if (name === 'arms') {
@@ -561,7 +605,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
               const whenArmedType = whenArmed && checker.getTypeAtLocation(whenArmed)
               if (whenArmedType?.isStringLiteral() && whenArmedType.value === 'ignore') ignoredWhileArmed = true
               const expiredProp = named('expired')
-              if (expiredProp) unreadBy(expiredProp, expired)
+              if (expiredProp) handler(expiredProp, expired, path, `${entryName} (expired)`)
               // An `expired` that may be `undefined`, or one of two functions, moves as each function it may be does.
               const returned = expiredProp ? real(checker.getTypeAtLocation(expiredProp.initializer ?? expiredProp)).flatMap((each: Type) => returnedBy(each, expired) ?? []) : []
               if (returned.length) read(returned, path, `${entryName} (expired)`, expired)
@@ -599,9 +643,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             : named ?? 'from nothing: once'
           ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entryName}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
           for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
-            const handler = option(hears)
-            if (handler) unreadBy(handler, here)
-            const returned = returnedBy(handler && checker.getTypeAtLocation(handler.initializer ?? handler), here)
+            const heard = option(hears)
+            if (heard) handler(heard, here, path, `${entryName} (${hears})`)
+            const returned = returnedBy(heard && checker.getTypeAtLocation(heard.initializer ?? heard), here)
             if (returned) read(returned, path, `${entryName} (${hears})`, here)
           }
         }
@@ -618,6 +662,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     // live when it can be the case, and a timer when it can be armed.
     const liveStates = new Set<string>()
     const liveTimers = new Set<string>()
+    /** The states entered themselves, whose `initial` has been followed. One live only as a state around another is not among them. */
+    const begun = new Set<string>()
     /**
      * Entering a state is entering each state around it, and then what it starts at, and what that starts at. A state
      * around the one entered is not entered at what it starts at.
@@ -628,6 +674,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       while (next.length) {
         const at = next.pop()!
         liveStates.add(at)
+        if (begun.has(at)) continue
+        begun.add(at)
         const initial = initialOf.get(at)
         if (initial === 'any') next.push(...declared.filter((name) => name.startsWith(at ? `${at}.` : '') && !name.slice(at ? at.length + 1 : 0).includes('.')))
         else for (const name of initial ?? []) next.push(join(at, name))
@@ -724,6 +772,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       caused.push(`${subject}${except.length ? ` except ${except.join(' and ')}` : ''}${so.length ? `, so ${so.join('; ')}` : ''}`)
     }
 
+    const moves = handled.filter((each) => each.to.size).map((each) => ({ from: each.path || 'anywhere', on: each.on, to: [...each.to] }))
+    const stays = handled.filter((each) => !each.to.size && !each.unknown).map((each) => where(each.path, each.on))
     const reaches = [...reachesSet]
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
