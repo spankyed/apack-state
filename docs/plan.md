@@ -234,7 +234,12 @@ points at.
     by hand. A state declares each, and each says which fields of the data it
     depends on, in one of two ways. With `from`, there is one, and it reads the fields named: it is asked again when
     one of them changes. With `each`, there is one for each key of the field named, or each item where the field is
-    a list: a key that appears starts one, and a key that goes stops it.
+    a list: a key that appears starts one, and a key that goes stops it. What is followed or loaded may say both,
+    `each: 'openDiffs', from: ['statusRev']`: one for each key, and every one asked again when a field in `from`
+    changes, the one before for that key stopped. A key that appears or goes starts or stops its own alone, whatever
+    `from` did in the same step: one that appears as a field changes is asked once, and one that goes is not asked.
+    `args` is given the key and then the fields named, `(path, { statusRev }) => …`. What a state starts is given
+    its data once, so it has no `from`.
 
     ```ts
     starts:  (start)  => ({ thread: start(thread(inference), { each: 'titles', given: (threadId) => ({ threadId }) }) }),
@@ -285,7 +290,11 @@ points at.
     **An ask that is loaded is a read.** With `from`, it is asked for what `args` makes of the fields it names, and
     asked again when one of them changes, the one before cancelled. Where `args` gives nothing, nothing is asked. A
     field that only counts has it asked again. With `each`, one is asked for each key of a field, and what it found
-    stays. How one finishes goes to `done`, and what it says before that to `progress`, as a list at most once a frame.
+    stays. With both, each key's is asked again when a field in `from` changes, and what the one before finds is
+    not heard: the app's commit surface reads a diff for each file open and all of them again when the repository
+    changes, which without this is a write called by hand for each key from every handler that knows the
+    repository changed. How one finishes goes to `done`, and what it says before that to `progress`, as a list at
+    most once a frame.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
     says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
@@ -349,7 +358,10 @@ points at.
     asked what it is, and where a delivery would change what one of those is asked for, or the view itself, the
     kernel refuses the following again and reports it. The handler's change to data is made; the view goes on being
     asked what it was. A circle that would have settled after a round is refused as well: that it happens to settle
-    is not something to rest on.
+    is not something to rest on. Each of many is one of these by its key. Where how one key's ended changes a field
+    they are all asked from, that key's own is refused and the others are asked again, as one leading another; how
+    one of those ends may then lead to neither itself nor the first, so it comes to rest within as many rounds as
+    there are keys.
 
 ### Communication
 
@@ -831,7 +843,7 @@ thing declined here: one transaction over two stores.
 | Where work is put says who owns it, and so when it stops | One rule for every handler. Stopping an ask's work when its asker goes is right for a search and wrong for a message being answered, and never stopping it, as Effect's `Machine` does once a handler is running, wastes the search. A flag on the ask saying it survives its asker, or a shield around part of a handler as Trio and Kotlin have, would each be a second way to say what a state's `run` already says: this work is the answerer's. The threads example had it wrong: a window that closed mid-reply aborted the reply, and the message it had sent was never stored |
 | What a state starts is declared and follows from its data | `start(name, state)` called from a handler, which the prototype had. A start was then something a handler did and not part of what it returned, so after an `await`, checking and starting could not be one step; nothing stopped a started state short of its starter ending; a handle was rebuilt from the definition at every use; and a state that was restored would have had nothing it started. And naming the starts in what a handler returns, beside `at` and `data`, which makes them one step and leaves them to be remembered: a start with no stop is a leak, and what runs is kept in two places. Working it out from data is what a view layer does with a keyed list, and what Effect's `forkOne` and `forkReplace` do by hand under a key: a key that stays is theirs "only if missing", and replacing is a key that changes |
 | What says which there are is a field, by name | A function from the data to the keys, which was built first: `each((data) => Object.keys(data.titles), …)`. It could throw, so there had to be a rule for what ran when it did. It had to be run again after every change, since nothing said what it read. And the graph could not say where the keys came from. Tracking what the function reads, as a signals library does, would fix the second and not the others |
-| One grammar for what a state starts, follows and loads: `each` a field, or `from` fields | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
+| One grammar for what a state starts, follows and loads: `each` a field, or `from` fields, or for what is followed or loaded both | Three spellings of one idea, which is what there was: a helper for states, an object written out for views, and for a view followed alone a function of the data that was run again after every change and its result compared. That last was the function that naming a field had replaced for states, kept by oversight for views. Elm's `subscriptions` is this idea: what is listened to is a function of the model, and the runtime starts and stops to match |
 | Each of the three is a function of the helper its entries are made with | The helpers as imports, `follow(…)` called in an object. TypeScript then has to work out the state's types backwards from where the call's result is put, and while it is doing that it cannot type a draft edit nested in a handler: `(d) => { d.tabs[key] = … }` came out untyped. Handing the helper in already typed leaves nothing to work out |
 | A read that is not a state's work is loaded (`loads`), declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
 | A write is fired, with `call`, and the kernel keeps `pending` | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is fired once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |

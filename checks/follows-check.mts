@@ -1,5 +1,6 @@
 // The views a state follows. They are declared, and which are followed, and what each is asked for, come from the
-// data: nothing follows or stops following one by hand. What a view delivers goes to a handler.
+// data: nothing follows or stops following one by hand. One is followed from the fields it names, for each key of a
+// field, or both. What a view delivers goes to a handler.
 //
 //   npx vitest run follows
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
@@ -13,6 +14,7 @@ type App = {
     shop: {
       total: { args: { currency: string }; result: number }
       price: { args: { id: string }; result: number }
+      quote: { args: { id: string; currency: string }; result: number }
     }
   }
 }
@@ -630,4 +632,100 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
   }],
 ]
 
-await run([...checks, ...moreChecks])
+// ── one view for each item watched, all followed again when the currency changes ────────────────────────────────────
+
+type QuotesEvent = { type: 'WATCH'; ids: string[]; currency?: string } | { type: 'SET_CURRENCY'; currency: string } | { type: 'SET_NOTE'; note: string }
+type Quotes = { data: { currency: string; watching: string[]; quotes: Record<string, number>; note: string; rounds: number } }
+/** `echoing` has what a quote delivers count `rounds` up, which is a field it is followed from. */
+const quotes = (echoing: boolean) => state<Quotes, QuotesEvent>()({
+  data: { currency: 'EUR', watching: [], quotes: {}, note: '', rounds: 0 },
+  on: {
+    WATCH: ({ ids, currency }, { data }) => ({ data: { watching: ids, currency: currency ?? data.currency } }),
+    SET_CURRENCY: ({ currency }) => ({ data: { currency } }),
+    SET_NOTE: ({ note }) => ({ data: { note } }),
+  },
+  follows: (follow) => ({
+    quote: follow('shop', 'quote', {
+      each: 'watching',
+      from: ['currency', 'rounds'],
+      args: (id, { currency, rounds }) => ({ id, currency: `${currency}${rounds || ''}` }),
+      updated: (update, { key }) => (update.ok ? { data: (d) => { d.quotes[key] = update.value; if (echoing) d.rounds += 1 } } : undefined),
+    }),
+  }),
+})
+const quoted = (echoing = false) => {
+  const calls: string[] = []
+  const everFollowed = new Map<string, (update: ViewUpdate<unknown>) => void>()
+  const views: ViewHost = (_feature, _view, args, heard) => {
+    const { id, currency } = args as { id: string; currency: string }
+    const which = `${id} in ${currency}`
+    everFollowed.set(which, heard)
+    calls.push(`follow ${which}`)
+    return () => { calls.push(`stop ${which}`) }
+  }
+  const defects: string[] = []
+  const sys = system({ side: 'window', views, trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+  const it = sys.start('quotes', quotes(echoing))
+  return {
+    calls, defects,
+    send: (event: QuotesEvent): void => sys.send(it, event),
+    data: () => sys.read(it).data,
+    /** Delivers to whatever followed this, whether or not it still does. */
+    deliver: (which: string, value: number): void => everFollowed.get(which)!({ ok: true, value }),
+  }
+}
+
+const keyedFrom: Array<[string, () => void]> = [
+  ['one is followed for each key, asked for what the fields it names hold, and each hears with its own key', () => {
+    const { send, calls, deliver, data } = quoted()
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    deepStrictEqual(calls, ['follow a in EUR', 'follow b in EUR'])
+    deliver('b in EUR', 5)
+    deliver('a in EUR', 3)
+    deepStrictEqual(data().quotes, { a: 3, b: 5 })
+  }],
+  ['a field it names changing follows every key again, once each, and stops the ones before, which are no longer heard', () => {
+    const { send, calls, deliver, data } = quoted()
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    calls.length = 0
+    send({ type: 'SET_CURRENCY', currency: 'USD' })
+    deepStrictEqual(calls, ['stop a in EUR', 'follow a in USD', 'stop b in EUR', 'follow b in USD'])
+    deliver('a in EUR', 99)
+    deepStrictEqual(data().quotes, {})
+    deliver('a in USD', 4)
+    deepStrictEqual(data().quotes, { a: 4 })
+  }],
+  ['a key that appears or goes follows or stops its own alone, and a field it does not name follows nothing', () => {
+    const { send, calls } = quoted()
+    send({ type: 'WATCH', ids: ['a'] })
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    send({ type: 'SET_NOTE', note: 'a note' })
+    send({ type: 'WATCH', ids: ['b'] })
+    deepStrictEqual(calls, ['follow a in EUR', 'follow b in EUR', 'stop a in EUR'])
+  }],
+  ['a key that appears in the step a named field changes is followed once, and one that goes then is not followed again', () => {
+    const { send, calls } = quoted()
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    calls.length = 0
+    send({ type: 'WATCH', ids: ['b', 'c'], currency: 'USD' })
+    deepStrictEqual(calls, ['stop a in EUR', 'stop b in EUR', 'follow b in USD', 'follow c in USD'])
+  }],
+  ['what one of many delivers may not change a field they are followed from round to itself: it comes to rest, reported', () => {
+    const { send, calls, deliver, data, defects } = quoted(true)
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    calls.length = 0
+    // What a's delivers changes what b is followed from, which is one view leading another. It is a's own that is refused.
+    deliver('a in EUR', 3)
+    deepStrictEqual(calls, ['stop b in EUR', 'follow b in EUR1'])
+    strictEqual(defects.length, 1)
+    ok(defects[0]!.includes('quotes#quote/a delivered changed a field it is itself asked from'), defects[0])
+    // And what b's delivers would lead back to a, which led to it, and to itself: neither is followed again.
+    deliver('b in EUR1', 5)
+    deepStrictEqual(calls, ['stop b in EUR', 'follow b in EUR1'])
+    deepStrictEqual([data().quotes, data().rounds], [{ a: 3, b: 5 }, 2])
+    strictEqual(defects.length, 3)
+    ok(defects.some((line) => line.includes('what quotes#quote/b delivered changed a field quotes#quote/a is asked from, and quotes#quote/a is what led to quotes#quote/b being asked')), defects.join('\n'))
+  }],
+]
+
+await run([...checks, ...moreChecks, ...keyedFrom])

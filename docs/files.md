@@ -43,13 +43,13 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `checks/interleaving-check.mts` | Scenarios run under every ordering: a search over a search, a cancel, a click among progress, a window closing. Runs, for about 7 seconds |
 | `examples/commit.mts` | A slice of the app's commit surface ported: its status and a diff as reads it loads, staging and a push as writes it calls. Runs, and checks what each step leaves |
 | `checks/internal-check.mts` | Who may send a state what: the events it sends itself reach it from nowhere else, and one surface tells another in its window. Runs |
-| `checks/loads-check.mts` | The reads a state loads: from the fields it names, or one for each key of a field. Runs |
+| `checks/loads-check.mts` | The reads a state loads: from the fields it names, one for each key of a field, or one for each key read again from fields, under every ordering of the reads and the changes. Runs |
 | `checks/calls-check.mts` | The writes a state calls: fired once with `call`, with pending state kept by the kernel. Runs, for about 10 seconds |
 | `checks/waits-check.mts` | Imperative timers declared under `waits`: `one` and keyed `each`, default and runtime `ms`, `reset: true`/`false`, optional `done`, `arm`/`disarm` rollback, exit cleanup, Vue mirror reactivity, and `explore` determinism. Runs |
 | `checks/checks.mts` | What every check file is written with: each check becomes a vitest case with its own name, each system a check makes is stopped however it ends and given a limit on its steps, and `rest()` waits until what the check started has come to rest |
 | `checks/examples-check.mts` | Runs each example that runs, as a case of its own |
 | `checks/starts-check.mts` | The states a state starts: declared, and which of them run follows from its data. Runs |
-| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data. Runs |
+| `checks/follows-check.mts` | The views a state follows: declared, and which are followed, and what each is asked for, follow from its data, from fields, for each key of a field, or both. Runs |
 | `checks/answer-check.mts` | An ask that changes something as it answers: the change is there with the answer, a refused change fails the ask, nothing is lost across a wait. Runs |
 | `checks/unsaid-check.mts` | What a handler said when it was not made: one that threw, refused, or returned a change that could not be made has told, sent, asked and broadcast nothing, on a backend and in a window. Runs |
 | `checks/failure-check.mts` | What happens when a state's work or a handler throws: where the state goes, and that the kernel goes on. Runs |
@@ -62,7 +62,7 @@ ported to it; `measure/` prints what things cost; `surveys/` read an apack check
 | `src/graph.ts` | `@apackdev/state/graph`: static TypeScript graph analyser (`analyseGraphs`, `formatGraphs`, `runGraphCli`) supporting `--tsconfig` and return-type `State` detection |
 | `bin/apack-state-graph.mjs` | Packaged CLI entrypoint (`apack-state-graph [--tsconfig <path>] <file...>`) |
 | `checks/graph-check.mts` | The graph tool (`@apackdev/state/graph` and `tools/graph.mts`) run on hard-to-read states, non-`state` aliases (`hostState`, inline `forNet`), custom `--tsconfig` path aliases, CLI errors, and which waits nothing arms: by the state an `arm` is written in, and by what can run without the wait |
-| `checks/graphs/*.mts` | Small state fixtures for `checks/graph-check.mts` (`child-entered-first.mts`, `written-short.mts`) |
+| `checks/graphs/*.mts` | Small state fixtures for `checks/graph-check.mts` (`child-entered-first.mts`, `written-short.mts`, `keyed-from.mts`) |
 | `checks/mutants-check.mts` | Holds `scripts/mutants.mjs`, `scripts/mutants-list.mjs`, and `scripts/mutants-merge.mjs` to range pruning, allowlist updating, and entry-level merging |
 | `checks/master-status-check.mts` | Holds the CI master-status issue-management logic to opening, updating, and closing failure issues cleanly |
 | `vitest.config.mts`, `vitest.mutants.mts` | Vitest configurations for the Node and Chromium browser projects and for Stryker mutation runs |

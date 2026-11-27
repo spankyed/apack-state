@@ -31,8 +31,14 @@ state<Shop, ShopEvent>()({
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
     price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
-    // @ts-expect-error a view is followed from fields or for each key, not both at once
-    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), updated: () => {} }),
+    // One for each key, each followed again when a field it names changes: the key comes first, typed, and then those fields.
+    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id, { currency }) => ({ id: `${id} in ${currency.toLowerCase()}` }), updated: (_, { key }) => { key.toUpperCase() } }),
+    // @ts-expect-error one for each key is followed again from fields the shop has, and it has no locale
+    eachMissing: follow('shop', 'price', { each: 'watching', from: ['locale'], args: (id) => ({ id }), updated: () => {} }),
+    // @ts-expect-error one for each key reads the note, which it did not name
+    eachUnnamed: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id, { note }) => ({ id: id + note }), updated: () => {} }),
+    // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key, whatever else it names
+    skippableBoth: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id) => (id ? { id } : null), updated: () => {} }),
     // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key
     skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } : null), updated: () => {} }),
   }),

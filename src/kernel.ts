@@ -955,9 +955,9 @@ export function system<N extends Net = Net>(host: {
       }
 
       /**
-       * One of what this state follows or loads, as it should be now. `seen` is the values of the fields it named:
-       * the data is never changed in place, so a field that changed is a different value, and comparing the two
-       * says whether to ask again without working anything out.
+       * One of what this state follows or loads, as it should be now. `seen` is the values of the fields it named,
+       * after its key where it is one of many: the data is never changed in place, so a field that changed is a
+       * different value, and comparing the two says whether to ask again without working anything out.
        */
       const settle = (live: Map<string, Live>, id: string, seen: readonly unknown[], args: () => unknown, begin: (what: object, entry: Live) => (() => void) | undefined): void => {
         const now = live.get(id)
@@ -985,9 +985,13 @@ export function system<N extends Net = Net>(host: {
         if (stop) entry.stop = stop; else live.delete(id)
       }
       const picked = (from: readonly string[]): Plain => Object.fromEntries(from.map((field) => [field, top.data[field]]))
-      /** For one declared with `each`: the keys there are now, with what went stopped. Nothing if the field did not change. */
-      const keysNow = (live: Map<string, Live>, name: string, field: string, what: string): string[] | undefined => {
-        if (!looks(field)) return undefined
+      /**
+       * For one declared with `each`: the keys to look at now. Where the field changed, those are its keys, with what
+       * went stopped. Where only a field named in `from` did, they are the keys there already were, each to be asked
+       * again. Where neither did, none.
+       */
+      const keysNow = (live: Map<string, Live>, name: string, field: string, from: readonly string[], what: string): string[] => {
+        if (!looks(field)) return from.some(looks) ? keysOf(top.data[field]) : []
         trace(`${top.ref} looked at ${field} for which ${name} to ${what}`)
         const keys = keysOf(top.data[field])
         const wanted = new Set(keys.map((key) => `${name}/${key}`))
@@ -1036,12 +1040,13 @@ export function system<N extends Net = Net>(host: {
             return () => safely(`stopping ${top.ref}'s view ${id}`, stop, top.ref)
           })
         }
+        const from = declared.from ?? []
+        const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
+          for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? declared.args(key, picked(from)) : {}))
         } else {
-          const from = declared.from ?? []
           if (!from.some(looks) && at.following.has(name)) continue
-          followed(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
+          followed(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
 
@@ -1061,12 +1066,13 @@ export function system<N extends Net = Net>(host: {
             return () => given.abort()
           })
         }
+        const from = declared.from ?? []
+        const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
+          for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? declared.args(key, picked(from)) : {}))
         } else {
-          const from = declared.from ?? []
           if (!from.some(looks) && at.awaiting.has(name)) continue
-          awaited(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
+          awaited(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
     }

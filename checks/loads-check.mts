@@ -1,11 +1,11 @@
 // The asks a state loads. These are reads: one is there because the data says so, for as long as it does. It names
-// the fields it reads, or the field with one for each of its keys, and which are asked follows from the data.
+// the fields it reads, the field with one for each of its keys, or both, and which are asked follows from the data.
 //
 //   npx vitest run loads
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
-import { sample, type Schedule } from '@apackdev/orderings'
+import { explore, sample, type Schedule } from '@apackdev/orderings'
 import { forNet } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
@@ -93,6 +93,77 @@ const reader = state<Reader, ReaderEvent>()({
   },
 })
 
+// ── one read for each open file, all read again when the repository changes ─────────────────────────────────────────
+
+type RepoAsks = { DIFF: { args: { path: string; rev: number }; answer: string } }
+const beside = forNet<{ systems: { repo: { events: never; asks: RepoAsks } }; surfaces: {}; views: {} }>()
+
+/** A repository whose diffs take as long as `work` does. What it read and what it was told to give up, in order. */
+const repo = (did: string[], work: (what: string) => Promise<unknown>) => beside<{}, never, RepoAsks>()({
+  answers: {
+    DIFF: async ({ path, rev }, { signal }) => {
+      did.push(`read ${path}@${rev}`)
+      signal.addEventListener('abort', () => { did.push(`gave up ${path}@${rev}`) })
+      await work(`reading ${path}@${rev}`)
+      return `${path}@${rev}`
+    },
+  },
+})
+
+type DiffsEvent =
+  | { type: 'OPEN'; paths: string[]; changed?: boolean }
+  | { type: 'CLOSE'; path: string; changed?: boolean }
+  | { type: 'CHANGED' }
+  | { type: 'RENAME'; title: string }
+type Diffs = { data: { title: string; open: Record<string, string | null>; rev: number; spins: number; ended: string[]; late: string[] } }
+
+/** `spinning` has how a diff ended count `spins` up, which is a field it is read from. */
+const diffs = (spinning = false) => beside<Diffs, DiffsEvent>()({
+  data: { title: 'Diffs', open: {}, rev: 0, spins: 0, ended: [], late: [] },
+  on: {
+    OPEN: ({ paths, changed }) => ({ data: (d) => { for (const path of paths) d.open[path] = null; if (changed) d.rev += 1 } }),
+    CLOSE: ({ path, changed }) => ({ data: (d) => { delete d.open[path]; if (changed) d.rev += 1 } }),
+    CHANGED: (_, { data }) => ({ data: { rev: data.rev + 1 } }),
+    RENAME: ({ title }) => ({ data: { title } }),
+  },
+  loads: (load) => ({
+    diff: load('repo', 'DIFF', {
+      each: 'open',
+      from: ['rev', 'spins'],
+      args: (path, { rev, spins }) => ({ path, rev: rev + spins }),
+      done: (outcome, { key, data }) => ({
+        data: (d) => {
+          if (!outcome.ok) return
+          d.open[key] = outcome.value
+          d.ended.push(outcome.value)
+          // What it was read at is not what the data says now: a read that was given up, heard of all the same.
+          if (outcome.value !== `${key}@${data.rev + data.spins}`) d.late.push(outcome.value)
+          if (spinning) d.spins += 1
+        },
+      }),
+    }),
+  }),
+})
+
+/**
+ * The diffs on a repository whose reads end when a check says: `end('a@0')`. A read under way is never at rest, so
+ * these checks wait in turns: more than anything here takes to be asked or heard.
+ */
+const opened = (spinning = false) => {
+  const did: string[] = []
+  const defects: string[] = []
+  const reading = new Map<string, () => void>()
+  const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+  sys.start('repo', repo(did, (what) => new Promise<void>((resolve) => { reading.set(what.slice('reading '.length), resolve) })))
+  const it = sys.start('diffs', diffs(spinning))
+  return {
+    did, defects,
+    send: (event: DiffsEvent): void => sys.send(it, event),
+    now: () => sys.read(it).data,
+    end: async (...which: string[]): Promise<void> => { for (const one of which) reading.get(one)!(); await turns(8) },
+  }
+}
+
 const wired = () => {
   const did: string[] = []
   const defects: string[] = []
@@ -107,25 +178,25 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a read is asked when a field it names changes, and not when another does', async () => {
     const { send, now, did } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await rest()
+    await turns(8)
     strictEqual(now().found, 'APACK')
     send({ type: 'RENAME', title: 'Another' })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, ['lookup apack'])
   }],
   ['a field that only counts has it asked again', async () => {
     const { send, did } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await rest()
+    await turns(8)
     send({ type: 'AGAIN' })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, ['lookup apack', 'lookup apack'])
   }],
   ['where there is nothing to ask for, nothing is asked', async () => {
     const { send, did } = wired()
     send({ type: 'AGAIN' })
     send({ type: 'SET_QUERY', query: '' })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, [])
   }],
   ['a read asked again gives up the one before: the one answering is told, and only the last is taken', async () => {
@@ -133,25 +204,25 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'SET_QUERY', query: 'first' })
     await turns(1)
     send({ type: 'SET_QUERY', query: 'second' })
-    await rest()
+    await turns(8)
     strictEqual(now().found, 'SECOND')
     deepStrictEqual(did, ['lookup first', 'gave up first', 'lookup second'])
   }],
   ['what a read says before it ends is heard, as a list', async () => {
     const { send, now } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await rest()
+    await turns(8)
     deepStrictEqual(now().heard, ['apack began', 'apack ended'])
   }],
   ['one is asked for each item of a list, once, and what it found stays', async () => {
     const { send, now, did } = wired()
     send({ type: 'WATCH', ids: ['a', 'b'] })
-    await rest()
+    await turns(8)
     deepStrictEqual(now().labels, { a: 'A', b: 'B' })
     // A read does not end by taking its key out: the list is the data's, and it is as it was.
     deepStrictEqual(now().watched, ['a', 'b'])
     send({ type: 'WATCH', ids: ['a', 'b', 'c'] })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, ['lookup a', 'lookup b', 'lookup c'])
     deepStrictEqual(now().labels, { a: 'A', b: 'B', c: 'C' })
   }],
@@ -160,7 +231,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'WATCH', ids: ['a', 'b'] })
     await turns(1)
     send({ type: 'WATCH', ids: ['b'] })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, ['lookup a', 'lookup b', 'gave up a'])
     deepStrictEqual(now().labels, { b: 'B' })
   }],
@@ -169,17 +240,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'SET_QUERY', query: 'apack' })
     await turns(1)
     send({ type: 'TURN', on: false })
-    await rest()
+    await turns(8)
     deepStrictEqual({ did, found: now().found }, { did: ['lookup apack', 'gave up apack'], found: null })
     // The data still says to look it up, so being the case again is asking again.
     send({ type: 'TURN', on: true })
-    await rest()
+    await turns(8)
     strictEqual(now().found, 'APACK')
   }],
   ['how a read ended may not change a field it is asked from: it is reported, and not asked again', async () => {
     const { send, now, did, defects } = wired()
     send({ type: 'CIRCLE' })
-    await rest()
+    await turns(8)
     deepStrictEqual(did, ['lookup round 1'])
     strictEqual(now().circling, 2)
     strictEqual(defects.length, 1)
@@ -188,10 +259,10 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a read whose end clears the field it is asked from asks for nothing more, and that is no circle', async () => {
     const { send, now, did, defects } = wired()
     send({ type: 'ONCE', query: 'x' })
-    await rest()
+    await turns(8)
     deepStrictEqual([did, now().got, defects], [['lookup x'], 'X', []])
     send({ type: 'ONCE', query: 'y' })
-    await rest()
+    await turns(8)
     deepStrictEqual([did, now().got, defects], [['lookup x', 'lookup y'], 'Y', []])
   }],
   ['which keys there are is looked at only when that field changes', async () => {
@@ -202,7 +273,85 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(looked, [])
     send({ type: 'WATCH', ids: ['a'] })
     strictEqual(looked.length, 1)
-    await rest()
+    await turns(8)
+  }],
+  ['one is read for each key, at what the fields it names hold', async () => {
+    const { send, now, did, end } = opened()
+    send({ type: 'CHANGED' })
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    deepStrictEqual(did, ['read a@1', 'read b@1'])
+    await end('b@1', 'a@1')
+    deepStrictEqual(now().open, { a: 'a@1', b: 'b@1' })
+  }],
+  ['a field it names changing reads every key again, once each, and gives up the ones under way', async () => {
+    const { send, now, did, end } = opened()
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    send({ type: 'CHANGED' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up a@0', 'gave up b@0', 'read a@1', 'read b@1'])
+    // What was given up ends all the same, where whoever answers does not stop: it is not heard.
+    await end('a@0', 'b@0')
+    deepStrictEqual(now().ended, [])
+    await end('a@1', 'b@1')
+    deepStrictEqual([now().open, now().ended, now().late], [{ a: 'a@1', b: 'b@1' }, ['a@1', 'b@1'], []])
+  }],
+  ['one that had ended is read again too, with nothing to give up', async () => {
+    const { send, now, did, end } = opened()
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await end('a@0')
+    send({ type: 'CHANGED' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up b@0', 'read a@1', 'read b@1'])
+    await end('a@1', 'b@1')
+    deepStrictEqual(now().open, { a: 'a@1', b: 'b@1' })
+  }],
+  ['a key that appears or goes reads or gives up its own alone, and a field it does not name reads nothing', async () => {
+    const { send, did } = opened()
+    send({ type: 'OPEN', paths: ['a'] })
+    send({ type: 'OPEN', paths: ['b'] })
+    send({ type: 'RENAME', title: 'Another' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0'])
+    send({ type: 'CLOSE', path: 'a' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up a@0'])
+  }],
+  ['a key that appears in the step a named field changes is read once, with the rest', async () => {
+    const { send, did } = opened()
+    send({ type: 'OPEN', paths: ['a'] })
+    await turns(8)
+    send({ type: 'OPEN', paths: ['b'], changed: true })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'gave up a@0', 'read a@1', 'read b@1'])
+  }],
+  ['a key that goes in the step a named field changes is given up and not read again', async () => {
+    const { send, now, did, end } = opened()
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    send({ type: 'CLOSE', path: 'a', changed: true })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up a@0', 'gave up b@0', 'read b@1'])
+    await end('a@0', 'b@1')
+    deepStrictEqual(now().open, { b: 'b@1' })
+  }],
+  ['how one of many ended may not change a field they are read from round to itself: it comes to rest, reported', async () => {
+    const { send, now, did, defects, end } = opened(true)
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    // How a's ended changes what b is read from, which is one read leading another. It is a's own that is refused.
+    await end('a@0')
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up b@0', 'read b@1'])
+    strictEqual(defects.length, 1)
+    ok(defects[0]!.includes('diffs#diff/a delivered changed a field it is itself asked from'), defects[0])
+    // And how b's ended would lead back to a, which led to it, and to itself: neither is read again.
+    await end('b@1')
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up b@0', 'read b@1'])
+    deepStrictEqual([now().open, now().spins], [{ a: 'a@0', b: 'b@1' }, 2])
+    strictEqual(defects.length, 3)
+    ok(defects.some((line) => line.includes('what diffs#diff/b delivered changed a field diffs#diff/a is asked from, and diffs#diff/a is what led to diffs#diff/b being asked')), defects.join('\n'))
+    ok(defects.some((line) => line.includes('diffs#diff/b delivered changed a field it is itself asked from')), defects.join('\n'))
   }],
   ['loads may omit args when the ask accepts {}, for both from and each', async () => {
     type PingAsks = { PING: { args: {}; answer: string } }
@@ -257,6 +406,21 @@ const selecting = (schedule: Schedule): (() => void) => {
   return () => { deepStrictEqual({ diff: window.read(surface).data.gitDiff, error: window.read(surface).data.gitError }, { diff: 'diff of c.ts', error: null }) }
 }
 
+/** Two open diffs and a repository that changes twice, with each read ending whenever the schedule says. */
+const rereading = (schedule: Schedule): (() => void) => {
+  const sys = system({ side: 'backend', later: schedule.later })
+  sys.start('repo', repo([], (what) => schedule.work(what, null)))
+  const it = sys.start('diffs', diffs())
+  const send = (event: DiffsEvent): void => sys.send(it, event)
+  send({ type: 'OPEN', paths: ['a', 'b'] })
+  schedule.does('the repository', ['changes', () => send({ type: 'CHANGED' })], ['changes again', () => send({ type: 'CHANGED' })])
+  return () => {
+    const { open, late } = sys.read(it).data
+    deepStrictEqual({ open, late }, { open: { a: 'a@2', b: 'b@2' }, late: [] })
+  }
+}
+
 await run(checks, async (tally) => {
+  await tally.every('each open diff ends as its last read says and no read given up is heard, however the reads race the changes', () => explore(rereading))
   await tally.every('the diff shown is of the file selected last, whichever read ends first', () => sample(selecting, { seed: 1, runs: 5_000 }), 'sampled')
 })
