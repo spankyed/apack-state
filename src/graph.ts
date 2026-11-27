@@ -238,7 +238,37 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       return values
     }
 
+    /**
+     * Where a function written out goes by what it returns, for one whose return is given a type: that type may say
+     * less than the values do, and a move it leaves out is still made. Each value returned is read for itself.
+     */
+    const readWritten = (fn: any, at: Site): void => {
+      const returned: any[] = []
+      const gather = (node: any): void => {
+        if (ts.isReturnStatement(node)) { if (node.expression) returned.push(node.expression); return }
+        if (ts.isFunctionLike(node)) return
+        ts.forEachChild(node, gather)
+      }
+      if (ts.isBlock(fn.body)) ts.forEachChild(fn.body, gather); else returned.push(fn.body)
+      for (const expression of returned) {
+        for (const value of unwrap(checker.getTypeAtLocation(expression))) {
+          if (value.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+          // An answer that comes with a change goes where the change does.
+          const change = value.getProperty?.('next') && value.getProperty?.('answer') ? real(typeOf(value.getProperty('next'))) : [value]
+          for (const each of change) {
+            if (each.flags & ts.TypeFlags.Any) { at.anywhere = true; continue }
+            const next = each.getProperty?.('at')
+            if (!next) continue
+            for (const member of real(typeOf(next))) { if (member.isStringLiteral()) at.moves.add(member.value as string); else at.anywhere = true }
+          }
+        }
+      }
+    }
+
     const scan = (inner: any, at: Site): void => {
+      // A handler is written as an entry of a table or handed to what makes one; a function kept under a name of its
+      // own inside one is not what the handler returns.
+      if (inner.type && inner.body && (ts.isMethodDeclaration(inner) || ((ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) && !ts.isVariableDeclaration(inner.parent)))) readWritten(inner, at)
       if (!isDeclName(inner)) {
         const p = inner.parent
         if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {

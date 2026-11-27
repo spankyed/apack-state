@@ -1354,4 +1354,30 @@ export const begins = state<Shape, { type: 'GO' }>()({
     deepStrictEqual(startsAt('either'), [])
     deepStrictEqual(startsAt('some'), [])
   }],
+  ['a move a handler makes is read from what it returns, where the type its return is given leaves it out', () => {
+    const hidden = (handler: string): string[] => findingsIn(`
+declare const anyValue: any
+declare const somewhere: string
+type Shape = { data: { n: number }; waits: { keep: 'one' }; states: { live: {}; dead: {}; gone: {} } }
+const going = { data: { n: 1 }, at: 'dead' as const }
+export const hides = state<Shape, { type: 'GO' }>()({
+  data: { n: 0 }, initial: 'live', waits: ({ one }) => ({ keep: one(100) }),
+  on: { GO: ${handler} },
+  states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } }, gone: {} },
+})
+`)[0]!
+    const neither = ['dead is never entered, so nothing arms keep', 'gone is never entered']
+    // The type says only that the data changes; the value also says where it goes, and it goes nowhere else.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => going`), ['gone is never entered'])
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { if (Math.random() > 0.5) return { data: { n: 2 } }; return going }`), ['gone is never entered'])
+    deepStrictEqual(hidden(`function (): { data: { n: number } } { return going }`), ['gone is never entered'])
+    // A value that could be anything, or that goes to a state not known, may go anywhere.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => anyValue`), [])
+    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 }, at: somewhere })`), [])
+    // What a function kept inside it returns is not what it returns.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { const inner = (): unknown => going; void inner; return { data: { n: 2 } } }`), neither)
+    deepStrictEqual(hidden(`(): { data: { n: number } } => { function inner(): unknown { return going } void inner; return { data: { n: 2 } } }`), neither)
+    // And one whose values go nowhere is still told so.
+    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 } })`), neither)
+  }],
 ])

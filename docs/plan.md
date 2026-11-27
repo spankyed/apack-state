@@ -351,6 +351,9 @@ points at.
     first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A wait
     declared in a state never entered is not named: the state says it.
 
+    Where a handler goes is read from the type it returns, and, where that type is written by hand, from each value
+    it returns as well: a type given to a return may say less than the values do, and a move it leaves out is still
+    made.
     What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
     written in the definition may arm any wait its own state or a state around it declares, and so may an `arm` of a
     name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
