@@ -418,4 +418,68 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
+
+  ['a wait is armed only by what can run without it, and an arm reaches the wait its own state would find', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-reach-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'reach.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+
+// Armed only from its own done: nothing ever starts it.
+export const selfOnly = state<{ waits: { poll: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ poll: one(100, ({ arm }) => { arm('poll') }) }),
+  on: { GO: () => {} },
+})
+
+// The same wait, started by a handler: its own done keeping it going is how a poll is written.
+export const started = state<{ waits: { poll: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ poll: one(100, ({ arm }) => { arm('poll') }) }),
+  on: { GO: (_, { arm }) => { arm('poll') } },
+})
+
+// a's done arms b and b's arms c, and nothing arms a: none of the three is ever armed. d is armed by a
+// handler, so e, which only d's done arms, is too, and so is f, which only e's does: however far along, and
+// whichever of them is written first.
+export const chains = state<{ waits: { a: 'one'; b: 'one'; c: 'one'; d: 'one'; e: 'one'; f: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({
+    a: one(100, ({ arm }) => { arm('b') }),
+    b: one(100, { done: ({ arm }) => { arm('c'); arm('b') } }),
+    c: one(100),
+    e: one(100, ({ arm }) => { arm('f') }),
+    d: one(100, ({ arm }) => { arm('e') }),
+    f: one(100),
+  }),
+  on: { GO: (_, { arm }) => { arm('d') } },
+})
+
+// Two states beside each other each declare retry and only one arms it; a state two down arms the root's.
+type Beside = {
+  waits: { tick: 'one' }
+  states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: 'one' }; states: { deep: {} } } }
+}
+export const beside = state<Beside, { type: 'GO' }>()({
+  initial: 'a',
+  waits: ({ one }) => ({ tick: one(100) }),
+  states: {
+    a: { waits: ({ one }) => ({ retry: one(100) }), on: { GO: (_, { arm }) => { arm('retry'); return { at: 'b' } } } },
+    b: { initial: 'deep', waits: ({ one }) => ({ retry: one(100) }), states: { deep: { on: { GO: (_, { arm }) => { arm('tick') } } } } },
+  },
+})
+`)
+      const graphs = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []
+      strictEqual(graphs.length, 4, formatGraphs(graphs))
+      deepStrictEqual(graphs[0]!.findings, ['nothing arms poll except its own done'])
+      deepStrictEqual(graphs[1]!.findings, [])
+      deepStrictEqual(graphs[2]!.findings, [
+        'nothing arms a',
+        'nothing arms b except the done of b, a, which nothing arms',
+        'nothing arms c except the done of b, which nothing arms',
+      ])
+      deepStrictEqual(graphs[3]!.findings, ['nothing arms retry in b'])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

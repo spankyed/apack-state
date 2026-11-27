@@ -29,6 +29,9 @@ export interface StateGraph {
 
 type Type = any
 
+/** One `arm` a definition writes: the wait it names, the state it is written in, and the wait whose `done` it is in. */
+interface Arm { readonly name: string; readonly within: string; readonly done?: string }
+
 const VERBS = new Set(['tell', 'ask', 'broadcast', 'call', 'cancel', 'arm', 'disarm'])
 
 const loadTs = (fromDir: string): any => {
@@ -72,7 +75,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
   const literalsOf = (type: Type): string[] => members(type).filter((m: Type) => m.isStringLiteral()).map((m: Type) => m.value as string)
   const join = (within: string, name: string): string => (within ? `${within}.${name}` : name)
 
-  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[], armedWaits: ReadonlySet<string>, hasDynamicArm: boolean): StateGraph => {
+  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[], arms: readonly Arm[], hasDynamicArm: boolean): StateGraph => {
     const moves: Array<{ from: string; on: string; to: string[] }> = []
     const stays: string[] = []
     const answers: string[] = []
@@ -291,7 +294,43 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
     if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !hasOpaqueHandler && !uncertain.size) {
-      for (const w of declaredWaits) if (!armedWaits.has(w.name)) findings.push(`nothing arms ${where(w.within, w.name)}`)
+      // An `arm` reaches the wait the kernel would find: the one its own state declares, or the nearest state around
+      // it that does. So a name armed in one state says nothing of the same name declared in a state beside it.
+      const keyOf = (within: string, name: string): string => `${within}\n${name}`
+      const byKey = new Map(declaredWaits.map((w) => [keyOf(w.within, w.name), w]))
+      const resolve = (from: string, name: string): string | undefined => {
+        for (let at: string | undefined = from; at !== undefined; at = at === '' ? undefined : at.slice(0, Math.max(at.lastIndexOf('.'), 0))) {
+          if (byKey.has(keyOf(at, name))) return keyOf(at, name)
+        }
+        return undefined
+      }
+      // A wait is armed if something that runs without it arms it, or the `done` of a wait that is armed does: one
+      // armed only from `done` handlers that never run is never armed, however many of them name it.
+      const armed = new Set<string>()
+      const fromDone = new Map<string, Set<string>>()
+      for (const arm of arms) {
+        const to = resolve(arm.within, arm.name)
+        if (to === undefined) continue
+        if (arm.done === undefined) armed.add(to)
+        else fromDone.set(to, (fromDone.get(to) ?? new Set<string>()).add(keyOf(arm.within, arm.done)))
+      }
+      for (let grew = true; grew; ) {
+        grew = false
+        for (const [to, sources] of fromDone) {
+          if (armed.has(to) || ![...sources].some((source) => armed.has(source))) continue
+          armed.add(to)
+          grew = true
+        }
+      }
+      for (const [key, w] of byKey) {
+        if (armed.has(key)) continue
+        const sources = [...(fromDone.get(key) ?? [])]
+        const others = sources.filter((source) => source !== key).map((source) => { const from = byKey.get(source)!; return where(from.within, from.name) })
+        const named = where(w.within, w.name)
+        if (!sources.length) findings.push(`nothing arms ${named}`)
+        else if (!others.length) findings.push(`nothing arms ${named} except its own done`)
+        else findings.push(`nothing arms ${named} except the done of ${[...(sources.includes(key) ? [named] : []), ...others].join(', ')}, which nothing arms`)
+      }
     }
     for (const note of uncertain) findings.push(note)
 
@@ -359,6 +398,39 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const nonEmpty = real(targetType)
     return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
   }
+  /** Each state's object literal in a definition, by its path: the definition's own, and each one under a `states`. */
+  const statesIn = (literal: any): Map<any, string> => {
+    const found = new Map<any, string>()
+    const note = (object: any, path: string): void => {
+      found.set(object, path)
+      for (const property of object.properties) {
+        if (!ts.isPropertyAssignment(property) || property.name.getText() !== 'states' || !ts.isObjectLiteralExpression(property.initializer)) continue
+        for (const inner of property.initializer.properties) {
+          if (!ts.isPropertyAssignment(inner) || !ts.isObjectLiteralExpression(inner.initializer)) continue
+          const name = ts.isIdentifier(inner.name) || ts.isStringLiteralLike(inner.name) ? inner.name.text : inner.name.getText()
+          note(inner.initializer, path ? `${path}.${name}` : name)
+        }
+      }
+    }
+    note(literal, '')
+    return found
+  }
+  /** Where an `arm` is written: the state whose literal holds it, and the wait whose `done` it is in, if it is in one. */
+  const placeOf = (node: any, states: ReadonlyMap<any, string>): { within: string; done?: string } | undefined => {
+    let entry: any
+    for (let at = node.parent, below = node; at; below = at, at = at.parent) {
+      // An entry of what `waits` returns: a property of the object its function gives back.
+      if (ts.isPropertyAssignment(at) && ts.isObjectLiteralExpression(at.parent)) {
+        let made = at.parent.parent
+        while (made && ts.isParenthesizedExpression(made)) made = made.parent
+        const waits = made && (ts.isArrowFunction(made) || ts.isFunctionExpression(made)) ? made.parent : undefined
+        if (waits && ts.isPropertyAssignment(waits) && waits.name.getText() === 'waits' && states.has(waits.parent) && at.initializer === below) entry = at
+      }
+      const within = states.get(at)
+      if (within !== undefined) return entry ? { within, done: entry.name.getText() } : { within }
+    }
+    return undefined
+  }
   const isDeclName = (node: any): boolean => {
     const p = node.parent
     if (!p) return false
@@ -384,10 +456,11 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const asks = askType ? askType.getProperties().map((p: any) => p.name as string) : []
             const reaches = new Set<string>()
             const scanUncertain: string[] = []
-            const armedWaits = new Set<string>()
+            const arms: Arm[] = []
             let hasDynamicArm = false
             const arg = node.arguments[0]
             if (ts.isObjectLiteralExpression(arg)) {
+              const states = statesIn(arg)
               const scan = (inner: any): void => {
                 if (!isDeclName(inner)) {
                   const p = inner.parent
@@ -409,8 +482,11 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
                       scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
                       if (verb === 'arm') hasDynamicArm = true
                     } else if (verb === 'arm') {
-                      if (ts.isStringLiteralLike(resolvedTarget)) armedWaits.add(resolvedTarget.text)
-                      else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) armedWaits.add(m.value as string)
+                      const place = placeOf(inner, states)
+                      const names = ts.isStringLiteralLike(resolvedTarget) ? [resolvedTarget.text as string] : literalsOf(checker.getTypeAtLocation(target))
+                      // Written where no state's literal holds it, it cannot be placed: nothing is said of any wait.
+                      if (!place) hasDynamicArm = true
+                      else for (const name of names) arms.push({ name, ...place })
                     }
                   }
                 }
@@ -420,7 +496,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             } else {
               scanUncertain.push('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
             }
-            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain, armedWaits, hasDynamicArm))
+            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain, arms, hasDynamicArm))
           }
         }
       }
