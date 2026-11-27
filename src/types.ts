@@ -482,8 +482,11 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
         : WaitedOne<R, H, E, N, WaitNeedsMs<WaitsOf<S>[K]>>
   }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
-  /** The state inside it that it enters first when whoever enters it does not say. */
-  initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
+  /**
+   * The state inside it that it enters first when whoever enters it does not say: one that needs no data given. A
+   * state that does is here as the reason it cannot be named, which is what the compiler prints when it is.
+   */
+  initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`> }[Names<S>]
   /** Every state inside it. */
   states: { [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N> }
 })

@@ -203,6 +203,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `leaf: { data: { error: '' } },` | TS2322: Type 'string' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state"> &amp; string'. | a deeply nested state cannot shadow a field name declared by an ancestor |
 | `a: { data: { error: untyped } },` | TS2322: Type 'any' is not assignable to type 'never'. | a child state cannot shadow a field name declared by its parent, whatever its value is typed |
 | `const unsafe: string = read(child('card', 'a')).data.label` | TS2532: Object is possibly 'undefined'. | a started child might not be running, so read() may be undefined |
+| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type '"waiting" \| Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state">'. | a state whose data has to be given cannot be entered first |
+| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type '"waiting" \| Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state">'. | a nested state whose data has to be given cannot be entered first either |
 
 ## What a component may read of a running state and send it, as render functions.
 

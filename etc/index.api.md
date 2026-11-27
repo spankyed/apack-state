@@ -244,7 +244,7 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
     states?: never;
 } : {
     initial: {
-        [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never;
+        [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`>;
     }[Names<S>];
     states: {
         [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N>;
@@ -777,10 +777,11 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:568:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:582:5 - (ae-forgotten-export) The symbol "WaitKind" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:582:5 - (ae-forgotten-export) The symbol "WaitNeedsMs" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:597:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:692:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:773:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:773:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:596:5 - (ae-forgotten-export) The symbol "Refused" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:600:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:695:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:776:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:776:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
