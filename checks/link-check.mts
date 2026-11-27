@@ -406,6 +406,75 @@ await run([
     strictEqual(follows, 3)
     window.stop()
   }],
+  ['a window attached after it started follows what it follows for each key of a field, and from a field, as one attached before would', async () => {
+    const followed: string[] = []
+    const port: Port = { tell: () => {}, ask: () => () => {}, follow: (_feature, _view, args) => { followed.push(JSON.stringify(args)); return { stop: () => {} } } }
+    const board = state<{ data: { open: Record<string, true>; filter: string } }>()({
+      data: { open: { a: true, b: true }, filter: 'mine' },
+      follows: (follow) => ({
+        thread: follow('threads', 'count', { each: 'open', args: (key) => ({ thread: key }), updated: () => undefined }),
+        list: follow('threads', 'count', { from: ['filter'], args: ({ filter }) => ({ filter }), updated: () => undefined }),
+      }),
+    })
+    const late = system({ side: 'window', name: WINDOW })
+    late.start('board', board)
+    await rest()
+    deepStrictEqual(followed, [])
+    late.attach(port)
+    await rest()
+    const afterStart = [...followed].sort()
+    deepStrictEqual(afterStart, ['{"filter":"mine"}', '{"thread":"a"}', '{"thread":"b"}'])
+    late.stop()
+
+    followed.length = 0
+    const early = system({ side: 'window', name: WINDOW })
+    early.attach(port)
+    early.start('board', board)
+    await rest()
+    deepStrictEqual([...followed].sort(), afterStart)
+    early.stop()
+  }],
+  ['a window that runs its own views follows them whatever backend it is attached to: nothing is followed over the port, and detaching it stops nothing', async () => {
+    let overPort = 0
+    let stopped = 0
+    const shown: Array<(update: { ok: true; value: number }) => void> = []
+    const views: ViewHost = (_feature, _view, _args, updated) => { shown.push(updated); return () => { stopped++ } }
+    const port: Port = { tell: () => {}, ask: () => () => {}, follow: () => { overPort++; return { stop: () => {} } } }
+    const own = system({ side: 'window', name: WINDOW, views })
+    const ph = own.start('panel', panel)
+    await rest()
+    strictEqual(shown.length, 1)
+
+    const detach = own.attach(port)
+    await rest()
+    strictEqual(overPort, 0)
+    strictEqual(shown.length, 1)
+    detach()
+    strictEqual(stopped, 0)
+    // What it follows is still followed: what its own view shows after the port has gone reaches the state.
+    shown[0]!({ ok: true, value: 7 })
+    await rest()
+    strictEqual(own.read(ph).data.count, 7)
+    own.stop()
+    strictEqual(stopped, 1)
+
+    // One whose views came through the port has them stopped when the port goes, and hears no more of them.
+    let portStops = 0
+    const overThePort: Array<(value: unknown) => void> = []
+    const through = system({ side: 'window', name: WINDOW })
+    const th = through.start('panel', panel)
+    const gone = through.attach({ tell: () => {}, ask: () => () => {}, follow: (_feature, _view, _args, heard) => { overThePort.push(heard); return { stop: () => { portStops++ } } } })
+    await rest()
+    overThePort[0]!({ ok: true, value: 3 })
+    await rest()
+    strictEqual(through.read(th).data.count, 3)
+    gone()
+    strictEqual(portStops, 1)
+    overThePort[0]!({ ok: true, value: 9 })
+    await rest()
+    strictEqual(through.read(th).data.count, 3)
+    through.stop()
+  }],
   ['detaching a window port stops all views directly in zero steps even at host.limit, and attach during flush defers cleanly', async () => {
     let follows = 0
     let stops = 0
