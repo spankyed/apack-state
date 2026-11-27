@@ -1177,7 +1177,7 @@ export function system<N extends Net = Net>(host: {
     const twice = (node: LooseDef, path: string): string | undefined => {
       for (const [kind, table] of [['follows', declaredBy(node).follows], ['loads', declaredBy(node).loads]] as const) {
         for (const [name, entry] of Object.entries(table)) {
-          if (entry.each !== undefined && entry.from?.includes(entry.each)) return `${kind} ${name}${path ? ` at ${path}` : ''} for each key of ${entry.each} and again from ${entry.each}: name it once`
+          if (entry.from?.includes(entry.each!)) return `${kind} ${name}${path ? ` at ${path}` : ''} for each key of ${entry.each} and again from ${entry.each}: name it once`
         }
       }
       for (const [name, inner] of Object.entries(node.states ?? {})) {

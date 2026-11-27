@@ -387,8 +387,10 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'backend' })
     const twice = { def: { data: { open: {} }, loads: (load: Function) => ({ diff: load('git', 'DIFF', { each: 'open', from: ['open'], done: () => {} }) }) } }
     throws(() => sys.start('twice', twice as never), { message: 'twice loads diff for each key of open and again from open: name it once' })
-    const inner = { def: { data: { open: {} }, initial: 'a', states: { a: { follows: (follow: Function) => ({ price: follow('shop', 'price', { each: 'open', from: ['open'], updated: () => {} }) }) } } } }
-    throws(() => sys.start('inner', inner as never), { message: 'inner follows price at a for each key of open and again from open: name it once' })
+    // In a state inside a state, and not the first of those beside it.
+    const price = (follow: Function) => ({ price: follow('shop', 'price', { each: 'open', from: ['open'], updated: () => {} }) })
+    const inner = { def: { data: { open: {} }, initial: 'a', states: { a: {}, b: { initial: 'c', states: { c: {}, d: { follows: price } } } } } }
+    throws(() => sys.start('inner', inner as never), { message: 'inner follows price at b.d for each key of open and again from open: name it once' })
     sys.stop()
   }],
   ['loads may omit args when the ask accepts {}, for both from and each', async () => {
