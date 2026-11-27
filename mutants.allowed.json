@@ -215,12 +215,12 @@
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? declared.args(key, picked(from)) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'follow'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? declared.args(key, picked(from)) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'await'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },

@@ -1043,7 +1043,7 @@ export function system<N extends Net = Net>(host: {
         const from = declared.from ?? []
         const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (from.length ? declared.args(key, picked(from)) : declared.args(key)) : {}))
+          for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {}))
         } else {
           if (!from.some(looks) && at.following.has(name)) continue
           followed(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))
@@ -1069,7 +1069,7 @@ export function system<N extends Net = Net>(host: {
         const from = declared.from ?? []
         const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (from.length ? declared.args(key, picked(from)) : declared.args(key)) : {}))
+          for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {}))
         } else {
           if (!from.some(looks) && at.awaiting.has(name)) continue
           awaited(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))

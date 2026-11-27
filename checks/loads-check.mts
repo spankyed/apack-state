@@ -178,25 +178,25 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a read is asked when a field it names changes, and not when another does', async () => {
     const { send, now, did } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await turns(8)
+    await rest()
     strictEqual(now().found, 'APACK')
     send({ type: 'RENAME', title: 'Another' })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, ['lookup apack'])
   }],
   ['a field that only counts has it asked again', async () => {
     const { send, did } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await turns(8)
+    await rest()
     send({ type: 'AGAIN' })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, ['lookup apack', 'lookup apack'])
   }],
   ['where there is nothing to ask for, nothing is asked', async () => {
     const { send, did } = wired()
     send({ type: 'AGAIN' })
     send({ type: 'SET_QUERY', query: '' })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, [])
   }],
   ['a read asked again gives up the one before: the one answering is told, and only the last is taken', async () => {
@@ -204,25 +204,25 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'SET_QUERY', query: 'first' })
     await turns(1)
     send({ type: 'SET_QUERY', query: 'second' })
-    await turns(8)
+    await rest()
     strictEqual(now().found, 'SECOND')
     deepStrictEqual(did, ['lookup first', 'gave up first', 'lookup second'])
   }],
   ['what a read says before it ends is heard, as a list', async () => {
     const { send, now } = wired()
     send({ type: 'SET_QUERY', query: 'apack' })
-    await turns(8)
+    await rest()
     deepStrictEqual(now().heard, ['apack began', 'apack ended'])
   }],
   ['one is asked for each item of a list, once, and what it found stays', async () => {
     const { send, now, did } = wired()
     send({ type: 'WATCH', ids: ['a', 'b'] })
-    await turns(8)
+    await rest()
     deepStrictEqual(now().labels, { a: 'A', b: 'B' })
     // A read does not end by taking its key out: the list is the data's, and it is as it was.
     deepStrictEqual(now().watched, ['a', 'b'])
     send({ type: 'WATCH', ids: ['a', 'b', 'c'] })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, ['lookup a', 'lookup b', 'lookup c'])
     deepStrictEqual(now().labels, { a: 'A', b: 'B', c: 'C' })
   }],
@@ -231,7 +231,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'WATCH', ids: ['a', 'b'] })
     await turns(1)
     send({ type: 'WATCH', ids: ['b'] })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, ['lookup a', 'lookup b', 'gave up a'])
     deepStrictEqual(now().labels, { b: 'B' })
   }],
@@ -240,17 +240,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'SET_QUERY', query: 'apack' })
     await turns(1)
     send({ type: 'TURN', on: false })
-    await turns(8)
+    await rest()
     deepStrictEqual({ did, found: now().found }, { did: ['lookup apack', 'gave up apack'], found: null })
     // The data still says to look it up, so being the case again is asking again.
     send({ type: 'TURN', on: true })
-    await turns(8)
+    await rest()
     strictEqual(now().found, 'APACK')
   }],
   ['how a read ended may not change a field it is asked from: it is reported, and not asked again', async () => {
     const { send, now, did, defects } = wired()
     send({ type: 'CIRCLE' })
-    await turns(8)
+    await rest()
     deepStrictEqual(did, ['lookup round 1'])
     strictEqual(now().circling, 2)
     strictEqual(defects.length, 1)
@@ -259,10 +259,10 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['a read whose end clears the field it is asked from asks for nothing more, and that is no circle', async () => {
     const { send, now, did, defects } = wired()
     send({ type: 'ONCE', query: 'x' })
-    await turns(8)
+    await rest()
     deepStrictEqual([did, now().got, defects], [['lookup x'], 'X', []])
     send({ type: 'ONCE', query: 'y' })
-    await turns(8)
+    await rest()
     deepStrictEqual([did, now().got, defects], [['lookup x', 'lookup y'], 'Y', []])
   }],
   ['which keys there are is looked at only when that field changes', async () => {
@@ -407,6 +407,43 @@ const checks: Array<[string, () => Promise<void>]> = [
     }))
     await rest()
     deepStrictEqual(asked, [['a'], ['a', { rev: 7 }]])
+    sys.stop()
+  }],
+  ['one that names fields is given them as an object whatever they come to: none named at all is still an object', async () => {
+    type EchoAsks = { ECHO: { args: { given: unknown[] }; answer: null } }
+    const echoState = forNet<{ systems: { svc: { events: never; asks: EchoAsks } }; surfaces: {}; views: {} }>()
+    const asked: unknown[][] = []
+    const sys = system({ side: 'backend' })
+    sys.start('svc', echoState<{}, never, EchoAsks>()({ answers: { ECHO: ({ given }) => { asked.push(given); return null } } }))
+    // Which fields it names is worked out, and comes to none.
+    const named: readonly 'rev'[] = []
+    sys.start('reader', echoState<{ data: { keys: Record<string, true>; rev: number } }>()({
+      data: { keys: { a: true }, rev: 7 },
+      loads: (load) => ({ some: load('svc', 'ECHO', { each: 'keys', from: named, args: (...given) => ({ given }), done: () => {} }) }),
+    }))
+    await rest()
+    deepStrictEqual(asked, [['a', {}]])
+    sys.stop()
+  }],
+  ['a field named only to have every key read again, which what is asked does not hold, reads them again when it changes', async () => {
+    type DiffAsks = { DIFF: { args: { path: string }; answer: string } }
+    const diffState = forNet<{ systems: { git: { events: never; asks: DiffAsks } }; surfaces: {}; views: {} }>()
+    const asked: string[] = []
+    const sys = system({ side: 'backend' })
+    sys.start('git', diffState<{}, never, DiffAsks>()({ answers: { DIFF: ({ path }) => { asked.push(path); return `${path}#${asked.length}` } } }))
+    const it = sys.start('diffs', diffState<{ data: { open: Record<string, true>; statusRev: number; diffs: Record<string, string> } }, { type: 'CHANGED' }>()({
+      data: { open: { 'a.ts': true, 'b.ts': true }, statusRev: 0, diffs: {} },
+      on: { CHANGED: (_, { data }) => ({ data: { statusRev: data.statusRev + 1 } }) },
+      loads: (load) => ({
+        diff: load('git', 'DIFF', { each: 'open', from: ['statusRev'], args: (path) => ({ path }), done: (outcome, { key }) => (outcome.ok ? { data: (d) => { d.diffs[key] = outcome.value } } : undefined) }),
+      }),
+    }))
+    await rest()
+    deepStrictEqual(asked, ['a.ts', 'b.ts'])
+    sys.send(it, { type: 'CHANGED' })
+    await rest()
+    deepStrictEqual(asked, ['a.ts', 'b.ts', 'a.ts', 'b.ts'])
+    deepStrictEqual(sys.read(it).data.diffs, { 'a.ts': 'a.ts#3', 'b.ts': 'b.ts#4' })
     sys.stop()
   }],
 ]
