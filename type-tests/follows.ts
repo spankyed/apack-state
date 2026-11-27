@@ -37,6 +37,8 @@ state<Shop, ShopEvent>()({
     eachMissing: follow('shop', 'price', { each: 'watching', from: ['locale'], args: (id) => ({ id }), updated: () => {} }),
     // @ts-expect-error one for each key reads the note, which it did not name
     eachUnnamed: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id, { note }) => ({ id: id + note }), updated: () => {} }),
+    // @ts-expect-error one for each key that names no fields is given its key alone
+    eachAlone: follow('shop', 'price', { each: 'watching', args: (id, from) => ({ id: id + Object.keys(from).length }), updated: () => {} }),
     // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key, whatever else it names
     skippableBoth: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id) => (id ? { id } : null), updated: () => {} }),
     // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key

@@ -392,6 +392,23 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(Object.keys(sys.read(h).data.byKey).sort(), ['a', 'b'])
     sys.stop()
   }],
+  ['what a read for each key is asked with is made of its key alone, and of its key and the fields it names where it names some', async () => {
+    type EchoAsks = { ECHO: { args: { given: unknown[] }; answer: null } }
+    const echoState = forNet<{ systems: { svc: { events: never; asks: EchoAsks } }; surfaces: {}; views: {} }>()
+    const asked: unknown[][] = []
+    const sys = system({ side: 'backend' })
+    sys.start('svc', echoState<{}, never, EchoAsks>()({ answers: { ECHO: ({ given }) => { asked.push(given); return null } } }))
+    sys.start('reader', echoState<{ data: { keys: Record<string, true>; rev: number } }>()({
+      data: { keys: { a: true }, rev: 7 },
+      loads: (load) => ({
+        alone: load('svc', 'ECHO', { each: 'keys', args: (...given) => ({ given }), done: () => {} }),
+        named: load('svc', 'ECHO', { each: 'keys', from: ['rev'], args: (...given) => ({ given }), done: () => {} }),
+      }),
+    }))
+    await rest()
+    deepStrictEqual(asked, [['a'], ['a', { rev: 7 }]])
+    sys.stop()
+  }],
 ]
 
 /** The commit surface's reads, on a backend whose work a schedule decides. */

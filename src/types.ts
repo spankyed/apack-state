@@ -536,9 +536,9 @@ export interface Start<D> {
   <X extends AnyState>(state: X, options: { given: (data: Read<D>) => RootGiven<X> }): OneOf<D, X>
 }
 
-/** What `args` is given: the fields it named, after the key for one of many. */
+/** What `args` is given: the fields it named, after the key for one of many. One of many that names none is given the key alone. */
 type Given_<R, H extends string, K extends string, Many> =
-  [Many] extends [string] ? [key: string, from: Named<R, H, K>] : [from: Named<R, H, K>]
+  [Many] extends [string] ? ([K] extends [never] ? [key: string] : [key: string, from: Named<R, H, K>]) : [from: Named<R, H, K>]
 type Named<R, H extends string, K extends string> = Read<Pick<DataAt<R, H>, K & keyof DataAt<R, H>>>
 /** What a handler of one of many is given beside its scope: which one it is. */
 type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
@@ -556,7 +556,8 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
 /**
  * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
  * one of them changes; where `args` returns nothing (`null`, `undefined`, or `false`), nothing is followed and any
- * previous view stops. With `each`, one is followed for each key of that field, and `args` is given the key first.
+ * previous view stops. With `each`, one is followed for each key of that field, and `args` is given the key: alone, or with the
+ * fields named in `from` after it where it names any.
  * With both, each key's view is followed again when a field in `from` changes, and a key that appears or goes
  * starts or stops its own alone. `args` may be omitted when the view accepts `{}`. What it delivers goes to
  * `updated`, which returns what happens next as any handler does.
@@ -658,7 +659,7 @@ export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> 
  * makes of those fields, and asked again when one of them changes, cancelling the previous one. Where `args` returns
  * nothing, nothing is asked. To refresh with nothing else changed, name a counter field and increment it. With `each`
  * there is one for each key of that field: an added key asks, and a removed key cancels, and `args` is given the
- * key first. With both, each key's is asked again when a field in `from` changes, the one before for that key
+ * key, alone or with the fields named in `from` after it. With both, each key's is asked again when a field in `from` changes, the one before for that key
  * cancelled. `args` may be omitted when the ask accepts `{}`.
  *
  * Outcomes go to `done`, and streamed progress to `progress` as a list at most once a frame.

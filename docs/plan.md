@@ -238,7 +238,8 @@ points at.
     `each: 'openDiffs', from: ['statusRev']`: one for each key, and every one asked again when a field in `from`
     changes, the one before for that key stopped. A key that appears or goes starts or stops its own alone, whatever
     `from` did in the same step: one that appears as a field changes is asked once, and one that goes is not asked.
-    `args` is given the key and then the fields named, `(path, { statusRev }) => …`. What a state starts is given
+    `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it names
+    none. What a state starts is given
     its data once, so it has no `from`.
 
     ```ts

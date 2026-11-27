@@ -726,6 +726,19 @@ const keyedFrom: Array<[string, () => void]> = [
     strictEqual(defects.length, 3)
     ok(defects.some((line) => line.includes('what quotes#quote/b delivered changed a field quotes#quote/a is asked from, and quotes#quote/a is what led to quotes#quote/b being asked')), defects.join('\n'))
   }],
+  ['what a view for each key is asked for is made of its key alone, and of its key and the fields it names where it names some', () => {
+    const made: unknown[][] = []
+    const sys = system({ side: 'window', views: () => () => {} })
+    sys.start('watcher', state<{ data: { watching: Record<string, true>; currency: string } }>()({
+      data: { watching: { a: true }, currency: 'EUR' },
+      follows: (follow) => ({
+        alone: follow('shop', 'price', { each: 'watching', args: (...given) => { made.push(given); return { id: given[0] } }, updated: () => {} }),
+        named: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (...given) => { made.push(given); return { id: given[0] } }, updated: () => {} }),
+      }),
+    }))
+    deepStrictEqual(made, [['a'], ['a', { currency: 'EUR' }]])
+    sys.stop()
+  }],
 ]
 
 await run([...checks, ...moreChecks, ...keyedFrom])
