@@ -359,6 +359,101 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['reads a timer whose options are an explicit undefined or in parentheses as it reads one written plainly, so a timer nothing arms is still found', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-written-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'arms.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+export const none = state<{ arms: { bare: { one: 'at arm' }; dead: 'one' } }, { type: 'GO' }>()({
+  arms: ({ one }) => ({ bare: one(undefined), dead: one({ after: 100 }) }),
+  on: { GO: (_, { arm }) => { arm('bare', 10) } },
+})
+export const wrapped = state<{ arms: { inParens: 'one'; twice: { each: 'at arm' }; dead: 'one' } }, { type: 'GO' }>()({
+  arms: ({ one, each }) => ({ inParens: one(({ after: 100 })), twice: each((({ whenArmed: 'ignore' }))), dead: one({ after: 100 }) }),
+  on: { GO: (_, { arm }) => { arm('inParens'); arm('twice', 'k', 10) } },
+})
+`)
+      const graphs = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []
+      strictEqual(graphs.length, 2, formatGraphs(graphs))
+      deepStrictEqual(graphs[0]!.arms, ['bare: ms at arm, one at a time', 'dead: 100ms, one at a time'])
+      deepStrictEqual(graphs[0]!.findings, ['nothing arms dead'])
+      deepStrictEqual(graphs[1]!.arms, ['inParens: 100ms, one at a time', 'twice: ms at arm, for each key it is told, ignored while armed', 'dead: 100ms, one at a time'])
+      deepStrictEqual(graphs[1]!.findings, ['nothing arms dead'])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
+  ['reads the moves of a done that may be undefined, or one of two functions', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-maybe-done-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'arms.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+declare const flag: boolean
+type Shape = { arms: { retry: 'one'; flash: 'each'; either: 'one' }; states: { idle: {}; next: {}; last: {}; left: {}; right: {} } }
+export const maybe = state<Shape, { type: 'GO' }>()({
+  initial: 'idle',
+  arms: ({ one, each }) => ({
+    retry: one({ after: 100, done: flag ? () => ({ at: 'next' }) : undefined }),
+    flash: each({ after: 100, done: flag ? undefined : () => ({ at: 'last' }) }),
+    either: one({ after: 100, done: flag ? () => ({ at: 'left' }) : () => ({ at: 'right' }) }),
+  }),
+  on: { GO: (_, { arm }) => { arm('retry'); arm('flash', 'k'); arm('either') } },
+  states: { idle: {}, next: {}, last: {}, left: {}, right: {} },
+})
+`)
+      const graphs = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []
+      strictEqual(graphs.length, 1, formatGraphs(graphs))
+      deepStrictEqual(graphs[0]!.moves, [
+        { from: 'anywhere', on: 'retry (done)', to: ['next'] },
+        { from: 'anywhere', on: 'flash (done)', to: ['last'] },
+        { from: 'anywhere', on: 'either (done)', to: ['left', 'right'] },
+      ])
+      deepStrictEqual(graphs[0]!.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
+  ['reads whenArmed written short as ignoring only where that is all it can be, and an after of undefined as a duration given at arm', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-short-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'arms.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+const whenArmed = 'ignore'
+const after = undefined
+declare const flag: boolean
+const restarting = { whenArmed: 'restart' as const }
+export const short = state<{ arms: { quiet: 'one'; loud: 'one'; maybeQuiet: 'one'; later: { one: 'at arm' }; laterShort: { each: 'at arm' }; laterVoid: { one: 'at arm' } } }, { type: 'GO' }>()({
+  arms: ({ one, each }) => ({
+    quiet: one({ after: 100, whenArmed }),
+    loud: one({ after: 100, whenArmed: restarting.whenArmed }),
+    maybeQuiet: one({ after: 100, whenArmed: flag ? 'ignore' : undefined }),
+    later: one({ after: undefined }),
+    laterShort: each({ after }),
+    laterVoid: one({ after: void 0 }),
+  }),
+  on: { GO: (_, { arm }) => { arm('quiet'); arm('loud'); arm('maybeQuiet'); arm('later', 10); arm('laterShort', 'k', 10); arm('laterVoid', 10) } },
+})
+`)
+      const graphs = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []
+      strictEqual(graphs.length, 1, formatGraphs(graphs))
+      deepStrictEqual(graphs[0]!.arms, [
+        'quiet: 100ms, one at a time, ignored while armed',
+        'loud: 100ms, one at a time',
+        'maybeQuiet: 100ms, one at a time',
+        'later: ms at arm, one at a time',
+        'laterShort: ms at arm, for each key it is told',
+        'laterVoid: ms at arm, one at a time',
+      ])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
   ['handles destructured arm aliases and suppresses unused-timer findings when arm or scope leaves the literal', () => {
     const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-helpers-'))
     try {
