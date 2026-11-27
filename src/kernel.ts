@@ -681,9 +681,7 @@ export function system<N extends Net = Net>(host: {
       cancel: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'cancel', of: mine, name, key: k }) },
       arm: (name: string, ...rest: unknown[]) => {
         if (!alive()) return
-        let of: Active | undefined = mine
-        while (of && !(name in declaredBy(of.def).waits)) of = of.around
-        const each = of ? declaredBy(of.def).waits[name]!.kind === 'each' : false
+        const each = mine.top.waits.get(name) === 'each'
         enqueue({ kind: 'arm', of: mine, name, key: each ? rest[0] as string : undefined, ms: (each ? rest[1] : rest[0]) as number | undefined })
       },
       disarm: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'disarm', of: mine, name, key: k }) },
@@ -1135,6 +1133,27 @@ export function system<N extends Net = Net>(host: {
     }
     const shadow = shadowed(def, new Set(), '')
     if (shadow) return shadow
+    const seenCalls = new Map<string, 'one' | 'each' | 'many'>()
+    const seenWaits = new Map<string, 'one' | 'each'>()
+    const conflicts = (node: LooseDef): string | undefined => {
+      for (const [name, entry] of Object.entries(declaredBy(node).calls)) {
+        const prev = seenCalls.get(name)
+        if (prev && prev !== entry.kind) return `declares call ${name} with conflicting kinds (${prev} and ${entry.kind})`
+        seenCalls.set(name, entry.kind)
+      }
+      for (const [name, entry] of Object.entries(declaredBy(node).waits)) {
+        const prev = seenWaits.get(name)
+        if (prev && prev !== entry.kind) return `declares wait ${name} with conflicting kinds (${prev} and ${entry.kind})`
+        seenWaits.set(name, entry.kind)
+      }
+      for (const inner of Object.values(node.states ?? {})) {
+        const problem = conflicts(inner)
+        if (problem) return problem
+      }
+      return undefined
+    }
+    const conflict = conflicts(def)
+    if (conflict) return conflict
     for (let cur = def, path = ''; cur.initial !== undefined; ) {
       const nextName = cur.initial
       path = path ? `${path}.${nextName}` : nextName
@@ -1343,6 +1362,10 @@ export function system<N extends Net = Net>(host: {
         at.pending.delete(id)
         pendingChanged(top)
         return MADE
+      }
+      if (declared.kind === 'each' && typeof key !== 'string') {
+        defect(`${top.ref} cannot call ${name} without a string key`, top.ref)
+        return NOT_MADE
       }
       const id = declared.kind === 'many' ? `${name}/${++manySeq}` : key === undefined ? name : `${name}/${key}`
       // For `one` and `each`, one already in flight is the same one: a second push while one is pending is that push.

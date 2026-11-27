@@ -53,14 +53,17 @@ network) that already ran.
   `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
   registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
   absent, matching synchronous `run()`).
-- **Imperative timers (`waits`).** `arm` and `disarm` enqueue onto the step's internal queue so they obey exact FIFO
-  ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the handler throws or
-  returns a refused edit. Armed timers belong to the active state instance that declared them (disarming automatically
-  when that state exits, self-re-enters, or the system stops; to arm a timer on entry or self-transition, call `arm`
-  from that state's `listen` or `run`), never block `sys.idle()`, and never deliver stale expirations after disarm,
-  re-arm, or exit. Arming an `each` timer without a string key, with a non-finite or negative `ms`, or without a `clock`
-  on the system reports a structured `Defect` without arming; a throwing `done` handler reports a `Defect` and rolls
-  back its own sayings while still clearing the expired timer from `waiting`.
+- **Imperative calls (`calls`) and timers (`waits`).** Both project into one flat namespace per machine (`pending` and
+  `waiting`), so declaring the same `call` or `wait` name with conflicting kinds (`one` vs `each` vs `many`) across
+  states of one machine is refused at compile time and on `start()`. `arm` and `disarm` enqueue onto the step's
+  internal queue so they obey exact FIFO ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole
+  under `unsay` if the handler throws or returns a refused edit. Armed timers belong to the active state instance that
+  declared them (disarming automatically when that state exits, self-re-enters, or the system stops; to arm a timer on
+  entry or self-transition, call `arm` from that state's `listen` or `run`), never block `sys.idle()`, and never deliver
+  stale expirations after disarm, re-arm, or exit. Calling or arming an `each` entry without a string key, arming with
+  a non-finite or negative `ms`, or arming without a `clock` on the system reports a structured `Defect` without
+  starting the call or timer; a throwing `done` handler reports a `Defect` and rolls back its own sayings while still
+  clearing the expired timer from `waiting`.
 
 ## Handle semantics
 

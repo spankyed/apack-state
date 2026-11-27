@@ -2,7 +2,7 @@
 // tracked on `waiting` beside `at` and `data`, and never blocking `idle()`.
 //
 //   npx vitest run waits
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { effect } from '@vue/reactivity'
 import { createRenderer, defineComponent, h, nextTick } from '@vue/runtime-core'
 import { rest, run, system } from './checks.mts'
@@ -1062,6 +1062,40 @@ const checks: Array<[string, () => Promise<void>]> = [
       }
     })
     ok(explored.orderings >= 1)
+  }],
+
+  ['conflicting wait kinds across states fail fast on start while matching kinds across sibling states succeed', async () => {
+    const manual = manualClock()
+    const sys = system({ side: 'backend', clock: manual.clock })
+
+    const sameKind = state<{ states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: { one: 'ms' } } } } }>()({
+      initial: 'a',
+      states: {
+        a: { waits: ({ one }) => ({ retry: one(100) }) },
+        b: { waits: ({ one }) => ({ retry: one() }) },
+      },
+    })
+    const okHandle = sys.start('same-wait', sameKind)
+    deepStrictEqual(sys.read(okHandle).waiting, { retry: false })
+
+    const conflicting = {
+      def: {
+        initial: 'a',
+        states: {
+          a: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+          outer: {
+            initial: 'inner',
+            states: {
+              inner: { waits: ({ each }: { each: Function }) => ({ retry: each(100) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('bad-waits', conflicting as never),
+      { message: 'bad-waits declares wait retry with conflicting kinds (one and each)' },
+    )
   }],
 ]
 

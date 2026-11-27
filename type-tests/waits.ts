@@ -161,3 +161,42 @@ void _pulse; void _backoff; void _inner; void _flash; void _retry; void _badOne;
 declare const plainValue: Value<{ data: { n: number } }>
 // @ts-expect-error a state with no declared waits has no `waiting` property on its value
 void plainValue.waiting
+
+// Sibling states may share a wait name with the same kind (e.g. `'one'` and `{ one: 'ms' }`),
+// but conflicting kinds (`one` vs `each`) across states are refused at definition time.
+type SameKindWaitsShape = {
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: { one: 'ms' } } }
+  }
+}
+state<SameKindWaitsShape, never>()({
+  initial: 'a',
+  states: {
+    a: { waits: ({ one }) => ({ retry: one(100) }) },
+    b: { waits: ({ one }) => ({ retry: one() }) },
+  },
+})
+declare const sameKindWaitsValue: Value<SameKindWaitsShape>
+const _sameKindWaiting: boolean = sameKindWaitsValue.waiting.retry
+void _sameKindWaiting
+
+type ConflictingWaitsShape = {
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: 'each' } }
+  }
+}
+state<ConflictingWaitsShape, never>()({
+  initial: 'a',
+  states: {
+    a: {
+      // @ts-expect-error a wait name cannot be declared with conflicting kinds across states of one machine
+      waits: ({ one }) => ({ retry: one(100) }),
+    },
+    b: {
+      // @ts-expect-error a wait name cannot be declared with conflicting kinds across states of one machine
+      waits: ({ each }) => ({ retry: each(100) }),
+    },
+  },
+})

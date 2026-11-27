@@ -42,6 +42,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `hunk: each('svc', 'STAGE_HUNK', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (key: string, input: { readonly hunk: number; }, data: { readonly prefix: string; }) => … | `args` is required for a typed `each` call |
 | `uploadMapped: many('svc', 'UPLOAD', { done: () => {} }),` | TS2345: Argument of type '{ done: () => void; }' is not assignable to parameter of type '{ args: (input: { readonly name: string; }, data: { readonly prefix: string; }) => { readonly fi… | `args` is required because `{ name: string }` is not assignable to `{ file: string }` |
 | `const _wrongManyPending: boolean = typedValue.pending.uploadDirect` | TS2322: Type 'number' is not assignable to type 'boolean'. | a `many` call exposes its in-flight count (`number`), not a `boolean` |
+| `calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ one }: { one: CallOne&lt;ConflictingCallsShape, "a", never, TypedNet>; each: CallEach&lt;ConflictingCallsShape, "a", never, TypedNet>; many: CallMany&lt;...>; }) => { ...; }' is… | a call name cannot be declared with conflicting kinds across states of one machine |
+| `calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ each }: { one: CallOne&lt;ConflictingCallsShape, "b", never, TypedNet>; each: CallEach&lt;ConflictingCallsShape, "b", never, TypedNet>; many: CallMany&lt;...>; }) => { ...; }' i… | a call name cannot be declared with conflicting kinds across states of one machine |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -241,6 +243,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `const _badEach: boolean = timersValue.waiting.flash` | TS2322: Type 'Readonly&lt;Record&lt;string, true>>' is not assignable to type 'boolean'. | an `each` wait exposes `Readonly<Record<string, true>>` on `waiting`, not a `boolean` |
 | `timersValue.waiting.pulse = true` | TS2540: Cannot assign to 'pulse' because it is a read-only property. | `waiting` is read-only and cannot be mutated |
 | `void plainValue.waiting` | TS2339: Property 'waiting' does not exist on type '{ readonly data: { readonly n: number; }; }'. | a state with no declared waits has no `waiting` property on its value |
+| `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;ConflictingWaitsShape, "a", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "a", never, Nothing>; }) => { ...; }' is not assignable to type… | a wait name cannot be declared with conflicting kinds across states of one machine |
+| `waits: ({ each }) => ({ retry: each(100) }),` | TS2322: Type '({ each }: { one: WaitOne&lt;ConflictingWaitsShape, "b", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "b", never, Nothing>; }) => { ...; }' is not assignable to typ… | a wait name cannot be declared with conflicting kinds across states of one machine |
 
 ## `within`: narrowing a state read from outside by where it is.
 
