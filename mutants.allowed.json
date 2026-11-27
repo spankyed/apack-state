@@ -260,17 +260,17 @@
     "why": "What is told is a name, a handle or a surface, never null (the types say so), so the null test never decides"
   },
   {
-    "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', left); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
+    "key": "src/kernel.ts | ConditionalExpression | const question = new Question((outcome) => { handOver(); signal?.removeEventListener('abort', givenUp); if (!signal?.aborted) (resolve as unknown as (outcome: AnyOutcome) => void)(outcome) }) | true",
     "original": "!signal?.aborted",
     "why": "When the asker's signal is aborted the ask has already been rejected with Cancelled (the abort listener runs first), so resolving it after does nothing"
   },
   {
-    "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', left, { once: true }) | {}",
+    "key": "src/kernel.ts | ObjectLiteral | signal?.addEventListener('abort', givenUp, { once: true }) | {}",
     "original": "{ once: true }",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },
   {
-    "key": "src/kernel.ts | BooleanLiteral | signal?.addEventListener('abort', left, { once: true }) | false",
+    "key": "src/kernel.ts | BooleanLiteral | signal?.addEventListener('abort', givenUp, { once: true }) | false",
     "original": "true",
     "why": "An AbortSignal fires abort once, so a listener added with once or without it is called once either way"
   },

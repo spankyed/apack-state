@@ -411,6 +411,7 @@ export interface Handle<V, E extends AnyEvent, A extends Asks, C = {}> {
 
 // @public
 export interface Handled {
+    readonly across?: 'window' | 'backend';
     readonly id?: number;
     readonly ignored?: true;
     readonly key?: string;
@@ -581,7 +582,7 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
 export interface Sent {
     readonly id?: number;
     // (undocumented)
-    readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
+    readonly kind: 'answer' | 'abandoned' | 'cancelled' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
     // (undocumented)
     readonly name?: string;
     readonly outcome?: string;

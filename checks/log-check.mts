@@ -186,7 +186,7 @@ await run([
     const left = (of: StepLog[]) => of.flatMap((step) => step.sent)
     ok(left(logs.window).some((sent) => sent.kind === 'ask' && sent.to === 'notes' && sent.name === 'WRITE'), JSON.stringify(left(logs.window)))
     const answered = logs.backend.find((step) => step.handled[0]?.kind === 'ask')!
-    deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE', id: 1 })
+    deepStrictEqual(answered.handled[0], { kind: 'ask', ref: 'notes', name: 'WRITE', id: 1, across: 'window' })
     // Taken once, and logged once.
     strictEqual(answered.handled.filter((one) => one.kind === 'ask').length, 1)
     deepStrictEqual(answered.sent.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
@@ -565,5 +565,201 @@ await run([
     const lateDefect = defects.find((d) => d.message.includes('outside-step-exit'))!
     strictEqual('step' in lateDefect, false)
     backend.stop()
+  }],
+  ['what came across a port says so, and what was sent or asked here, or raised, does not', async () => {
+    const logs = { backend: [] as StepLog[], window: [] as StepLog[] }
+    const backend = system({ side: 'backend', log: (step) => { logs.backend.push(step) } })
+    const window = system({ side: 'window', log: (step) => { logs.window.push(step) } })
+    connect(window, backend)
+    const made = backend.start('worker', worker(() => Promise.resolve()))
+    window.start('teller', teller)
+    window.start('asker', asker)
+    await rest()
+    backend.send(made, { type: 'PING' })
+    await backend.ask(made, 'RUN', { id: 'now' })
+    await rest()
+    // The window's tell and its ask came across; the send and the ask made here did not.
+    deepStrictEqual(handledIn(logs.backend).filter((each) => each.kind === 'event'), [
+      { kind: 'event', ref: 'worker', name: 'PING', across: 'window' },
+      { kind: 'event', ref: 'worker', name: 'PING' },
+    ])
+    deepStrictEqual(handledIn(logs.backend).filter((each) => each.kind === 'ask').map((each) => each.across), ['window', undefined])
+    // A broadcast comes across to a window, and what a state raises does not.
+    const both = wired()
+    both.window.send(both.handle, { type: 'TYPE', text: 'a note' })
+    both.window.send(both.handle, { type: 'SEND' })
+    await rest()
+    deepStrictEqual(handledIn(both.logs.window).filter((each) => each.kind === 'event'), [
+      { kind: 'event', ref: 'panel', name: 'TYPE' },
+      { kind: 'event', ref: 'panel', name: 'SEND' },
+      { kind: 'event', ref: 'panel', name: 'NOTED', across: 'backend' },
+      { kind: 'event', ref: 'panel', name: 'SENT', own: true },
+    ])
+  }],
+  ['an ask its asker gives up is said as it leaves, by the id it was asked with: cancelled, left with its state, or made and cancelled in one step', async () => {
+    const logs = { backend: [] as StepLog[], window: [] as StepLog[] }
+    const backend = system({ side: 'backend', log: (step) => { logs.backend.push(step) } })
+    const window = system({ side: 'window', log: (step) => { logs.window.push(step) } })
+    connect(window, backend)
+    backend.start('worker', worker(() => new Promise(() => {})))
+    const made = window.start('jobs', jobs)
+    window.send(made, { type: 'ADD', id: 'first' })
+    await turns()
+    window.send(made, { type: 'DROP', id: 'first' })
+    await turns()
+    const asked = sentIn(logs.window).find((each) => each.kind === 'ask')!
+    deepStrictEqual(logs.window.at(-1)!.sent, [{ kind: 'cancelled', to: 'worker', name: 'RUN', id: asked.id }])
+    // Made and given up in one step: it is said to be asked and then cancelled, in that order, and was never sent.
+    const once = kinds<{ calls: { run: 'single' } }, { type: 'BOTH' }>()({
+      calls: ({ single }) => ({ run: single('worker', 'RUN', { args: () => ({ id: 'once' }), done: () => undefined }) }),
+      on: { BOTH: (_, { call, cancel }) => { call('run'); cancel('run') } },
+    })
+    const before = handledIn(logs.backend).filter((each) => each.kind === 'ask').length
+    window.send(window.start('once', once), { type: 'BOTH' })
+    await turns()
+    const step = logs.window.at(-1)!
+    deepStrictEqual(step.sent.map((each) => each.kind), ['ask', 'cancelled'])
+    strictEqual(step.sent[0]!.id, step.sent[1]!.id)
+    strictEqual(handledIn(logs.backend).filter((each) => each.kind === 'ask').length, before)
+    // One a state was asking as it stopped is given up with it. One made here, of a state here, is said the same way.
+    window.send(made, { type: 'ADD', id: 'second' })
+    await turns()
+    const second = sentIn(logs.window).filter((each) => each.kind === 'ask').at(-1)!
+    window.stop(made)
+    deepStrictEqual(logs.window.at(-1)!.sent, [{ kind: 'cancelled', to: 'worker', name: 'RUN', id: second.id }])
+    const local = backend.start('jobs', jobs)
+    backend.send(local, { type: 'ADD', id: 'here' })
+    await turns()
+    const here = handledIn(logs.backend).filter((each) => each.kind === 'ask' && !each.across).at(-1)!
+    backend.send(local, { type: 'DROP', id: 'here' })
+    deepStrictEqual(logs.backend.at(-1)!.sent, [{ kind: 'cancelled', to: 'worker', name: 'RUN', id: here.id }])
+    // An ask that was answered was not given up, and nothing says it was.
+    const answered = system({ side: 'backend', log: (step) => { logs.backend.push(step) } })
+    answered.start('worker', worker(() => Promise.resolve()))
+    const start = logs.backend.length
+    const quick = answered.start('jobs', jobs)
+    answered.send(quick, { type: 'ADD', id: 'now' })
+    await turns()
+    deepStrictEqual(answered.read(quick).data.done, ['now'])
+    answered.stop()
+    deepStrictEqual(sentIn(logs.backend.slice(start)).filter((each) => each.kind === 'cancelled'), [])
+  }],
+  ['a window that leaves its backend takes no step to stop following, and the next step logged says each unfollow before what it sent', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const backend = system({ side: 'backend', transact: store.transact, views: countOf(store) })
+    backend.start('worker', worker(() => Promise.resolve()))
+    const window = system({ side: 'window', log: (step) => { logs.push(step) } })
+    const link = connect(window, backend)
+    window.start('watcher', watcher)
+    await rest()
+    const followed = sentIn(logs).find((each) => each.kind === 'follow')!
+    link.close()
+    await rest()
+    const before = logs.length
+    deepStrictEqual(sentIn(logs).filter((each) => each.kind === 'unfollow'), [])
+    // Joined again, it follows again in a step, whose log says first what was unfollowed since the one before.
+    connect(window, backend)
+    await rest()
+    deepStrictEqual(logs[before]!.sent, [
+      { kind: 'unfollow', to: 'threads', name: 'count', id: followed.id },
+      { kind: 'follow', to: 'threads', name: 'count', id: followed.id! + 1 },
+    ])
+    // Said once: the steps after say nothing more of it.
+    window.start('runs', runs(false))
+    await rest()
+    strictEqual(sentIn(logs).filter((each) => each.kind === 'unfollow').length, 1)
+  }],
+  ['a view a system serves itself is followed and unfollowed in its log as one across a link is, by one id', async () => {
+    const store = memory()
+    const logs: StepLog[] = []
+    const window = system({ side: 'window', views: countOf(store), log: (step) => { logs.push(step) } })
+    const made = window.start('watcher', watcher)
+    await rest()
+    deepStrictEqual(logs[0]!.sent, [{ kind: 'follow', to: 'threads', name: 'count', id: 1 }])
+    deepStrictEqual(handledIn(logs), [{ kind: 'view', ref: 'watcher', name: 'count', id: 1 }])
+    window.stop(made)
+    deepStrictEqual(logs.at(-1)!.sent, [{ kind: 'unfollow', to: 'threads', name: 'count', id: 1 }])
+    // A view that could not be followed was not, and is not said to be.
+    const refusing = system({ side: 'window', views: () => { throw new Error('no such view') }, log: (step) => { logs.push(step) } })
+    const from = logs.length
+    refusing.start('watcher', watcher)
+    refusing.stop()
+    deepStrictEqual(sentIn(logs.slice(from)), [])
+  }],
+  ['a step the kernel threw out of is in no log, and its number is not given to the next: a defect it reported names no other step', async () => {
+    const logs: StepLog[] = []
+    const defects: Defect[] = []
+    let unit = 0
+    let failAt = 0
+    const sys = system({
+      side: 'backend',
+      // The third unit of a step is the second thing it handles after what began it: failing there is the kernel's own throw.
+      transact: (inner) => { unit++; if (unit === failAt) throw new Error('the database went away'); return inner() },
+      log: (step) => { logs.push(step) },
+      onDefect: (defect) => { defects.push(defect) },
+    })
+    const chain = kinds<{ data: { hits: number }; internal: { type: 'BREAK' } | { type: 'AFTER' } }, { type: 'GO' } | { type: 'HIT' }>()({
+      data: { hits: 0 },
+      internal: { BREAK: () => { throw new Error('it broke') }, AFTER: () => {} },
+      on: { GO: (_, { raise }) => { raise({ type: 'BREAK' }); raise({ type: 'AFTER' }) }, HIT: (_, { data }) => ({ data: { hits: data.hits + 1 } }) },
+    })
+    const made = sys.start('chain', chain)
+    // Work that outlives its state, and then registers a release that throws: a defect of no step, whenever it comes.
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    const late = kinds<{}, never>()({ run: async ({ onExit }) => { await waiting; onExit(() => { throw new Error('too late to release') }) }, failed: () => {} })
+    sys.stop(sys.start('late', late))
+    // Its units: the step, GO, BREAK, AFTER.
+    unit = 0; failAt = 4
+    let thrown: unknown
+    try { sys.send(made, { type: 'GO' }) } catch (error) { thrown = error }
+    failAt = 0
+    ok(thrown instanceof Error && thrown.message === 'the database went away', String(thrown))
+    const broke = defects.find((each) => each.message.includes('it broke'))!
+    // With the step thrown out of, no step is under way: a defect reported now names none.
+    release()
+    await turns()
+    strictEqual('step' in defects.find((each) => each.message.includes('too late to release'))!, false)
+    sys.send(made, { type: 'HIT' })
+    const next = logs.at(-1)!
+    deepStrictEqual(next.handled, [{ kind: 'event', ref: 'chain', name: 'HIT' }])
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3, 5])
+    strictEqual(broke.step, 4)
+  }],
+  ['an ask given up outside any step takes no step to say so: the next step logged says it first', async () => {
+    const logs: StepLog[] = []
+    const sys = system({ side: 'backend', log: (step) => { logs.push(step) } })
+    sys.start('worker', worker(() => new Promise(() => {})))
+    // Answers at once, leaving behind an ask of the worker that nothing waits for: as its work ends, that is given up.
+    const leaves = kinds<{}, never, { GO: { args: {}; answer: string } }>()({
+      answers: { GO: async (_, { ask }) => { void ask('worker', 'RUN', { id: 'never' }); await Promise.resolve(); return 'gone' } },
+    })
+    const made = sys.start('leaves', leaves)
+    const before = logs.length
+    const outcome = await sys.ask(made as never, 'GO' as never, {} as never) as { ok: boolean }
+    strictEqual(outcome.ok, true)
+    const since = logs.slice(before)
+    const asked = handledIn(since).find((each) => each.kind === 'ask' && each.ref === 'worker')!
+    // The step that takes the ask, in which the worker is asked, and the step that answers: no step between for the
+    // giving up, which the answering step says before its own answer.
+    deepStrictEqual(since.map((step) => step.handled.map((each) => `${each.kind} ${each.ref}`)), [['ask leaves', 'ask worker'], ['answer leaves']])
+    deepStrictEqual(since[1]!.sent, [
+      { kind: 'cancelled', to: 'worker', name: 'RUN', id: asked.id },
+      { kind: 'answer', to: 'leaves', name: 'GO', id: 1, outcome: 'ok' },
+    ])
+  }],
+  ['a view a window stops following in a step is stopped at its backend as the step\'s rows are kept, and not before', async () => {
+    const order: string[] = []
+    let depth = 0
+    const window = system({
+      side: 'window',
+      transact: (inner) => { depth++; try { return inner() } finally { if (--depth === 0) order.push('kept') } },
+    })
+    window.attach({ tell: () => {}, ask: () => () => {}, follow: () => ({ stop: () => { order.push('stopped') } }) })
+    const made = window.start('watcher', watcher)
+    order.length = 0
+    window.stop(made)
+    deepStrictEqual(order, ['kept', 'stopped'])
   }],
 ])
