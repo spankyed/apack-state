@@ -274,11 +274,14 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `sys.start('plain', plain, {})` | TS2554: Expected 2 arguments, but got 3. | a root state with no given fields takes no third argument |
 | `sys.start('optGiven', optGiven, {})` | TS2345: Argument of type '{}' is not assignable to parameter of type 'Givable&lt;{ note: string \| undefined; }>'. | an optional field marked given cannot be omitted when starting the root state |
 | `void runEvents({ state: givenCounter, events: { INC: () => ({ type: 'INC' }) }, always:…` | TS2345: Argument of type '{ state: State&lt;{ data: { label: string; count: number; }; }, { type: "INC"; }, {}, "label">; events: { INC: () => { type: "INC"; }; }; always: () => void; step… | fromEvents requires given when the state declares given fields |
-| `a: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | a start substate is entered with no supplied data, so it cannot mark a field given |
-| `inner: { data: { note: given } },` | TS2322: Type 'symbol' is not assignable to type 'never'. | even inside a non-start branch, its own start substate cannot mark a field given |
-| `a: { data: { error: '' } },` | TS2322: Type 'string' is not assignable to type 'never'. | a child state cannot shadow a field name declared by its parent |
-| `leaf: { data: { error: '' } },` | TS2322: Type 'string' is not assignable to type 'never'. | a deeply nested state cannot shadow a field name declared by an ancestor |
+| `a: { data: { note: given } },` | TS2322: Type 'unique symbol' is not assignable to type 'Refused&lt;"data field 'note' cannot be given: an initial state is entered with nothing given"> &amp; unique symbol'. | a start substate is entered with no supplied data, so it cannot mark a field given |
+| `inner: { data: { note: given } },` | TS2322: Type 'unique symbol' is not assignable to type 'Refused&lt;"data field 'note' cannot be given: an initial state is entered with nothing given"> &amp; unique symbol'. | even inside a non-start branch, its own start substate cannot mark a field given |
+| `a: { data: { error: '' } },` | TS2322: Type '{ error: string; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state"> &amp; { error: string; }'. | a child state cannot shadow a field name declared by its parent |
+| `a: { data: { error: untyped } },` | TS2322: Type '{ error: any; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state"> &amp; { error: any; }'. | a child state cannot shadow a field name declared by its parent, whatever its value is typed |
+| `a: { data: { error: '', note: '' } },` | TS2322: Type '{ error: string; note: string; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state" \| "data field 'note' is already declare… | each field a child declares again is named in the refusal |
+| `leaf: { data: { error: '' } },` | TS2322: Type '{ error: string; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state"> &amp; { error: string; }'. | a deeply nested state cannot shadow a field name declared by an ancestor |
 | `const unsafe: string = read(child('card', 'a')).data.label` | TS2532: Object is possibly 'undefined'. | a started child might not be running, so read() may be undefined |
+| `initial: 'editting',` | TS2820: Type '"editting"' is not assignable to type '"waiting" \| "editing"'. Did you mean '"editing"'? | a name that is no state is told the states there are |
 
 ## What a component may read of a running state and send it, as render functions.
 

@@ -134,6 +134,27 @@ state<DirectShadow, never>()({
     b: {},
   },
 })
+// A value typed `any` is refused there as any other is: what is refused is declaring the field, whatever is written for it.
+declare const untyped: any
+state<DirectShadow, never>()({
+  data: { error: null },
+  initial: 'b',
+  states: {
+    // @ts-expect-error a child state cannot shadow a field name declared by its parent, whatever its value is typed
+    a: { data: { error: untyped } },
+    b: {},
+  },
+})
+// Two fields declared again are both named.
+state<{ data: { error: string | null; note: string }; states: { a: { data: { error: string; note: string } }; b: {} } }, never>()({
+  data: { error: null, note: '' },
+  initial: 'b',
+  states: {
+    // @ts-expect-error each field a child declares again is named in the refusal
+    a: { data: { error: '', note: '' } },
+    b: {},
+  },
+})
 
 type DeepShadow = {
   data: { error: string | null }
@@ -153,6 +174,7 @@ state<DeepShadow, never>()({
     },
   },
 })
+
 
 // Sibling states may share field names because they are never active at the same time.
 type SiblingFields = {
@@ -184,4 +206,27 @@ state<Board, BoardEvent, BoardAsks>()({
     },
   },
   states: { open: { starts: (start) => ({ helper: start(helper([]), { given: () => ({ title: '' }) }) }) }, closed: {} },
+})
+
+// A state whose data has values of its own can be entered first, at the top or in a state inside: what cannot be
+// there is a field that has to be given, which is refused field by field (above).
+state<{ states: { waiting: {}; editing: { data: { draft: string } } } }>()({
+  initial: 'editing',
+  states: { waiting: {}, editing: { data: { draft: '' } } },
+})
+state<{ states: { outer: { states: { waiting: {}; editing: { data: { draft: string } } } } } }>()({
+  initial: 'outer',
+  states: { outer: { initial: 'editing', states: { waiting: {}, editing: { data: { draft: '' } } } } },
+})
+state<{ states: { waiting: {}; editing: { data: { draft: string } } } }>()({
+  // @ts-expect-error a name that is no state is told the states there are
+  initial: 'editting',
+  states: { waiting: {}, editing: { data: { draft: '' } } },
+})
+
+// In the state entered first, a value typed `any` is a value like any other.
+declare const untypedCount: any
+state<{ states: { editing: { data: { count: number } }; idle: {} } }>()({
+  initial: 'editing',
+  states: { editing: { data: { count: untypedCount } }, idle: {} },
 })
