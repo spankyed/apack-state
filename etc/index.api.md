@@ -332,13 +332,13 @@ export interface Following {
 }
 
 // Warning: (ae-forgotten-export) The symbol "Nothing" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "NoInitialGiven" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "NoShadowed" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "NoConflictingKinds" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "NoInitialGiven" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "GivenIn" needs to be exported by the entry point index.d.ts
 //
 // @public
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowed<S> & NoConflictingKinds<S>) => State<S, E, A, GivenIn<D>>;
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S, NoInfer<D>> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export const given: unique symbol;
@@ -591,7 +591,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 }
 
 // @public
-export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowed<S, never, never, never> & NoConflictingKinds<S>) => State<S, E, A, GivenIn<D>>;
+export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: NoShadowed<S, NoInfer<D>> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export interface StepLog {

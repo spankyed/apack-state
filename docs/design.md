@@ -34,6 +34,10 @@ Its shape is a type. Its definition has the same keys at every depth.
 | `calls` | Writes it calls on demand |
 | `waits` | Timers it arms on demand |
 
+A handler returns the part of what is read that changes, under the names it is read by: `at` read is where the state
+is and `at` returned is where it will be, as `data` read is its fields and `data` returned is what they will be. So
+what a handler returns is a value and not a command.
+
 ## Standing things follow the data
 
 `starts`, `follows` and `loads` are all **standing**: while the data says so, they go on. You never start, follow or
