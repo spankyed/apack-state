@@ -113,11 +113,10 @@ type CallParams<C> =
     ? ([CallInput<C>] extends [never] ? [key: string] : [key: string, input: Read<CallInput<C>>])
     : ([CallInput<C>] extends [never] ? [] : [input: Read<CallInput<C>>])
 type CancelParams<C> = CallKind<C> extends 'each' ? [key: string] : []
-type Override<Base, Inner> = Omit<Base, keyof Inner> & Inner
 type CallsOf<S> = S extends { calls: infer M extends object } ? M : {}
-type CallsBelow<S, P> = P extends `${infer H}.${infer T}` ? Override<CallsOf<Sub<S, H>>, CallsBelow<Sub<S, H>, T>> : CallsOf<Sub<S, P>>
+type CallsBelow<S, P> = P extends `${infer H}.${infer T}` ? CallsOf<Sub<S, H>> & CallsBelow<Sub<S, H>, T> : CallsOf<Sub<S, P>>
 /** The asks that can be called where a handler sits: its own state's and those of every state around it. */
-type CallsAt<S, P extends string> = P extends '' ? CallsOf<S> : Override<CallsOf<S>, CallsBelow<S, P>>
+type CallsAt<S, P extends string> = P extends '' ? CallsOf<S> : CallsOf<S> & CallsBelow<S, P>
 type CallKindsOf<S> = { [K in keyof CallsOf<S>]: CallKind<CallsOf<S>[K]> }
 /** Every imperative ask a state declares, whichever of its states declares it, mapped to its cardinality kind. */
 type AllCallKinds<S> = CallKindsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllCallKinds<StatesOf<S>[K]> }[Names<S>]>)
@@ -136,9 +135,9 @@ type ArmParams<W> =
     : (WaitNeedsMs<W> extends true ? [ms: number] : [ms?: number])
 type DisarmParams<W> = WaitKind<W> extends 'each' ? [key?: string] : []
 type WaitsOf<S> = S extends { waits: infer M extends object } ? M : {}
-type WaitsBelow<S, P> = P extends `${infer H}.${infer T}` ? Override<WaitsOf<Sub<S, H>>, WaitsBelow<Sub<S, H>, T>> : WaitsOf<Sub<S, P>>
+type WaitsBelow<S, P> = P extends `${infer H}.${infer T}` ? WaitsOf<Sub<S, H>> & WaitsBelow<Sub<S, H>, T> : WaitsOf<Sub<S, P>>
 /** The timers that can be armed where a handler sits: its own state's and those of every state around it. */
-type WaitsAt<S, P extends string> = P extends '' ? WaitsOf<S> : Override<WaitsOf<S>, WaitsBelow<S, P>>
+type WaitsAt<S, P extends string> = P extends '' ? WaitsOf<S> : WaitsOf<S> & WaitsBelow<S, P>
 type WaitKindsOf<S> = { [K in keyof WaitsOf<S>]: WaitKind<WaitsOf<S>[K]> }
 /** Every imperative timer a state declares, whichever of its states declares it, mapped to its cardinality kind. */
 type AllWaitKinds<S> = WaitKindsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllWaitKinds<StatesOf<S>[K]> }[Names<S>]>)
@@ -690,31 +689,41 @@ type NoInitialGiven<D> =
       : unknown
 
 /**
- * Refuses any nested state whose `data` redeclares a field name already declared by an enclosing state: exiting the
- * inner state deletes its declared fields from the running state's data, which would silently erase the enclosing
- * state's field. Sibling states may share field names because they are never active together.
+ * Refuses any nested state whose `data`, `calls`, or `waits` redeclares a name already declared by an enclosing state:
+ * exiting the inner state deletes its declared fields from the running state's data, and active ancestor and child
+ * states share one `pending` / `waiting` snapshot map so a shared `calls` or `waits` name would alias live entries.
+ * Sibling states may share names because they are never active together.
  */
-type NoShadowedData<S, Above extends string = never> =
+type NoShadowed<S, AboveData extends string = never, AboveCalls extends string = never, AboveWaits extends string = never> =
   S extends { states: infer T extends Record<string, Shape> }
     ? {
         states: {
           [P in keyof T]:
-            (T[P] extends { data: infer X }
-              ? [Extract<keyof X & string, Above | (keyof DataOf<S> & string)>] extends [never]
-                ? unknown
-                : { data: { [F in Extract<keyof X & string, Above | (keyof DataOf<S> & string)>]: never } }
-              : unknown)
-            & NoShadowedData<T[P], Above | (keyof DataOf<S> & string)>
+            ([Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>] extends [never]
+              ? unknown
+              : { data: { [F in Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>]: never } })
+            & ([Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>] extends [never]
+              ? unknown
+              : { calls: (...args: never[]) => { [F in Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>]: never } })
+            & ([Extract<keyof WaitsOf<T[P]> & string, AboveWaits | (keyof WaitsOf<S> & string)>] extends [never]
+              ? unknown
+              : { waits: (...args: never[]) => { [F in Extract<keyof WaitsOf<T[P]> & string, AboveWaits | (keyof WaitsOf<S> & string)>]: never } })
+            & NoShadowed<
+                T[P],
+                AboveData | (keyof DataOf<S> & string),
+                AboveCalls | (keyof CallsOf<S> & string),
+                AboveWaits | (keyof WaitsOf<S> & string)
+              >
         }
       }
     : unknown
 
-type CallEntries<S> =
-  | { [K in keyof CallsOf<S> & string]: [K, CallKind<CallsOf<S>[K]>] }[keyof CallsOf<S> & string]
-  | (S extends { states: infer T extends Record<string, Shape> } ? { [N in keyof T]: CallEntries<T[N]> }[keyof T] : never)
-type WaitEntries<S> =
-  | { [K in keyof WaitsOf<S> & string]: [K, WaitKind<WaitsOf<S>[K]>] }[keyof WaitsOf<S> & string]
-  | (S extends { states: infer T extends Record<string, Shape> } ? { [N in keyof T]: WaitEntries<T[N]> }[keyof T] : never)
+type CallEntries<S, Above extends string = never> =
+  | { [K in Exclude<keyof CallsOf<S> & string, Above>]: [K, CallKind<CallsOf<S>[K]>] }[Exclude<keyof CallsOf<S> & string, Above>]
+  | (S extends { states: infer T extends Record<string, Shape> } ? { [N in keyof T]: CallEntries<T[N], Above | (keyof CallsOf<S> & string)> }[keyof T] : never)
+type WaitEntries<S, Above extends string = never> =
+  | { [K in Exclude<keyof WaitsOf<S> & string, Above>]: [K, WaitKind<WaitsOf<S>[K]>] }[Exclude<keyof WaitsOf<S> & string, Above>]
+  | (S extends { states: infer T extends Record<string, Shape> } ? { [N in keyof T]: WaitEntries<T[N], Above | (keyof WaitsOf<S> & string)> }[keyof T] : never)
 type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
 type ConflictingNames<Entries> =
   ([Entries] extends [[infer K extends string, unknown]]
@@ -749,7 +758,7 @@ type NoConflictingKinds<S> =
  * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
  * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowedData<S> & NoConflictingKinds<S>) => State<S, E, A, GivenIn<D>> {
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowed<S> & NoConflictingKinds<S>) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })
 }
 

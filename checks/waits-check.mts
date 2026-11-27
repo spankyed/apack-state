@@ -863,34 +863,68 @@ const checks: Array<[string, () => Promise<void>]> = [
 
   ['stale expiry is impossible: late firing from buggy clock creates no step, and queued wait behind disarm is ignored', async () => {
     const manual = manualClock()
-    type Shape = { data: { fired: number }; waits: { w: 'one' } }
-    type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'PING' }
-    const m = state<Shape, Ev>()({
-      data: { fired: 0 },
+    type StreamNet = {
+      systems: { svc: { events: never; asks: { STREAM: { args: {}; progress: string; answer: void } } } }
+      surfaces: {}
+      views: {}
+    }
+    const netState = forNet<StreamNet>()
+    let emitProgress!: (p: string) => void
+    let finishStream!: () => void
+    const svc = netState<{}, never, StreamNet['systems']['svc']['asks']>()({
+      answers: {
+        STREAM: (_, { progress }) => new Promise<void>((resolve) => {
+          emitProgress = progress
+          finishStream = resolve
+        }),
+      },
+    })
+    type Shape = { data: { fired: number; batches: string[][] }; waits: { w: 'one' }; calls: { stream: 'one' } }
+    type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'STREAM' }
+    const m = netState<Shape, Ev>()({
+      data: { fired: 0, batches: [] },
       waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { fired: data.fired + 1 } })) }),
+      calls: ({ one }) => ({
+        stream: one('svc', 'STREAM', {
+          progress: (updates) => ({ data: (d) => { d.batches.push([...updates]) } }),
+          done: () => {},
+        }),
+      }),
       on: {
         ARM: (_, { arm }) => { arm('w') },
         DISARM: (_, { disarm }) => { disarm('w') },
-        PING: () => ({ data: { fired: 0 } }),
+        STREAM: (_, { call }) => { call('stream') },
       },
     })
 
     const logs: StepLog[] = []
     const sys = system({ side: 'backend', clock: manual.clock, log: (s) => logs.push(s) })
+    sys.start('svc', svc)
     const h = sys.start('m', m)
 
-    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry and done never runs.
+    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, done never runs,
+    // and gathered progress waiting for its frame is NOT flushed early by `handOver()`.
+    sys.send(h, { type: 'STREAM' })
     sys.send(h, { type: 'ARM' })
     const firstCallback = manual.timers[0]!.run
     sys.send(h, { type: 'DISARM' })
+    emitProgress('u1')
     const logsBefore = logs.length
     firstCallback()
     strictEqual(logs.length, logsBefore)
     strictEqual(sys.read(h).data.fired, 0)
+    deepStrictEqual(sys.read(h).data.batches, [])
+    finishStream()
+    await rest()
+    deepStrictEqual(sys.read(h).data.batches, [['u1']])
 
-    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and ignored!
+    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and dropped before starting a step!
     sys.send(h, { type: 'ARM' })
     const secondCallback = manual.timers[1]!.run
+    const trigger = sys.start('t', state<{ data: { n: number } }, { type: 'GO' }>()({
+      data: { n: 0 },
+      on: { GO: (_, { data }) => ({ data: { n: data.n + 1 } }) },
+    }))
     let triggered = false
     const unsub = sys.subscribe(() => {
       if (triggered) return
@@ -898,17 +932,15 @@ const checks: Array<[string, () => Promise<void>]> = [
       sys.send(h, { type: 'DISARM' })
       secondCallback()
     })
-    // Trigger a data change (actually wait: PING doesn't change fired if already 0, so arm a second state or re-trigger via disarm/arm)
-    // Use a separate state to trigger flush cleanly!
-    const trigger = sys.start('t', state<{ data: { n: number } }, { type: 'GO' }>()({
-      data: { n: 0 },
-      on: { GO: (_, { data }) => ({ data: { n: data.n + 1 } }) },
-    }))
+    const logsBeforeCaseB = logs.length
     sys.send(trigger, { type: 'GO' })
     unsub()
     strictEqual(triggered, true)
     strictEqual(sys.read(h).waiting.w, false)
     strictEqual(sys.read(h).data.fired, 0)
+    // Only `trigger GO` and `m DISARM` logged steps; the stale queued `wait` emitted no StepLog entry.
+    strictEqual(logs.length, logsBeforeCaseB + 2)
+    strictEqual(logs.slice(logsBeforeCaseB).some((s) => s.handled.some((x) => x.kind === 'wait')), false)
   }],
 
   ['done throwing reports exact defect and rolls back its sayings while still clearing waiting', async () => {
@@ -1095,6 +1127,60 @@ const checks: Array<[string, () => Promise<void>]> = [
     throws(
       () => sys.start('bad-waits', conflicting as never),
       { message: 'bad-waits declares wait retry with conflicting kinds (one and each)' },
+    )
+
+    const directShadow = {
+      def: {
+        initial: 'a',
+        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        states: {
+          a: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+        },
+      },
+    }
+    throws(
+      () => sys.start('direct-wait', directShadow as never),
+      { message: 'direct-wait declares wait retry again at a, shadowing an enclosing state' },
+    )
+    strictEqual('direct-wait' in sys.snapshot(), false)
+
+    const deepShadow = {
+      def: {
+        initial: 'mid',
+        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        states: {
+          mid: {
+            initial: 'leaf',
+            states: {
+              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('deep-wait', deepShadow as never),
+      { message: 'deep-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
+    )
+    strictEqual('deep-wait' in sys.snapshot(), false)
+
+    const midShadow = {
+      def: {
+        initial: 'mid',
+        states: {
+          mid: {
+            initial: 'leaf',
+            waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+            states: {
+              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('mid-wait', midShadow as never),
+      { message: 'mid-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
     )
   }],
 ]

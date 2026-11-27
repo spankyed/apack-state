@@ -418,4 +418,185 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['tracks wait reachability from non-done sources and resolves arm by declaring path', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-reachability-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'reachability.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+
+type SelfLoopShape = { waits: { loop: 'one' } }
+export const selfLoop = state<SelfLoopShape, never>()({
+  waits: ({ one }) => ({
+    loop: one(100, ({ arm }) => { arm('loop') }),
+  }),
+})
+
+type DeadChainShape = { waits: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
+export const deadChain = state<DeadChainShape, never>()({
+  waits: ({ one }) => ({
+    first: one(100, ({ arm }) => { arm('second') }),
+    second: one(100, ({ arm }) => { arm('second') }),
+    ping: one(100, ({ arm }) => { arm('pong') }),
+    pong: one(100, ({ arm }) => { arm('ping') }),
+  }),
+})
+
+type LiveChainShape = { waits: { step2: 'one'; step1: 'one'; step3: 'one' } }
+export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({
+    // Declared out of topological order so reachability must propagate across multiple hops (step1 -> step2 -> step3).
+    step2: one(100, ({ arm }) => { arm('step3') }),
+    step1: one(100, ({ arm }) => { arm('step2') }),
+    step3: one(100, ({ arm }) => { arm('step3') }),
+  }),
+  on: { GO: (_, { arm }) => { arm('step1') } },
+})
+
+type SiblingsShape = {
+  states: {
+    a: { waits: { t: 'one' } }
+    b: { waits: { t: 'one' } }
+  }
+}
+export const siblingWaits = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
+  initial: 'a',
+  states: {
+    a: {
+      waits: ({ one }) => ({ t: one(100) }),
+      on: {
+        GO: (_, { arm }) => { arm('t') },
+        NEXT: () => ({ at: 'b' }),
+      },
+    },
+    b: {
+      waits: ({ one }) => ({ t: one(100) }),
+    },
+  },
+})
+
+type ParentArmedFromChildShape = {
+  waits: { keepalive: 'one' }
+  states: { active: {}; idle: {} }
+}
+export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO' } | { type: 'STOP' }>()({
+  initial: 'active',
+  waits: ({ one }) => ({ keepalive: one(100) }),
+  states: {
+    active: {
+      on: {
+        GO: (_, { arm }) => { arm('keepalive') },
+        STOP: () => ({ at: 'idle' }),
+      },
+    },
+    idle: {},
+  },
+})
+
+type QuotedWaitsShape = {
+  waits: {
+    'live-first': 'one'
+    'live-next': 'one'
+    'dead-first': 'one'
+    'dead-next': 'one'
+  }
+}
+export const quotedWaits = state<QuotedWaitsShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({
+    'live-first': one(100, ({ arm }) => { arm('live-next') }),
+    'live-next': one(100),
+    'dead-first': one(100, ({ arm }) => { arm('dead-next') }),
+    'dead-next': one(100),
+  }),
+  on: { GO: (_, { arm }) => { arm('live-first') } },
+})
+
+const SUB = 'active' as const
+const W = 'pulse' as const
+type ComputedNamesShape = {
+  states: {
+    [SUB]: { waits: { [W]: 'one' } }
+    idle: {}
+  }
+}
+export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 'STOP' }>()({
+  initial: SUB,
+  states: {
+    [SUB]: {
+      waits: ({ one }) => ({ [W]: one(100) }),
+      on: {
+        GO: (_, { arm }) => { arm(W) },
+        STOP: () => ({ at: 'idle' }),
+      },
+    },
+    idle: {},
+  },
+})
+
+type UnenteredArmShape = {
+  waits: { keepalive: 'one' }
+  states: { live: {}; dead: { waits: { inner: 'one' } } }
+}
+export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
+  initial: 'live',
+  waits: ({ one }) => ({ keepalive: one(100) }),
+  states: {
+    live: ({ on: { GO: () => {} } }),
+    dead: ({
+      waits: ({ one }) => ({ inner: one(50) }),
+      on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
+    }),
+  },
+})
+
+type LocalArmVarShape = {
+  data: { arm: number }
+  waits: { dead: 'one' }
+}
+export const localArmVar = state<LocalArmVarShape, { type: 'SET'; arm: number }>()({
+  data: { arm: 0 },
+  waits: ({ one }) => ({ dead: one(100) }),
+  on: {
+    SET: ({ arm }) => ({ data: { arm } }),
+  },
+})
+
+function armFromBox(box: { arm: (name: 'viaBox') => void }) { box.arm('viaBox') }
+export const shorthandScopeArmEscape = state<{ waits: { viaBox: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ viaBox: one(100) }),
+  on: {
+    GO: (_, { arm }) => { armFromBox({ arm }) },
+  },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 10, formatGraphs(graphs))
+
+      deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
+      deepStrictEqual(graphs[1]!.findings, [
+        'nothing arms first',
+        'nothing arms second except the done of second, first, which cannot fire',
+        'nothing arms ping except the done of pong, which cannot fire',
+        'nothing arms pong except the done of ping, which cannot fire',
+      ])
+      deepStrictEqual(graphs[2]!.findings, [])
+      deepStrictEqual(graphs[3]!.findings, ['nothing arms t in b'])
+      deepStrictEqual(graphs[4]!.findings, [])
+      deepStrictEqual(graphs[5]!.findings, [
+        'nothing arms dead-first',
+        'nothing arms dead-next except the done of dead-first, which cannot fire',
+      ])
+      deepStrictEqual(graphs[6]!.waits, ['pulse in active: 100ms, one at a time'])
+      deepStrictEqual(graphs[6]!.findings, [])
+      deepStrictEqual(graphs[7]!.findings, ['dead is never entered', 'nothing arms keepalive'])
+      // An unrelated event/data field named `arm` does not suppress unused-wait findings,
+      // while escaping `scope.arm` via `{ arm }` shorthand still suppresses them.
+      deepStrictEqual(graphs[8]!.findings, ['nothing arms dead'])
+      deepStrictEqual(graphs[9]!.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

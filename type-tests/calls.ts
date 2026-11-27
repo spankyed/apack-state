@@ -200,3 +200,54 @@ typed<ConflictingCallsShape, never>()({
     },
   },
 })
+
+// A nested state cannot redeclare a call name already declared by an enclosing state (direct child or grandchild),
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a wait of the same
+// name lives in `waiting` (a separate namespace from `pending`), so a child wait may share the parent's call name.
+type DirectShadowCallsShape = {
+  calls: { save: 'one' }
+  states: {
+    a: { calls: { save: 'one' } }
+    b: { calls: { save: 'each' } }
+    c: { calls: { other: 'one' }; waits: { save: 'one' } }
+  }
+}
+typed<DirectShadowCallsShape, never>()({
+  initial: 'a',
+  calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+  states: {
+    a: {
+      // @ts-expect-error a child state cannot shadow a call name declared by its parent
+      calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+    },
+    b: {
+      // @ts-expect-error shadowing an enclosing call name is reported on the redeclaring child even with a different kind
+      calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),
+    },
+    c: {
+      calls: ({ one }) => ({ other: one('svc', 'PING', { done: () => {} }) }),
+      waits: ({ one }) => ({ save: one(100) }),
+    },
+  },
+})
+
+type DeepShadowCallsShape = {
+  calls: { save: 'one' }
+  states: { mid: { states: { idle: {}; leaf: { calls: { save: 'one' } } } } }
+}
+typed<DeepShadowCallsShape, never>()({
+  initial: 'mid',
+  calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+  states: {
+    mid: {
+      initial: 'idle',
+      states: {
+        idle: {},
+        leaf: {
+          // @ts-expect-error a deeply nested state cannot shadow a call name declared by an ancestor
+          calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+        },
+      },
+    },
+  },
+})

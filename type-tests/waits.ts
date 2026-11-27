@@ -2,7 +2,7 @@
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import { state, type Value } from '../src/index.ts'
+import { forNet, state, type Value } from '../src/index.ts'
 
 type TimersShape = {
   data: { count: number; lastKey: string | null }
@@ -211,6 +211,59 @@ state<ConflictingWaitsShape, never>()({
     b: {
       // @ts-expect-error a wait name cannot be declared with conflicting kinds across states of one machine
       waits: ({ each }) => ({ retry: each(100) }),
+    },
+  },
+})
+
+// A nested state cannot redeclare a wait name already declared by an enclosing state (direct child or grandchild),
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a call of the same
+// name lives in `pending` (a separate namespace from `waiting`), so a child call may share the parent's wait name.
+type WaitCallCrossNet = { systems: { svc: { events: never; asks: { PING: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
+const waitTyped = forNet<WaitCallCrossNet>()
+type DirectShadowWaitsShape = {
+  waits: { retry: 'one' }
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: 'each' } }
+    c: { waits: { other: 'one' }; calls: { retry: 'one' } }
+  }
+}
+waitTyped<DirectShadowWaitsShape, never>()({
+  initial: 'a',
+  waits: ({ one }) => ({ retry: one(100) }),
+  states: {
+    a: {
+      // @ts-expect-error a child state cannot shadow a wait name declared by its parent
+      waits: ({ one }) => ({ retry: one(100) }),
+    },
+    b: {
+      // @ts-expect-error shadowing an enclosing wait name is reported on the redeclaring child even with a different kind
+      waits: ({ each }) => ({ retry: each(100) }),
+    },
+    c: {
+      waits: ({ one }) => ({ other: one(100) }),
+      calls: ({ one }) => ({ retry: one('svc', 'PING', { done: () => {} }) }),
+    },
+  },
+})
+
+type DeepShadowWaitsShape = {
+  waits: { retry: 'one' }
+  states: { mid: { states: { idle: {}; leaf: { waits: { retry: 'one' } } } } }
+}
+state<DeepShadowWaitsShape, never>()({
+  initial: 'mid',
+  waits: ({ one }) => ({ retry: one(100) }),
+  states: {
+    mid: {
+      initial: 'idle',
+      states: {
+        idle: {},
+        leaf: {
+          // @ts-expect-error a deeply nested state cannot shadow a wait name declared by an ancestor
+          waits: ({ one }) => ({ retry: one(100) }),
+        },
+      },
     },
   },
 })
