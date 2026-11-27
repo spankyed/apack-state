@@ -325,4 +325,179 @@ await run([
     win.stop()
     backend.stop()
   }],
+
+  ['bounds defects/ignored/edges, cleans cancelled & lost inFlight ops, stitches multi-window broadcasts, and avoids local crossAnswers drift', async () => {
+    // 1. Bounded defects, ignored, steps, and pruned edges under small limit.
+    const small = createInspector({ limit: 2 })
+    const b1 = system({ side: 'backend', ...small.hooks('b1') })
+    const s1 = b1.start('svc', makeSvc(() => Promise.resolve()))
+    for (let i = 0; i < 4; i++) {
+      b1.send(s1, { type: 'ONLY_BUSY' })
+      b1.send(s1, { type: 'THROW' })
+    }
+    await rest()
+    strictEqual(small.steps.length, 2)
+    strictEqual(small.defects.length, 2)
+    strictEqual(small.whyIgnored().length, 2)
+    const retainedSteps = new Set(small.steps.map((s) => `${s.system}#${s.log.number}`))
+    ok(small.edges.every((e) => retainedSteps.has(`${e.fromSystem}#${e.fromStep}`) && retainedSteps.has(`${e.toSystem}#${e.toStep}`)))
+    b1.stop()
+
+    // 2. Local backend ask must not pollute crossAnswers; caller-cancelled ask clears inFlight(); multi-window broadcast links all windows.
+    const insp = createInspector()
+    const views: ViewHost = (_f, _v, _a, updated) => { updated({ ok: true, value: 1 }); return () => {} }
+    let releaseHold!: () => void
+    const holdGate = new Promise<void>((resolve) => { releaseHold = resolve })
+    const backend = system({ side: 'backend', views, ...insp.hooks('backend') })
+    const win1 = system({ side: 'window', ...insp.hooks('win1') })
+    const win2 = system({ side: 'window', ...insp.hooks('win2') })
+    connect(win1, backend)
+    connect(win2, backend)
+
+    const svcH = backend.start('svc', makeSvc(() => holdGate))
+    const p1 = win1.start('panel', panel)
+    const p2 = win2.start('panel', panel)
+    await rest()
+
+    // Local backend ask (not cross-system) must not leave a stale entry in crossAnswers.
+    const localAnswer = await backend.ask(svcH, 'SAVE', { text: 'local-only' })
+    strictEqual(localAnswer.ok, true)
+    await rest()
+
+    // win1 starts HOLD and stops mid-flight -> once backend unwinds, inFlight has no leaked ask from win1 or backend.
+    win1.send(p1, { type: 'START_HOLD' })
+    await new Promise<void>((r) => { setTimeout(r, 10) })
+    ok(insp.inFlight().some((op) => op.kind === 'ask' && op.system === 'win1' && op.name === 'HOLD'))
+    win1.stop()
+    releaseHold()
+    await rest()
+    deepStrictEqual(insp.inFlight().filter((op) => op.kind === 'ask'), [])
+
+    // win2 sends SAVE -> its answer edge must link to the backend step that handled win2's SAVE (not the earlier local ask).
+    const beforeWin2Steps = insp.steps.length
+    win2.send(p2, { type: 'SEND', text: 'from-win2' })
+    await rest()
+    const explainedWin2 = insp.explain('panel', 'saved')
+    const answerEdge = explainedWin2.edges.find((e) => e.kind === 'answer' && e.fromSystem === 'backend' && e.toSystem === 'win2')
+    ok(answerEdge !== undefined, explainedWin2.text)
+    const backendAnswerStep = insp.steps.find((s) => s.system === 'backend' && s.log.number === answerEdge!.fromStep)!
+    ok(insp.steps.indexOf(backendAnswerStep) >= beforeWin2Steps, 'win2 answer must stitch to win2 SAVE, not earlier local ask')
+
+    // Multi-window broadcast: reconnect a third window alongside win2 and verify BOTH windows get broadcast causal edges.
+    const win3 = system({ side: 'window', ...insp.hooks('win3') })
+    connect(win3, backend)
+    win3.start('panel', panel)
+    await rest()
+    const bcastBaseline = insp.steps.length
+    await backend.ask(svcH, 'SAVE', { text: 'to-both' })
+    await rest()
+    const newSteps = insp.steps.slice(bcastBaseline)
+    ok(newSteps.some((s) => s.system === 'win2' && s.causes.some((c) => c.kind === 'broadcast' && c.fromSystem === 'backend')))
+    ok(newSteps.some((s) => s.system === 'win3' && s.causes.some((c) => c.kind === 'broadcast' && c.fromSystem === 'backend')))
+
+    win2.stop()
+    win3.stop()
+    backend.stop()
+
+    // 3. Transaction failure (`status: 'lost'`) clears open ops for the broken system.
+    const lostInsp = createInspector()
+    let failCommit = false
+    let depth = 0
+    const flaky = system({
+      side: 'backend',
+      transact: (fn) => {
+        depth++
+        try {
+          const out = fn()
+          if (depth === 1 && failCommit) throw new Error('disk-full')
+          return out
+        } finally { depth-- }
+      },
+      ...lostInsp.hooks('flaky'),
+    })
+    let releaseLostHold!: () => void
+    const lostHold = new Promise<void>((resolve) => { releaseLostHold = resolve })
+    const fh = flaky.start('svc', makeSvc(() => lostHold))
+    const lostAsk = flaky.ask(fh, 'HOLD', {})
+    await new Promise<void>((r) => { setTimeout(r, 10) })
+    ok(lostInsp.inFlight().some((op) => op.system === 'flaky' && op.name === 'HOLD'))
+    failCommit = true
+    flaky.send(fh, { type: 'PING' })
+    deepStrictEqual(lostInsp.inFlight(), [])
+    releaseLostHold()
+    await lostAsk
+    await rest()
+  }],
+
+  ['scopes format({ last }) defects, matches compound coverage targets without colon collision, and keeps subscribed steps immutable', async () => {
+    // 1. format({ last }) excludes older defects outside the slice and clamps last <= 0; forward.log throw does not mutate subscribed step.
+    const insp = createInspector()
+    const subscribedSteps: Array<{ readonly defects: readonly unknown[] }> = []
+    insp.subscribe((u) => { if (u.kind === 'step') subscribedSteps.push(u.step) })
+    let throwOnLog = false
+    const backend = system({
+      side: 'backend',
+      ...insp.hooks('backend', {
+        log: () => { if (throwOnLog) throw new Error('forward-log-boom') },
+      }),
+    })
+    const svcH = backend.start('svc', makeSvc(() => Promise.resolve()))
+    backend.send(svcH, { type: 'THROW' })
+    for (let i = 0; i < 4; i++) backend.send(svcH, { type: 'PING' })
+    await rest()
+
+    const recentOnly = insp.format({ last: 2 })
+    ok(!recentOnly.includes('svc-exploded'), recentOnly)
+    strictEqual(insp.format({ last: 0 }), '(no steps recorded)')
+    strictEqual(insp.format({ last: -5 }), '(no steps recorded)')
+
+    // Throwing in forward.log attaches the defect immutably on inspector.steps without mutating the step already emitted to subscribers.
+    throwOnLog = true
+    backend.send(svcH, { type: 'PING' })
+    throwOnLog = false
+    await rest()
+    strictEqual(subscribedSteps.at(-1)!.defects.length, 0)
+    ok(insp.steps.at(-1)!.defects.some((d) => d.message.includes('forward-log-boom')))
+    backend.stop()
+
+    // 2. coverage() matches compound target states (to: 'working' settling at 'working.fetching') and avoids `:` ref suffix collisions.
+    const covInsp = createInspector()
+    const compound = app<{
+      states: { idle: {}; working: { initial: 'fetching'; states: { fetching: {}; saving: {} } } }
+    }, { type: 'GO' }>()({
+      initial: 'idle',
+      states: {
+        idle: { on: { GO: () => ({ at: 'working' }) } },
+        working: { initial: 'fetching', states: { fetching: {}, saving: {} } },
+      },
+    })
+    const compoundGraph: StateGraph = {
+      title: 'Compound',
+      states: ['idle', 'working', 'working.fetching', 'working.saving'],
+      moves: [{ from: 'idle', on: 'GO', to: ['working'] }],
+      stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], reaches: [], findings: [], text: 'Compound',
+    }
+    const sys = system({ side: 'backend', ...covInsp.hooks('be') })
+    const plainH = sys.start('panel', compound)
+    const prefixedH = sys.start('role:panel', compound)
+    sys.send(prefixedH, { type: 'GO' })
+    await rest()
+
+    // `panel` is still in `idle`, while `role:panel` moved to `working.fetching`: `lastAt` must not confuse `role:panel` with `panel`.
+    const beforePlainMove = covInsp.coverage({ panel: compoundGraph, 'role:panel': compoundGraph })
+    const plainCov = beforePlainMove.find((c) => c.ref === 'panel')!
+    const prefixedCov = beforePlainMove.find((c) => c.ref === 'role:panel')!
+    strictEqual(plainCov.currentAt, 'idle')
+    strictEqual(prefixedCov.currentAt, 'working.fetching')
+    ok(prefixedCov.declaredMoves.some((m) => m.from === 'idle' && m.on === 'GO' && m.to === 'working' && m.hit === true))
+
+    // Also move plain `panel` and confirm both visited states and compound target hit.
+    sys.send(plainH, { type: 'GO' })
+    await rest()
+    const afterPlainMove = covInsp.coverage({ panel: compoundGraph })[0]!
+    strictEqual(afterPlainMove.currentAt, 'working.fetching')
+    ok(afterPlainMove.visitedStates.includes('working') && afterPlainMove.visitedStates.includes('working.fetching'))
+    ok(afterPlainMove.declaredMoves.every((m) => m.hit === true))
+    sys.stop()
+  }],
 ])

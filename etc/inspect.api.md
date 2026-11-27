@@ -164,7 +164,9 @@ export interface InspectedStep {
 
 // @public
 export interface Inspector {
-    bind(systemName: string, sys: System): () => void;
+    bind(systemName: string, sys: {
+        snapshot(): Record<string, unknown>;
+    }): () => void;
     clear(): void;
     coverage(graphs: Readonly<Record<string, StateGraph>> | ((ref: string) => StateGraph | undefined)): readonly StateCoverage[];
     readonly defects: readonly InspectedDefect[];
@@ -293,53 +295,6 @@ export interface StepLog {
     readonly number: number;
     readonly sent: readonly Sent[];
     readonly status: 'committed' | 'lost' | 'halted';
-}
-
-// @public (undocumented)
-export interface System {
-    // (undocumented)
-    [Symbol.dispose](): void;
-    // Warning: (ae-forgotten-export) The symbol "ProgressOf" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "OutcomeOf" needs to be exported by the entry point inspect.d.ts
-    //
-    // (undocumented)
-    ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
-    attach(peer: Port): () => void;
-    // Warning: (ae-forgotten-export) The symbol "PeerPort" needs to be exported by the entry point inspect.d.ts
-    attach(name: string, peer: PeerPort): () => void;
-    // Warning: (ae-forgotten-export) The symbol "Each" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "HandleOf" needs to be exported by the entry point inspect.d.ts
-    child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
-    idle(): boolean;
-    // Warning: (ae-forgotten-export) The symbol "Port" needs to be exported by the entry point inspect.d.ts
-    readonly port: Port;
-    // Warning: (ae-forgotten-export) The symbol "Started" needs to be exported by the entry point inspect.d.ts
-    //
-    // (undocumented)
-    read<V>(of: Started<V, never, Asks, any>): V | undefined;
-    // (undocumented)
-    read<V>(of: Handle<V, never, Asks>): V;
-    // Warning: (ae-forgotten-export) The symbol "Read" needs to be exported by the entry point inspect.d.ts
-    //
-    // (undocumented)
-    send<E extends AnyEvent>(to: Handle<unknown, E, Asks>, event: Read<E>): void;
-    snapshot(): Record<string, unknown>;
-    // Warning: (ae-forgotten-export) The symbol "Shape" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "AnyEvent" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "Asks" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "State" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "RootGiven" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "Handle" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point inspect.d.ts
-    // Warning: (ae-forgotten-export) The symbol "AllStarts" needs to be exported by the entry point inspect.d.ts
-    //
-    // (undocumented)
-    start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>;
-    stop(of?: Handle<unknown, never, Asks, any> & {
-        readonly _started?: never;
-    }): void;
-    // Warning: (ae-forgotten-export) The symbol "Changes" needs to be exported by the entry point inspect.d.ts
-    subscribe(listener: (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void): () => void;
 }
 
 // (No @packageDocumentation comment for this package)

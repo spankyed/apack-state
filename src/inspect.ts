@@ -2,10 +2,10 @@
 // Pure TypeScript with zero runtime dependencies and zero Node built-ins (runs identically in Node and browsers).
 // Payload-free by default; optional snapshot capture uses the kernel's frozen structural-sharing values.
 import type { StateGraph } from './graph.ts'
-import type { Defect, Handled, Sent, StepLog, System } from './kernel.ts'
+import type { Defect, Handled, Sent, StepLog } from './kernel.ts'
 
 export type { StateGraph } from './graph.ts'
-export type { Defect, Handled, Sent, StepLog, System } from './kernel.ts'
+export type { Defect, Handled, Sent, StepLog } from './kernel.ts'
 
 /** A structured defect captured by the inspector (serializable, with error reduced to text). */
 export interface InspectedDefect {
@@ -140,8 +140,8 @@ export type InspectorUpdate =
 export interface Inspector {
   /** Returns `{ log, onDefect, trace }` hooks to spread into `system({ side, ...inspector.hooks('backend') })`. */
   hooks(systemName: string, forward?: HookForward): InspectorHooks
-  /** Binds a running `System` instance under `systemName` for live `snapshots()` and optional per-step snapshot capture. */
-  bind(systemName: string, sys: System): () => void
+  /** Binds a running `System` (or snapshot provider) under `systemName` for live `snapshots()` and optional per-step snapshot capture. */
+  bind(systemName: string, sys: { snapshot(): Record<string, unknown> }): () => void
   /** All retained steps across attached systems, in global causal arrival order. */
   readonly steps: readonly InspectedStep[]
   /** All recorded defects across attached systems. */
@@ -172,6 +172,10 @@ interface PendingLink {
   readonly system: string
   readonly step: number
   readonly opId?: number
+}
+
+interface PendingBroadcast extends PendingLink {
+  readonly consumedBy: Set<string>
 }
 
 const errorText = (error: unknown): string | undefined => {
@@ -262,7 +266,7 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
 
   let seq = 0
   const systems = new Set<string>()
-  const bound = new Map<string, System>()
+  const bound = new Map<string, { snapshot(): Record<string, unknown> }>()
   const steps: InspectedStep[] = []
   const defects: InspectedDefect[] = []
   const edges: CausalEdge[] = []
@@ -273,21 +277,38 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
   const pendingDefects = new Map<string, InspectedDefect[]>()
   /** Trace lines mentioning `ignored`, buffered per system until the step logs. */
   const pendingIgnoredTraces = new Map<string, string[]>()
-  /** Per-system operation origin: `${system}:${opId}` -> step number that initiated the ask/follow. */
+  /** Per-system operation origin: `${system}\0${opId}` -> step number that initiated the ask/follow. */
   const opOrigins = new Map<string, { readonly step: number; readonly kind: 'ask' | 'follow'; readonly to: string; readonly name: string }>()
   /** Per-system step where an ask's `answer` arrived, so a subsequent `done` step chains through it. */
   const opAnswered = new Map<string, number>()
-  /** Currently open async operations, keyed by `${system}:${kind}:${opId}`. */
+  /** Tracks cross-system ask provenance on the answerer (`${answererSystem}\0${answererOpId}` -> caller system & opId). */
+  const crossOriginOps = new Map<string, { readonly fromSystem: string; readonly fromOpId?: number }>()
+  /** Tracks which ref initiated an open op on a system (`${system}\0${kind}\0${opId}` -> initiating ref). */
+  const openOpRefs = new Map<string, string>()
+  /** Currently open async operations, keyed by `${system}\0${kind}\0${opId}`. */
   const openOps = new Map<string, InFlightOp>()
   /** Cross-system FIFO queues for stitching outbound tells/broadcasts/asks/answers across attached systems. */
   const crossAsks = new Map<string, PendingLink[]>()
   const crossAnswers = new Map<string, PendingLink[]>()
   const crossTells = new Map<string, PendingLink[]>()
-  const crossBroadcasts = new Map<string, PendingLink[]>()
-  /** Tracks last known substate path per `${system}:${ref}` to reconstruct observed `from -> to` transitions. */
-  const lastAt = new Map<string, string>()
+  const crossBroadcasts = new Map<string, PendingBroadcast[]>()
+  /** Tracks last known substate path per `${system}\0${ref}` to reconstruct observed `from -> to` transitions. */
+  const lastAt = new Map<string, { readonly system: string; readonly ref: string; readonly at: string }>()
   const observedStates = new Map<string, Set<string>>()
   const observedMoves = new Map<string, Array<{ readonly from: string; readonly on: string; readonly to: string }>>()
+
+  const capMap = <K, V>(map: Map<K, V>, max: number): void => {
+    while (map.size > max) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) break
+      map.delete(oldest)
+    }
+  }
+
+  const pushBounded = <T,>(list: T[], item: T): void => {
+    list.push(item)
+    if (list.length > limit) list.shift()
+  }
 
   const emit = (update: InspectorUpdate): void => {
     for (const listener of [...listeners]) {
@@ -295,7 +316,7 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     }
   }
 
-  const pushQueue = (map: Map<string, PendingLink[]>, key: string, item: PendingLink): void => {
+  const pushQueue = <T extends PendingLink>(map: Map<string, T[]>, key: string, item: T): void => {
     const list = map.get(key)
     if (list) {
       list.push(item)
@@ -312,6 +333,15 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     if (idx < 0) return undefined
     const [found] = list.splice(idx, 1)
     if (!list.length) map.delete(key)
+    return found
+  }
+
+  const consumeBroadcast = (key: string, currentSystem: string): PendingBroadcast | undefined => {
+    const list = crossBroadcasts.get(key)
+    if (!list?.length) return undefined
+    const found = list.find((entry) => entry.system !== currentSystem && !entry.consumedBy.has(currentSystem))
+    if (!found) return undefined
+    found.consumedBy.add(currentSystem)
     return found
   }
 
@@ -346,7 +376,7 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     for (const h of log.handled) {
       if (h.kind === 'event' && h.ignored) {
         const matchedTrace = ignoredTraces.find((line) => line.includes(h.ref) && (!h.name || line.includes(h.name)))
-        ignored.push({
+        pushBounded(ignored, {
           seq: stepSeq,
           system: systemName,
           step: log.number,
@@ -357,17 +387,18 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
         })
       }
       if (h.kind === 'event' && h.name) {
-        const fromTell = shiftFromOther(crossTells, `${h.ref}:${h.name}`, systemName)
+        const fromTell = shiftFromOther(crossTells, `${h.ref}\0${h.name}`, systemName)
         if (fromTell) addCause({ kind: 'tell', fromSystem: fromTell.system, fromStep: fromTell.step, toSystem: systemName, toStep: log.number, ref: h.ref, name: h.name })
-        const fromBcast = shiftFromOther(crossBroadcasts, `${h.ref}:${h.name}`, systemName)
+        const fromBcast = consumeBroadcast(`${h.ref}\0${h.name}`, systemName)
         if (fromBcast) addCause({ kind: 'broadcast', fromSystem: fromBcast.system, fromStep: fromBcast.step, toSystem: systemName, toStep: log.number, ref: h.ref, name: h.name })
       }
       if (h.kind === 'ask' && h.id !== undefined) {
-        const originKey = `${systemName}:${h.id}`
+        const originKey = `${systemName}\0${h.id}`
         if (!opOrigins.has(originKey)) {
           opOrigins.set(originKey, { step: log.number, kind: 'ask', to: h.ref, name: h.name ?? '' })
+          capMap(opOrigins, limit * 4)
         }
-        openOps.set(`${systemName}:ask:${h.id}`, {
+        openOps.set(`${systemName}\0ask\0${h.id}`, {
           kind: 'ask',
           system: systemName,
           opId: h.id,
@@ -376,13 +407,15 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
           to: h.ref,
           name: h.name ?? '',
         })
-        const fromAsk = h.name ? shiftFromOther(crossAsks, `${h.ref}:${h.name}`, systemName) : undefined
+        const fromAsk = h.name ? shiftFromOther(crossAsks, `${h.ref}\0${h.name}`, systemName) : undefined
         if (fromAsk) {
+          crossOriginOps.set(originKey, { fromSystem: fromAsk.system, ...(fromAsk.opId === undefined ? {} : { fromOpId: fromAsk.opId }) })
+          capMap(crossOriginOps, limit * 4)
           addCause({ kind: 'ask', fromSystem: fromAsk.system, fromStep: fromAsk.step, toSystem: systemName, toStep: log.number, ...(fromAsk.opId === undefined ? {} : { opId: fromAsk.opId }), ref: h.ref, ...(h.name === undefined ? {} : { name: h.name }) })
         }
       }
       if ((h.kind === 'answer' || h.kind === 'progress' || h.kind === 'done' || h.kind === 'view') && h.id !== undefined) {
-        const opKey = `${systemName}:${h.id}`
+        const opKey = `${systemName}\0${h.id}`
         const origin = opOrigins.get(opKey)
         const answeredStep = h.kind === 'done' ? opAnswered.get(opKey) : undefined
         const parentStep = answeredStep ?? origin?.step
@@ -400,22 +433,33 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
         }
         if (h.kind === 'answer') {
           opAnswered.set(opKey, log.number)
+          capMap(opAnswered, limit * 4)
           if (h.name) {
-            const fromAnswer = shiftFromOther(crossAnswers, `${h.ref}:${h.name}`, systemName)
+            const fromAnswer = shiftFromOther(crossAnswers, `${systemName}\0${h.ref}\0${h.name}`, systemName)
             if (fromAnswer) {
               addCause({ kind: 'answer', fromSystem: fromAnswer.system, fromStep: fromAnswer.step, toSystem: systemName, toStep: log.number, ...(fromAnswer.opId === undefined ? {} : { opId: fromAnswer.opId }), ref: h.ref, name: h.name })
             }
           }
         }
-        if (h.kind === 'answer' || h.kind === 'done') openOps.delete(`${systemName}:ask:${h.id}`)
+        if (h.kind === 'answer' || h.kind === 'done') {
+          openOps.delete(`${systemName}\0ask\0${h.id}`)
+          openOpRefs.delete(`${systemName}\0ask\0${h.id}`)
+        }
+        if (h.kind === 'done') {
+          opOrigins.delete(opKey)
+          opAnswered.delete(opKey)
+        }
       }
     }
 
     // 2. Track outbound `sent` entries for downstream causal links, in-flight ops, and dropped/failed peers.
+    const stepInitiator = log.handled[0]?.ref ?? Object.keys(log.changed)[0]
     for (const s of log.sent) {
       if (s.kind === 'ask' && s.id !== undefined && s.to && s.name) {
-        opOrigins.set(`${systemName}:${s.id}`, { step: log.number, kind: 'ask', to: s.to, name: s.name })
-        openOps.set(`${systemName}:ask:${s.id}`, {
+        const askKey = `${systemName}\0ask\0${s.id}`
+        opOrigins.set(`${systemName}\0${s.id}`, { step: log.number, kind: 'ask', to: s.to, name: s.name })
+        capMap(opOrigins, limit * 4)
+        openOps.set(askKey, {
           kind: 'ask',
           system: systemName,
           opId: s.id,
@@ -424,10 +468,13 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
           to: s.to,
           name: s.name,
         })
-        pushQueue(crossAsks, `${s.to}:${s.name}`, { system: systemName, step: log.number, opId: s.id })
+        if (stepInitiator) openOpRefs.set(askKey, stepInitiator)
+        pushQueue(crossAsks, `${s.to}\0${s.name}`, { system: systemName, step: log.number, opId: s.id })
       } else if (s.kind === 'follow' && s.id !== undefined && s.to && s.name) {
-        opOrigins.set(`${systemName}:${s.id}`, { step: log.number, kind: 'follow', to: s.to, name: s.name })
-        openOps.set(`${systemName}:follow:${s.id}`, {
+        const followKey = `${systemName}\0follow\0${s.id}`
+        opOrigins.set(`${systemName}\0${s.id}`, { step: log.number, kind: 'follow', to: s.to, name: s.name })
+        capMap(opOrigins, limit * 4)
+        openOps.set(followKey, {
           kind: 'follow',
           system: systemName,
           opId: s.id,
@@ -436,17 +483,48 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
           to: s.to,
           name: s.name,
         })
+        if (stepInitiator) openOpRefs.set(followKey, stepInitiator)
       } else if (s.kind === 'unfollow' && s.id !== undefined) {
-        openOps.delete(`${systemName}:follow:${s.id}`)
+        openOps.delete(`${systemName}\0follow\0${s.id}`)
+        openOpRefs.delete(`${systemName}\0follow\0${s.id}`)
+        opOrigins.delete(`${systemName}\0${s.id}`)
       } else if ((s.kind === 'answer' || s.kind === 'abandoned') && s.id !== undefined) {
-        openOps.delete(`${systemName}:ask:${s.id}`)
-        if (s.to && s.name) pushQueue(crossAnswers, `${s.to}:${s.name}`, { system: systemName, step: log.number, opId: s.id })
+        const opKey = `${systemName}\0${s.id}`
+        const askKey = `${systemName}\0ask\0${s.id}`
+        openOps.delete(askKey)
+        openOpRefs.delete(askKey)
+        const crossOrigin = crossOriginOps.get(opKey)
+        crossOriginOps.delete(opKey)
+        // Only clear opOrigins/opAnswered on the answerer side (or abandoned); a caller forwarding `handled: answer`
+        // still needs `opAnswered` so the subsequent `handled: done` step chains through it.
+        const callerForwardingAnswer = s.kind === 'answer' && log.handled.some((h) => h.kind === 'answer' && h.id === s.id)
+        if (!callerForwardingAnswer) {
+          opOrigins.delete(opKey)
+          opAnswered.delete(opKey)
+        }
+        if (crossOrigin) {
+          if (s.kind === 'answer' && s.outcome === 'abandoned') {
+            // Caller already cancelled/left over the link, so clear the caller's open op and skip queueing an unconsumed answer.
+            if (crossOrigin.fromOpId !== undefined) {
+              const callerAskKey = `${crossOrigin.fromSystem}\0ask\0${crossOrigin.fromOpId}`
+              openOps.delete(callerAskKey)
+              openOpRefs.delete(callerAskKey)
+              opOrigins.delete(`${crossOrigin.fromSystem}\0${crossOrigin.fromOpId}`)
+              opAnswered.delete(`${crossOrigin.fromSystem}\0${crossOrigin.fromOpId}`)
+            }
+          } else if (s.to && s.name) {
+            const callerStillOpen = crossOrigin.fromOpId === undefined || openOps.has(`${crossOrigin.fromSystem}\0ask\0${crossOrigin.fromOpId}`)
+            if (callerStillOpen) {
+              pushQueue(crossAnswers, `${crossOrigin.fromSystem}\0${s.to}\0${s.name}`, { system: systemName, step: log.number, opId: s.id })
+            }
+          }
+        }
       } else if (s.kind === 'tell' && s.to && s.name) {
-        pushQueue(crossTells, `${s.to}:${s.name}`, { system: systemName, step: log.number })
+        pushQueue(crossTells, `${s.to}\0${s.name}`, { system: systemName, step: log.number })
       } else if (s.kind === 'broadcast' && s.to && s.name) {
-        pushQueue(crossBroadcasts, `${s.to}:${s.name}`, { system: systemName, step: log.number })
+        pushQueue(crossBroadcasts, `${s.to}\0${s.name}`, { system: systemName, step: log.number, consumedBy: new Set<string>() })
       } else if (s.kind === 'peer' && (s.outcome === 'dropped' || s.outcome === 'failed')) {
-        ignored.push({
+        pushBounded(ignored, {
           seq: stepSeq,
           system: systemName,
           step: log.number,
@@ -458,10 +536,20 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       }
     }
 
+    // If a transaction commit failed (`status: 'lost'`), the entire system stopped: clear all its open ops and substate pointers.
+    if (log.status === 'lost') {
+      const sysPrefix = `${systemName}\0`
+      for (const k of [...openOps.keys()]) if (k.startsWith(sysPrefix)) { openOps.delete(k); openOpRefs.delete(k) }
+      for (const k of [...opOrigins.keys()]) if (k.startsWith(sysPrefix)) opOrigins.delete(k)
+      for (const k of [...opAnswered.keys()]) if (k.startsWith(sysPrefix)) opAnswered.delete(k)
+      for (const k of [...crossOriginOps.keys()]) if (k.startsWith(sysPrefix)) crossOriginOps.delete(k)
+      for (const k of [...lastAt.keys()]) if (k.startsWith(sysPrefix)) lastAt.delete(k)
+    }
+
     // 3. Track visited states and observed transitions for static-vs-runtime graph coverage.
     for (const [ref, change] of Object.entries(log.changed)) {
-      const stateKey = `${systemName}:${ref}`
-      const prevAt = lastAt.get(stateKey) ?? ''
+      const stateKey = `${systemName}\0${ref}`
+      const prevAt = lastAt.get(stateKey)?.at ?? ''
       if (change.at) addStateVisited(ref, change.at)
       if (change.moved && prevAt && change.at && prevAt !== change.at) {
         let list = observedMoves.get(ref)
@@ -472,8 +560,21 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
           list.push({ from: prevAt, on, to: change.at })
         }
       }
-      if (change.at) lastAt.set(stateKey, change.at)
-      else lastAt.delete(stateKey)
+      if (change.at) {
+        lastAt.set(stateKey, { system: systemName, ref, at: change.at })
+      } else {
+        if (prevAt) {
+          // A state with substates only transitions to `at === ''` when it stops: clear its in-flight ops.
+          const sysPrefix = `${systemName}\0`
+          for (const [opKey, ownerRef] of [...openOpRefs]) {
+            if (opKey.startsWith(sysPrefix) && ownerRef === ref) {
+              openOps.delete(opKey)
+              openOpRefs.delete(opKey)
+            }
+          }
+        }
+        lastAt.delete(stateKey)
+      }
     }
 
     const sys = captureSnapshots ? bound.get(systemName) : undefined
@@ -489,7 +590,11 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
     if (steps.length > limit) {
       const dropped = steps.shift()!
       for (let i = edges.length - 1; i >= 0; i--) {
-        if (edges[i]!.toSystem === dropped.system && edges[i]!.toStep === dropped.log.number) edges.splice(i, 1)
+        const e = edges[i]!
+        if (
+          (e.toSystem === dropped.system && e.toStep === dropped.log.number)
+          || (e.fromSystem === dropped.system && e.fromStep === dropped.log.number)
+        ) edges.splice(i, 1)
       }
     }
     emit({ kind: 'step', step: record })
@@ -504,8 +609,8 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       ...(d.step === undefined ? {} : { step: d.step }),
       ...(d.error === undefined ? {} : { error: errorText(d.error) }),
     }
-    defects.push(entry)
-    ignored.push({
+    pushBounded(defects, entry)
+    pushBounded(ignored, {
       seq: entry.seq,
       system: systemName,
       ...(d.step === undefined ? {} : { step: d.step }),
@@ -514,15 +619,16 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       detail: d.message,
     })
     if (d.step !== undefined) {
-      // Attach directly if the step was already logged (e.g. a defect inside a throwing log callback), otherwise buffer.
-      const existing = steps.find((s) => s.system === systemName && s.log.number === d.step)
-      if (existing) {
-        ;(existing.defects as InspectedDefect[]).push(entry)
+      // Attach immutably if the step was already logged (e.g. a defect inside a throwing log callback), otherwise buffer.
+      const existingIdx = steps.findIndex((s) => s.system === systemName && s.log.number === d.step)
+      if (existingIdx >= 0) {
+        const existing = steps[existingIdx]!
+        steps[existingIdx] = { ...existing, defects: [...existing.defects, entry] }
       } else {
         const key = `${systemName}#${d.step}`
         const list = pendingDefects.get(key)
         if (list) list.push(entry)
-        else pendingDefects.set(key, [entry])
+        else { pendingDefects.set(key, [entry]); capMap(pendingDefects, limit) }
       }
     }
     emit({ kind: 'defect', defect: entry })
@@ -543,15 +649,19 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
         trace: (line: string) => {
           if (line.includes('ignored')) {
             const list = pendingIgnoredTraces.get(systemName)
-            if (list) list.push(line)
-            else pendingIgnoredTraces.set(systemName, [line])
+            if (list) {
+              list.push(line)
+              if (list.length > limit) list.shift()
+            } else {
+              pendingIgnoredTraces.set(systemName, [line])
+            }
           }
           forward.trace?.(line)
         },
       }
     },
 
-    bind(systemName: string, sys: System): () => void {
+    bind(systemName: string, sys: { snapshot(): Record<string, unknown> }): () => void {
       systems.add(systemName)
       bound.set(systemName, sys)
       return () => { if (bound.get(systemName) === sys) bound.delete(systemName) }
@@ -631,13 +741,17 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
             from: m.from,
             on: m.on,
             to,
-            hit: moves.some((obs) => obs.to === to && (m.from === 'anywhere' || obs.from === m.from || obs.from.startsWith(`${m.from}.`)) && obs.on === m.on),
+            hit: moves.some((obs) =>
+              (obs.to === to || obs.to.startsWith(`${to}.`))
+              && (m.from === 'anywhere' || obs.from === m.from || obs.from.startsWith(`${m.from}.`))
+              && obs.on === m.on,
+            ),
           })),
         )
         const refDefects = defects.filter((d) => d.ref === ref).length
         let currentAt: string | undefined
-        for (const [k, at] of lastAt) {
-          if (k.endsWith(`:${ref}`)) currentAt = at
+        for (const entry of lastAt.values()) {
+          if (entry.ref === ref) currentAt = entry.at
         }
         return {
           title: graph.title,
@@ -663,11 +777,18 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       let selected = steps
       if (opts.system !== undefined) selected = selected.filter((s) => s.system === opts.system)
       if (opts.ref !== undefined) selected = selected.filter((s) => stepTouchesRef(s, opts.ref!))
-      if (opts.last !== undefined && opts.last >= 0) selected = opts.last === 0 ? [] : selected.slice(-opts.last)
-      const selectedDefects = defects.filter((d) =>
-        (opts.system === undefined || d.system === opts.system)
-        && (opts.ref === undefined || d.ref === opts.ref),
-      )
+      if (opts.last !== undefined) {
+        const count = Math.max(0, Math.floor(opts.last))
+        selected = count === 0 ? [] : selected.slice(-count)
+      }
+      const minSeq = selected.length ? selected[0]!.seq : undefined
+      const selectedDefects = opts.last !== undefined && minSeq === undefined
+        ? []
+        : defects.filter((d) =>
+            (opts.system === undefined || d.system === opts.system)
+            && (opts.ref === undefined || d.ref === opts.ref)
+            && (minSeq === undefined || d.seq >= minSeq),
+          )
       return formatCausalTrace(selected, selectedDefects)
     },
 
@@ -697,6 +818,8 @@ export function createInspector(options: InspectorOptions = {}): Inspector {
       pendingIgnoredTraces.clear()
       opOrigins.clear()
       opAnswered.clear()
+      crossOriginOps.clear()
+      openOpRefs.clear()
       openOps.clear()
       crossAsks.clear()
       crossAnswers.clear()
