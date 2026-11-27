@@ -76,11 +76,22 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const t = checker.getTypeAtLocation(expr)
     return Boolean(t?.getProperty?.('tell') && t?.getProperty?.('broadcast') && t?.getProperty?.('onExit'))
   }
+  const isScopeBinding = (decl: any): boolean =>
+    Boolean(decl && ts.isBindingElement(decl) && ts.isObjectBindingPattern(decl.parent) && isScopeReceiver(decl.parent))
   const verbOf = (expr: any): string | undefined => {
     if (ts.isIdentifier(expr)) {
-      if (VERBS.has(expr.text)) return expr.text
-      const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration
-      if (decl && ts.isBindingElement(decl) && decl.propertyName && VERBS.has(decl.propertyName.getText())) return decl.propertyName.getText()
+      const sym = expr.parent && ts.isShorthandPropertyAssignment(expr.parent) && expr.parent.name === expr
+        ? checker.getShorthandAssignmentValueSymbol(expr.parent)
+        : checker.getSymbolAtLocation(expr)
+      const decl = sym?.valueDeclaration
+      if (isScopeBinding(decl)) {
+        const key = decl.propertyName
+          ? (ts.isIdentifier(decl.propertyName) || ts.isStringLiteralLike(decl.propertyName) ? decl.propertyName.text : decl.propertyName.getText())
+          : expr.text
+        if (VERBS.has(key)) return key
+      } else if (!decl && VERBS.has(expr.text)) {
+        return expr.text
+      }
     }
     if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
     return undefined
@@ -269,9 +280,13 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       }
       return undefined
     }
-    const isInlineFn = (node: any): boolean => {
+    const unwrapParens = (node: any): any => {
       let cur = node
       while (cur && ts.isParenthesizedExpression(cur)) cur = cur.expression
+      return cur
+    }
+    const isInlineFn = (node: any): boolean => {
+      const cur = unwrapParens(node)
       return Boolean(cur && (ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)))
     }
     const isInlineHandlerProp = (prop: any): boolean =>
@@ -294,7 +309,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           scan(property, path)
           continue
         }
-        const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
+        const made = ts.isPropertyAssignment(property) ? unwrapParens(property.initializer) : undefined
         if (name === 'on' || name === 'internal' || name === 'answers') {
           if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) hasOpaqueHandler = true
           scan(property, path)
@@ -317,11 +332,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
               scan(inner, path)
             } else if (ts.isPropertyAssignment(inner)) {
               const subName = propName(inner.name)
+              const subInit = unwrapParens(inner.initializer)
               if (subName === undefined) {
                 uncertain.add(`could not statically read ${where(path, inner.name.getText())}`)
                 scan(inner, path)
-              } else if (ts.isObjectLiteralExpression(inner.initializer)) {
-                declarations(inner.initializer, join(path, subName))
+              } else if (ts.isObjectLiteralExpression(subInit)) {
+                declarations(subInit, join(path, subName))
               } else {
                 uncertain.add(`could not statically read ${join(path, subName)}`)
                 scan(inner, path)
@@ -344,8 +360,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           scan(property, path)
           continue
         }
-        let body = made.body
-        while (ts.isParenthesizedExpression(body)) body = body.expression
+        const body = unwrapParens(made.body)
         if (!ts.isObjectLiteralExpression(body)) {
           uncertain.add(`could not statically read ${where(path, name)}`)
           scan(property, path)
@@ -498,7 +513,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         const label = where(w.within, w.name)
         if (!sources.length) findings.push(`nothing arms ${label}`)
         else if (!others.length) findings.push(`nothing arms ${label} except its own done`)
-        else findings.push(`nothing arms ${label} except the done of ${[...(sources.includes(w.key) ? [label] : []), ...others].join(', ')}, which nothing arms`)
+        else findings.push(`nothing arms ${label} except the done of ${[...(sources.includes(w.key) ? [label] : []), ...others].join(', ')}, which cannot fire`)
       }
     }
     for (const note of uncertain) findings.push(note)

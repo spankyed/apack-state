@@ -443,11 +443,13 @@ export const deadChain = state<DeadChainShape, never>()({
   }),
 })
 
-type LiveChainShape = { waits: { step1: 'one'; step2: 'one' } }
+type LiveChainShape = { waits: { step2: 'one'; step1: 'one'; step3: 'one' } }
 export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
   waits: ({ one }) => ({
+    // Declared out of topological order so reachability must propagate across multiple hops (step1 -> step2 -> step3).
+    step2: one(100, ({ arm }) => { arm('step3') }),
     step1: one(100, ({ arm }) => { arm('step2') }),
-    step2: one(100, ({ arm }) => { arm('step2') }),
+    step3: one(100, ({ arm }) => { arm('step3') }),
   }),
   on: { GO: (_, { arm }) => { arm('step1') } },
 })
@@ -540,35 +542,59 @@ export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
   initial: 'live',
   waits: ({ one }) => ({ keepalive: one(100) }),
   states: {
-    live: { on: { GO: () => {} } },
-    dead: {
+    live: ({ on: { GO: () => {} } }),
+    dead: ({
       waits: ({ one }) => ({ inner: one(50) }),
       on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
-    },
+    }),
+  },
+})
+
+type LocalArmVarShape = {
+  data: { arm: number }
+  waits: { dead: 'one' }
+}
+export const localArmVar = state<LocalArmVarShape, { type: 'SET'; arm: number }>()({
+  data: { arm: 0 },
+  waits: ({ one }) => ({ dead: one(100) }),
+  on: {
+    SET: ({ arm }) => ({ data: { arm } }),
+  },
+})
+
+function armFromBox(box: { arm: (name: 'viaBox') => void }) { box.arm('viaBox') }
+export const shorthandScopeArmEscape = state<{ waits: { viaBox: 'one' } }, { type: 'GO' }>()({
+  waits: ({ one }) => ({ viaBox: one(100) }),
+  on: {
+    GO: (_, { arm }) => { armFromBox({ arm }) },
   },
 })
 `)
       const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
       const graphs = all.get(file) ?? []
-      strictEqual(graphs.length, 8, formatGraphs(graphs))
+      strictEqual(graphs.length, 10, formatGraphs(graphs))
 
       deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
       deepStrictEqual(graphs[1]!.findings, [
         'nothing arms first',
-        'nothing arms second except the done of second, first, which nothing arms',
-        'nothing arms ping except the done of pong, which nothing arms',
-        'nothing arms pong except the done of ping, which nothing arms',
+        'nothing arms second except the done of second, first, which cannot fire',
+        'nothing arms ping except the done of pong, which cannot fire',
+        'nothing arms pong except the done of ping, which cannot fire',
       ])
       deepStrictEqual(graphs[2]!.findings, [])
       deepStrictEqual(graphs[3]!.findings, ['nothing arms t in b'])
       deepStrictEqual(graphs[4]!.findings, [])
       deepStrictEqual(graphs[5]!.findings, [
         'nothing arms dead-first',
-        'nothing arms dead-next except the done of dead-first, which nothing arms',
+        'nothing arms dead-next except the done of dead-first, which cannot fire',
       ])
       deepStrictEqual(graphs[6]!.waits, ['pulse in active: 100ms, one at a time'])
       deepStrictEqual(graphs[6]!.findings, [])
       deepStrictEqual(graphs[7]!.findings, ['dead is never entered', 'nothing arms keepalive'])
+      // An unrelated event/data field named `arm` does not suppress unused-wait findings,
+      // while escaping `scope.arm` via `{ arm }` shorthand still suppresses them.
+      deepStrictEqual(graphs[8]!.findings, ['nothing arms dead'])
+      deepStrictEqual(graphs[9]!.findings, [])
     } finally {
       rmSync(work, { recursive: true, force: true })
     }
