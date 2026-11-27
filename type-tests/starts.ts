@@ -223,3 +223,10 @@ state<{ states: { waiting: {}; editing: { data: { draft: string } } } }>()({
   initial: 'editting',
   states: { waiting: {}, editing: { data: { draft: '' } } },
 })
+
+// In the state entered first, a value typed `any` is a value like any other.
+declare const untypedCount: any
+state<{ states: { editing: { data: { count: number } }; idle: {} } }>()({
+  initial: 'editing',
+  states: { editing: { data: { count: untypedCount } }, idle: {} },
+})

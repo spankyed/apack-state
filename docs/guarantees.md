@@ -83,8 +83,11 @@ network) that already ran.
 
 - **What starts first.** A state named by `initial` is entered with nothing given, so a field of its data that is
   `given` is refused, by its name, where the definition is written, and the state does not start (`cannot start at
-  <state> without <field>`). A state whose data all has values of its own may be entered first. An `initial` written
-  as a value typed `any` is past the compiler, as anything typed `any` is, and is refused where it starts.
+  <state> without <field>`). A state whose data all has values of its own may be entered first. What the compiler
+  cannot tell is left to `start()`: a field written as a value typed `any`, or as one that may be `given` or a value
+  (`cond ? '' : given`), compiles, and the state is refused where it starts if the field turns out to be given. An
+  `initial` itself typed `any` names every state at once to the compiler, so a `given` field in any of them is
+  refused where the definition is written.
 
 ## Handle semantics
 

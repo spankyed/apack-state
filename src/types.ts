@@ -721,19 +721,18 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
  */
 declare const refused: unique symbol
 type Refused<Why extends string> = { readonly [refused]: Why }
-/**
- * A refusal of a field's value: `any` can be anything but `never`, and what it is intersected with is `any` again, so
- * a value written as `any` is held to `never` and every other to the reason.
- */
-type RefusedValue<Written, Why extends string> = 0 extends 1 & Written ? never : Refused<Why>
 
 /**
  * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
  * with no supplied fields, so a `given` field there would never be provided. A state whose data all has values of
  * its own can be entered first like any other.
  */
-/** The fields of written data that are `given`: the ones an initial state cannot have. */
-type GivenIn_<X> = { [F in keyof X]: [X[F]] extends [Given] ? F : never }[keyof X]
+/**
+ * The fields of written data that are `given`: the ones an initial state cannot have. A value typed `any` is not one
+ * of them, and nor is one that may be `given` or a value: a field read as its declared type is exactly that, so the
+ * two cannot be told apart here, and what either holds is found where the state starts.
+ */
+type GivenIn_<X> = { [F in keyof X]: 0 extends 1 & X[F] ? never : [X[F]] extends [Given] ? F : never }[keyof X]
 type NoInitialGiven<D> =
   D extends { initial: infer K extends string; states: infer T extends Record<string, unknown> }
     ? {
@@ -742,7 +741,7 @@ type NoInitialGiven<D> =
             ? (T[P] extends { data: infer X }
                 ? ([GivenIn_<X>] extends [never]
                     ? unknown
-                    : { data: { [F in GivenIn_<X>]: RefusedValue<X[F], `data field '${F & string}' cannot be given: an initial state is entered with nothing given`> } })
+                    : { data: { [F in GivenIn_<X>]: Refused<`data field '${F & string}' cannot be given: an initial state is entered with nothing given`> } })
                 : unknown) & NoInitialGiven<T[P]>
             : NoInitialGiven<T[P]>
         }
