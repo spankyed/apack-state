@@ -13,9 +13,9 @@ export interface CausalEdge {
     // (undocumented)
     readonly fromSystem: string;
     // (undocumented)
-    readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'abandoned' | 'follow' | 'view' | 'unfollow' | 'tell' | 'broadcast';
+    readonly kind: 'ask' | 'answer' | 'progress' | 'done' | 'view' | 'tell' | 'broadcast';
     // (undocumented)
-    readonly name?: string;
+    readonly name: string;
     // (undocumented)
     readonly opId?: number;
     // (undocumented)
@@ -79,6 +79,7 @@ export interface FormatOptions {
 
 // @public
 export interface Handled {
+    readonly across?: 'window' | 'backend';
     readonly id?: number;
     readonly ignored?: true;
     readonly key?: string;
@@ -211,7 +212,7 @@ export type InspectorUpdate = {
 export interface Sent {
     readonly id?: number;
     // (undocumented)
-    readonly kind: 'answer' | 'abandoned' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
+    readonly kind: 'answer' | 'abandoned' | 'cancelled' | 'progress' | 'tell' | 'peer' | 'ask' | 'broadcast' | 'follow' | 'unfollow';
     // (undocumented)
     readonly name?: string;
     readonly outcome?: string;

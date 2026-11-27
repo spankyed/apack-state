@@ -4,9 +4,10 @@
 //   npx vitest run inspect
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { forNet, given, type Clock, type Defect, type StepLog, type ViewHost } from '../src/index.ts'
+import { forNet, given, type Clock, type Defect, type Port, type StepLog, type ViewHost } from '../src/index.ts'
 import type { StateGraph } from '../src/graph.ts'
-import { createInspector, formatCausalTrace, type InspectorUpdate } from '../src/inspect.ts'
+import { createInspector, formatCausalTrace, type Inspector, type InspectorUpdate } from '../src/inspect.ts'
+import { nextTurn } from '../src/turn.ts'
 
 const MARK = 'SECRET-PAYLOAD-91a2'
 
@@ -114,6 +115,84 @@ const samplePanelGraph: StateGraph = {
   reaches: ["tell 'svc'"],
   findings: [],
   text: 'Panel',
+}
+
+
+type DeskAsks = { HOLD: { args: {}; answer: string }; NOW: { args: {}; answer: string } }
+type DeskEvent = { type: 'PING' } | { type: 'POKE' } | { type: 'PAT' } | { type: 'SHOUT' }
+type PaneEvent = { type: 'START' } | { type: 'STOP' } | { type: 'BOTH' } | { type: 'NOW' } | { type: 'SAY'; what: 'PING' | 'POKE' | 'PAT' } | { type: 'NOTE' }
+type DeskNet = {
+  systems: { desk: { events: DeskEvent; asks: DeskAsks } }
+  surfaces: { pane: { events: PaneEvent }; boss: { events: { type: 'GO' } } }
+  views: { docs: { count: { args: {}; result: number } } }
+}
+const desks = forNet<DeskNet>()
+/** Answers a hold when its gate opens, whether or not whoever asked is still there, and anything else at once. */
+const desk = (gate: () => Promise<void>) => desks<{ data: { pings: number } }, DeskEvent, DeskAsks>()({
+  data: { pings: 0 },
+  on: {
+    PING: (_, { data }) => ({ data: { pings: data.pings + 1 } }),
+    POKE: () => {},
+    PAT: () => {},
+    SHOUT: (_, { broadcast }) => { broadcast('pane', { type: 'NOTE' }) },
+  },
+  answers: { HOLD: async () => { await gate(); return 'held' }, NOW: () => 'now' },
+})
+/** Asks the desk to hold, gives that up, asks it something it answers at once, tells it, and counts the notes it is sent. */
+const pane = desks<{ data: { got: string; notes: number }; calls: { hold: 'single'; now: 'single' } }, PaneEvent>()({
+  data: { got: '', notes: 0 },
+  calls: ({ single }) => ({
+    hold: single('desk', 'HOLD', { done: (outcome) => (outcome.ok ? { data: { got: outcome.value } } : undefined) }),
+    now: single('desk', 'NOW', { done: (outcome) => (outcome.ok ? { data: { got: outcome.value } } : undefined) }),
+  }),
+  on: {
+    START: (_, { call }) => { call('hold') },
+    STOP: (_, { cancel }) => { cancel('hold') },
+    BOTH: (_, { call, cancel }) => { call('hold'); cancel('hold') },
+    NOW: (_, { call }) => { call('now') },
+    SAY: ({ what }, { tell }) => { tell('desk', { type: what }) },
+    NOTE: (_, { data }) => ({ data: { notes: data.notes + 1 } }),
+  },
+})
+/** Has the pane in its window ask the desk to hold. */
+const boss = desks<{ states: { on: {}; off: {} } }, { type: 'GO' }>()({
+  initial: 'on',
+  on: { GO: (_, { tell }) => { tell({ surface: 'pane' }, { type: 'START' }) } },
+  states: { on: {}, off: {} },
+})
+/** Moves to where it is told, which may be where it is. */
+const mover = desks<{ states: { idle: {}; busy: {} } }, { type: 'TO'; at: 'idle' | 'busy' }>()({
+  initial: 'idle',
+  on: { TO: ({ at }) => ({ at }) },
+  states: { idle: {}, busy: {} },
+})
+const moverGraph: StateGraph = {
+  title: 'Mover',
+  states: ['idle', 'busy'],
+  moves: [{ from: 'idle', on: 'TO', to: ['idle', 'busy'] }, { from: 'busy', on: 'TO', to: ['idle'] }],
+  stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: 'Mover',
+}
+/** Follows how many docs there are. */
+const counting = desks<{ data: { count: number } }, never>()({
+  data: { count: 0 },
+  follows: (follow) => ({ docs: follow('docs', 'count', { updated: (update) => (update.ok ? { data: { count: update.value } } : undefined) }) }),
+})
+const oneDoc: ViewHost = (_feature, _view, _args, updated) => { updated({ ok: true, value: 1 }); return () => {} }
+/** A gate that is opened by hand. */
+const gated = (): { gate: () => Promise<void>; open: () => void } => {
+  let open!: () => void
+  const waiting = new Promise<void>((resolve) => { open = resolve })
+  return { gate: () => waiting, open }
+}
+/** A few turns, for what cannot come to rest while an ask is held. */
+const turns = async (): Promise<void> => { for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => { nextTurn(resolve) }) }
+/** A window and a backend, joined, both inspected: the desk on the backend and a pane in the window. */
+const joined = (inspector: Inspector, gate: () => Promise<void> = () => Promise.resolve(), window = 'window') => {
+  const backend = system({ side: 'backend', ...inspector.hooks('backend') })
+  const made = backend.start('desk', desk(gate))
+  const win = system({ side: 'window', ...inspector.hooks(window) })
+  const link = connect(win, backend)
+  return { backend, made, win, link, handle: win.start('pane', pane) }
 }
 
 await run([
@@ -536,5 +615,886 @@ await run([
     const lines = insp.format().split('\n').filter((line) => line.startsWith('  Δ timed'))
     deepStrictEqual(lines, ['  Δ timed: at=waiting, armed', '  Δ timed: at=late, armed'])
     sys.stop()
+  }],
+  ['an ask its asker gave up is no longer under way, wherever that is learnt: held and answered anyway, never sent, or with only the window inspected', async () => {
+    const inspector = createInspector()
+    const held = gated()
+    const { win, handle } = joined(inspector, held.gate)
+    await rest()
+    win.send(handle, { type: 'START' })
+    await turns()
+    // Under way twice: where it was made, and where it is being answered.
+    deepStrictEqual(inspector.inFlight(), [
+      { kind: 'ask', system: 'window', opId: 1, startedStep: 2, to: 'desk', name: 'HOLD' },
+      { kind: 'ask', system: 'backend', opId: 1, startedStep: 2, to: 'desk', name: 'HOLD' },
+    ])
+    win.send(handle, { type: 'STOP' })
+    await turns()
+    deepStrictEqual(inspector.inFlight(), [{ kind: 'ask', system: 'backend', opId: 1, startedStep: 2, to: 'desk', name: 'HOLD' }])
+    // The desk answers anyway. Nobody is there to take it: nothing is under way, and nothing waits for an answer.
+    held.open()
+    await rest()
+    deepStrictEqual(inspector.inFlight(), [])
+    // Made and given up in one step, it never left: it was never under way, and the next ask is not taken for it.
+    win.send(handle, { type: 'BOTH' })
+    deepStrictEqual(inspector.inFlight(), [])
+    win.send(handle, { type: 'NOW' })
+    await rest()
+    const asked = inspector.steps.find((step) => step.system === 'window' && step.log.sent.some((sent) => sent.kind === 'ask' && sent.name === 'NOW'))!
+    const taken = inspector.steps.find((step) => step.system === 'backend' && step.log.handled.some((each) => each.name === 'NOW'))!
+    deepStrictEqual(taken.causes, [{ kind: 'ask', fromSystem: 'window', fromStep: asked.log.number, toSystem: 'backend', toStep: taken.log.number, opId: 3, ref: 'desk', name: 'NOW' }])
+    deepStrictEqual(inspector.inFlight(), [])
+
+    // With only the window inspected, what its own log says is all there is, and it says the ask was given up.
+    const alone = createInspector()
+    const other = gated()
+    const backend = system({ side: 'backend' })
+    backend.start('desk', desk(other.gate))
+    const window = system({ side: 'window', ...alone.hooks('window') })
+    connect(window, backend)
+    const mine = window.start('pane', pane)
+    window.send(mine, { type: 'START' })
+    await turns()
+    strictEqual(alone.inFlight().length, 1)
+    window.send(mine, { type: 'STOP' })
+    deepStrictEqual(alone.inFlight(), [])
+    other.open()
+    await rest()
+    deepStrictEqual(alone.inFlight(), [])
+  }],
+  ['a view is under way from the step that follows it until the one that says it is unfollowed: served by its own system, or left with the link', async () => {
+    const inspector = createInspector()
+    const own = system({ side: 'window', views: oneDoc, ...inspector.hooks('own') })
+    const made = own.start('counting', counting)
+    await rest()
+    deepStrictEqual(inspector.inFlight(), [{ kind: 'follow', system: 'own', opId: 1, startedStep: 1, to: 'docs', name: 'count' }])
+    // What the view delivered came of the step that followed it.
+    deepStrictEqual(inspector.edges, [{ kind: 'view', fromSystem: 'own', fromStep: 1, toSystem: 'own', toStep: 2, opId: 1, ref: 'counting', name: 'docs' }])
+    own.stop(made)
+    deepStrictEqual(inspector.inFlight(), [])
+
+    // A window that leaves its backend takes no step to stop following: the next step it logs says so.
+    const backend = system({ side: 'backend', views: oneDoc })
+    const window = system({ side: 'window', ...inspector.hooks('window') })
+    const link = connect(window, backend)
+    window.start('counting', counting)
+    await rest()
+    deepStrictEqual(inspector.inFlight(), [{ kind: 'follow', system: 'window', opId: 1, startedStep: 1, to: 'docs', name: 'count' }])
+    link.close()
+    await rest()
+    window.start('pane', pane)
+    deepStrictEqual(inspector.inFlight(), [])
+  }],
+  ['what is done with an answer follows the step that answered it, in one system: answered at once in the step that asked, or in a step of its own', async () => {
+    const inspector = createInspector()
+    const held = gated()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    sys.start('desk', desk(held.gate))
+    const made = sys.start('pane', pane)
+    sys.send(made, { type: 'NOW' })
+    await rest()
+    strictEqual(sys.read(made).data.got, 'now')
+    // Asked and answered in step 3, and what was done with the answer is step 4.
+    deepStrictEqual(inspector.edges, [{ kind: 'done', fromSystem: 'one', fromStep: 3, toSystem: 'one', toStep: 4, opId: 1, ref: 'pane', name: 'now' }])
+    deepStrictEqual(inspector.inFlight(), [])
+    sys.send(made, { type: 'START' })
+    await turns()
+    deepStrictEqual(inspector.inFlight(), [{ kind: 'ask', system: 'one', opId: 2, startedStep: 5, to: 'desk', name: 'HOLD' }])
+    held.open()
+    await rest()
+    strictEqual(sys.read(made).data.got, 'held')
+    // Asked in step 5, answered in step 6, and done with in step 7.
+    deepStrictEqual(inspector.edges.slice(1), [
+      { kind: 'answer', fromSystem: 'one', fromStep: 5, toSystem: 'one', toStep: 6, opId: 2, ref: 'desk', name: 'HOLD' },
+      { kind: 'done', fromSystem: 'one', fromStep: 6, toSystem: 'one', toStep: 7, opId: 2, ref: 'pane', name: 'hold' },
+    ])
+    deepStrictEqual(inspector.inFlight(), [])
+  }],
+  ['an ask is its own state\'s: another state that stops in the step it began in, or that began the step, does not end it', async () => {
+    const inspector = createInspector()
+    const held = gated()
+    const { win } = joined(inspector, held.gate)
+    const lead = win.start('boss', boss)
+    await rest()
+    // The boss is sent GO, tells the pane, and the pane asks: one step, begun by the boss.
+    win.send(lead, { type: 'GO' })
+    await turns()
+    const under = [
+      { kind: 'ask', system: 'window', opId: 1, startedStep: 3, to: 'desk', name: 'HOLD' },
+      { kind: 'ask', system: 'backend', opId: 1, startedStep: 2, to: 'desk', name: 'HOLD' },
+    ]
+    deepStrictEqual(inspector.inFlight(), under)
+    win.stop(lead)
+    deepStrictEqual(inspector.inFlight(), under)
+    held.open()
+    await rest()
+    deepStrictEqual(inspector.inFlight(), [])
+  }],
+  ['a move to the state it is in is a move, and coverage says where each declared move was made from', async () => {
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const made = sys.start('mover', mover)
+    sys.send(made, { type: 'TO', at: 'idle' })
+    deepStrictEqual(inspector.coverage({ mover: moverGraph }), [{
+      title: 'Mover',
+      ref: 'mover',
+      declaredStates: ['idle', 'busy'],
+      visitedStates: ['idle'],
+      unvisitedStates: ['busy'],
+      declaredMoves: [
+        { from: 'idle', on: 'TO', to: 'idle', hit: true },
+        { from: 'idle', on: 'TO', to: 'busy', hit: false },
+        { from: 'busy', on: 'TO', to: 'idle', hit: false },
+      ],
+      observedMoves: [{ from: 'idle', on: 'TO', to: 'idle' }],
+      defects: 0,
+      currentAt: 'idle',
+    }])
+    sys.send(made, { type: 'TO', at: 'busy' })
+    sys.send(made, { type: 'TO', at: 'idle' })
+    // Made again, a move is the one already seen.
+    sys.send(made, { type: 'TO', at: 'idle' })
+    const [after] = inspector.coverage({ mover: moverGraph })
+    deepStrictEqual(after!.declaredMoves.map((move) => move.hit), [true, true, true])
+    deepStrictEqual(after!.observedMoves, [{ from: 'idle', on: 'TO', to: 'idle' }, { from: 'idle', on: 'TO', to: 'busy' }, { from: 'busy', on: 'TO', to: 'idle' }])
+    deepStrictEqual(after!.unvisitedStates, [])
+    // Stopped, it is nowhere, and what it visited is still what it visited.
+    sys.stop(made)
+    const [stopped] = inspector.coverage({ mover: moverGraph })
+    strictEqual('currentAt' in stopped!, false)
+    deepStrictEqual(stopped!.visitedStates, ['idle', 'busy'])
+    // What is read of it is a copy: changing it changes nothing kept.
+    ;(stopped!.observedMoves as unknown[]).length = 0
+    strictEqual(inspector.coverage({ mover: moverGraph })[0]!.observedMoves.length, 3)
+  }],
+  ['what is kept is bounded by the limit: steps, the states covered, what is under way, and the names under way between systems', async () => {
+    const inspector = createInspector({ limit: 2 })
+    const sys = system({ side: 'window', views: oneDoc, ...inspector.hooks('one') })
+    // Five states that move, each under its own name: the last two are covered.
+    for (let index = 0; index < 5; index++) sys.send(sys.start(`mover/${index}`, mover), { type: 'TO', at: 'busy' })
+    const seen: string[] = []
+    deepStrictEqual(inspector.coverage((ref) => { seen.push(ref); return moverGraph }).map((each) => [each.ref, each.observedMoves.length]), [['mover/3', 1], ['mover/4', 1]])
+    deepStrictEqual(seen, ['mover/3', 'mover/4'])
+    strictEqual(inspector.steps.length, 2)
+    // Where eight states are is kept, four for each step. With five more begun, where the first was is forgotten:
+    // moved, it is from nobody knows where, which is no move anyone saw. The last is still known.
+    for (let index = 5; index < 10; index++) sys.start(`mover/${index}`, mover)
+    sys.send({ ref: 'mover/0' } as never, { type: 'TO', at: 'idle' } as never)
+    deepStrictEqual(inspector.coverage({ 'mover/0': moverGraph }).map((each) => [each.currentAt, each.observedMoves]), [['idle', []]])
+    sys.send({ ref: 'mover/9' } as never, { type: 'TO', at: 'busy' } as never)
+    deepStrictEqual(inspector.coverage({ 'mover/9': moverGraph }).map((each) => [each.currentAt, each.observedMoves]), [['busy', [{ from: 'idle', on: 'TO', to: 'busy' }]]])
+    // Ten views followed: the last eight are known to be under way, four for each step kept.
+    for (let index = 0; index < 10; index++) sys.start(`counting/${index}`, counting)
+    deepStrictEqual(inspector.inFlight().map((op) => op.opId), [3, 4, 5, 6, 7, 8, 9, 10])
+
+    // Three things told under three names before any is taken are more names than are kept: none is given an edge.
+    const edgesWith = async (limit: number): Promise<string[]> => {
+      const between = createInspector({ limit })
+      const { win, handle } = joined(between)
+      await rest()
+      for (const what of ['PING', 'POKE', 'PAT'] as const) win.send(handle, { type: 'SAY', what })
+      await rest()
+      return between.steps.flatMap((step) => step.causes.map((edge) => `${edge.kind} ${edge.name}`))
+    }
+    deepStrictEqual(await edgesWith(3), ['tell PING', 'tell POKE', 'tell PAT'])
+    deepStrictEqual(await edgesWith(2), [])
+  }],
+  ['a limit or a count that is not a whole number is taken as the nearest that is, and what is read of the inspector is a copy', async () => {
+    const kept = async (limit: number): Promise<number> => {
+      const inspector = createInspector({ limit })
+      const sys = system({ side: 'backend', ...inspector.hooks('one') })
+      const made = sys.start('mover', mover)
+      for (let count = 0; count < 4; count++) sys.send(made, { type: 'TO', at: 'busy' })
+      return inspector.steps.length
+    }
+    strictEqual(await kept(Number.NaN), 1)
+    strictEqual(await kept(0), 1)
+    strictEqual(await kept(-3), 1)
+    strictEqual(await kept(2.9), 2)
+    strictEqual(await kept(3), 3)
+    strictEqual(await kept(Infinity), 5)
+
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const made = sys.start('mover', mover)
+    for (const at of ['busy', 'idle', 'busy'] as const) sys.send(made, { type: 'TO', at })
+    const headers = (text: string): string[] => text.split('\n').filter((line) => line.startsWith('one#'))
+    deepStrictEqual(headers(inspector.format({ last: 2.9 })), ['one#3 [committed]', 'one#4 [committed]'])
+    deepStrictEqual(headers(inspector.format({ last: Infinity })).length, 4)
+    strictEqual(inspector.format({ last: Number.NaN }), '(no steps recorded)')
+    // Emptying what was read empties nothing that is kept.
+    sys.send({ ref: 'nobody' } as never, { type: 'TO', at: 'idle' } as never)
+    const broken = system({ side: 'backend', ...inspector.hooks('two') })
+    broken.send(broken.start('thrower', desks<{}, { type: 'PING' }>()({ on: { PING: () => { throw new Error('it broke') } } })), { type: 'PING' })
+    for (const read of [inspector.steps, inspector.defects, inspector.edges, inspector.whyIgnored(), inspector.inFlight(), inspector.export().steps]) (read as unknown[]).length = 0
+    strictEqual(inspector.steps.length, 7)
+    strictEqual(inspector.defects.length, 1)
+    strictEqual(inspector.whyIgnored().length, 2)
+    strictEqual(inspector.export().steps.length, 7)
+  }],
+  ['an ignored event is explained by what the kernel said of that event, and of no other whose name is part of its own', async () => {
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const quiet = desks<{ internal: { type: 'SECRET' } }, { type: 'PING' }>()({ internal: { SECRET: () => {} }, on: { PING: () => {} } })
+    sys.start('ab', quiet)
+    sys.start('a', quiet)
+    // One step in which `ab` and then `a` are each sent what only they raise, and then something neither takes.
+    const sender = desks<{}, { type: 'GO' }>()({
+      on: { GO: (_, { tell }) => { for (const type of ['SECRET', 'NOPE']) for (const ref of ['ab', 'a']) tell({ ref } as never, { type } as never) } },
+    })
+    sys.send(sys.start('sender', sender), { type: 'GO' })
+    deepStrictEqual(inspector.whyIgnored(), [
+      { seq: 4, system: 'one', step: 4, kind: 'event', ref: 'ab', name: 'SECRET', detail: 'ab was sent SECRET from outside, which only it raises: ignored' },
+      { seq: 4, system: 'one', step: 4, kind: 'event', ref: 'a', name: 'SECRET', detail: 'a was sent SECRET from outside, which only it raises: ignored' },
+      { seq: 4, system: 'one', step: 4, kind: 'event', ref: 'ab', name: 'NOPE', detail: 'ab ignored NOPE' },
+      { seq: 4, system: 'one', step: 4, kind: 'event', ref: 'a', name: 'NOPE', detail: 'a ignored NOPE' },
+    ])
+    deepStrictEqual(inspector.whyIgnored('a').map((entry) => entry.name), ['SECRET', 'NOPE'])
+    // With no trace wired, an event sent from outside is still said to be ignored.
+    const plain = createInspector()
+    const { log } = plain.hooks('one')
+    const untraced = system({ side: 'backend', log })
+    untraced.send(untraced.start('a', quiet), { type: 'SECRET' } as never)
+    deepStrictEqual(plain.whyIgnored().map((entry) => entry.detail), ['a ignored SECRET'])
+  }],
+  ['a defect of a step the kernel threw out of stays that step\'s: the next step logged is not given it', async () => {
+    const inspector = createInspector()
+    let unit = 0
+    let failAt = 0
+    const sys = system({
+      side: 'backend',
+      transact: (inner) => { unit++; if (unit === failAt) throw new Error('the database went away'); return inner() },
+      ...inspector.hooks('one'),
+    })
+    const chain = desks<{ internal: { type: 'BREAK' } | { type: 'AFTER' } }, { type: 'GO' } | { type: 'PING' }>()({
+      internal: { BREAK: () => { throw new Error('it broke') }, AFTER: () => {} },
+      on: { GO: (_, { raise }) => { raise({ type: 'BREAK' }); raise({ type: 'AFTER' }) }, PING: () => {} },
+    })
+    const made = sys.start('chain', chain)
+    // The step's units are the step, GO, BREAK and AFTER: the last is where the database goes away.
+    unit = 0; failAt = 4
+    try { sys.send(made, { type: 'GO' }) } catch { /* the kernel's own throw */ }
+    failAt = 0
+    sys.send(made, { type: 'PING' })
+    deepStrictEqual(inspector.steps.map((step) => [step.log.number, step.defects.length]), [[1, 0], [3, 0]])
+    deepStrictEqual(inspector.format().split('\n'), [
+      'one#1 [committed]',
+      'one#3 [committed]',
+      '  ◀ event chain PING',
+      'one#2 ⚠ DEFECT (chain): chain threw handling BREAK, and nothing changed: it broke',
+    ])
+  }],
+  ['a whole run is formatted and exported as it happened: a window asks, tells and is broadcast to, and each step says what it came of', async () => {
+    const inspector = createInspector()
+    const { backend, made, win, handle } = joined(inspector)
+    await rest()
+    win.send(handle, { type: 'NOW' })
+    await rest()
+    win.send(handle, { type: 'SAY', what: 'PING' })
+    await rest()
+    backend.send(made, { type: 'SHOUT' })
+    await rest()
+    deepStrictEqual(inspector.format().split('\n'), [
+      'backend#1 [committed]',
+      'window#1 [committed]',
+      'window#2 [committed]',
+      '  ◀ event pane NOW',
+      '  ◀ call pane now',
+      '  Δ pane: pending',
+      '  ▶ ask -> desk NOW #1',
+      'backend#2 [committed]  ← window#2 (ask#1)',
+      '  ◀ ask desk NOW #1 (from a window)',
+      '  ▶ answer -> desk NOW #1 [ok]',
+      'window#3 [committed]  ← window#2 (answer#1), backend#2 (answer#1)',
+      '  ◀ answer desk NOW #1',
+      '  ▶ answer -> desk NOW #1 [ok]',
+      'window#4 [committed]  ← window#3 (done#1)',
+      '  ◀ done pane now #1',
+      '  Δ pane: fields=[got], pending',
+      'window#5 [committed]',
+      '  ◀ event pane SAY',
+      '  ▶ tell -> desk PING',
+      'backend#3 [committed]  ← window#5 (tell)',
+      '  ◀ event desk PING (from a window)',
+      '  Δ desk: fields=[pings]',
+      'backend#4 [committed]',
+      '  ◀ event desk SHOUT',
+      '  ▶ broadcast -> pane NOTE',
+      'window#6 [committed]  ← backend#4 (broadcast)',
+      '  ◀ event pane NOTE (from the backend)',
+      '  Δ pane: fields=[notes]',
+    ])
+    deepStrictEqual(inspector.edges, [
+      { kind: 'ask', fromSystem: 'window', fromStep: 2, toSystem: 'backend', toStep: 2, opId: 1, ref: 'desk', name: 'NOW' },
+      { kind: 'answer', fromSystem: 'window', fromStep: 2, toSystem: 'window', toStep: 3, opId: 1, ref: 'desk', name: 'NOW' },
+      { kind: 'answer', fromSystem: 'backend', fromStep: 2, toSystem: 'window', toStep: 3, opId: 1, ref: 'desk', name: 'NOW' },
+      { kind: 'done', fromSystem: 'window', fromStep: 3, toSystem: 'window', toStep: 4, opId: 1, ref: 'pane', name: 'now' },
+      { kind: 'tell', fromSystem: 'window', fromStep: 5, toSystem: 'backend', toStep: 3, ref: 'desk', name: 'PING' },
+      { kind: 'broadcast', fromSystem: 'backend', fromStep: 4, toSystem: 'window', toStep: 6, ref: 'pane', name: 'NOTE' },
+    ])
+    // What a field came of is every step back from the one that last changed it, and nothing beside.
+    const why = inspector.explain('pane', 'got')
+    deepStrictEqual(why.steps.map((step) => `${step.system}#${step.log.number}`), ['window#2', 'backend#2', 'window#3', 'window#4'])
+    deepStrictEqual(why.edges.map((edge) => edge.kind), ['done', 'answer', 'answer', 'ask'])
+    strictEqual(why.text, inspector.format().split('\n').slice(2, 16).join('\n'))
+    deepStrictEqual({ ref: why.ref, field: why.field }, { ref: 'pane', field: 'got' })
+    // Asked of a state and no field, it is from the last step that handled, changed or sent to it.
+    deepStrictEqual(inspector.explain('desk').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#4'])
+    strictEqual('field' in inspector.explain('desk'), false)
+    deepStrictEqual(inspector.explain('pane').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#4', 'window#6'])
+    deepStrictEqual(inspector.explain('nobody'), { ref: 'nobody', steps: [], edges: [], text: '(no recorded step touched nobody)' })
+    deepStrictEqual(inspector.explain('pane', 'nothing'), { ref: 'pane', field: 'nothing', steps: [], edges: [], text: '(no recorded step touched pane.data.nothing)' })
+    // By system, by state, and the last of them.
+    deepStrictEqual(inspector.format({ system: 'backend', last: 2 }).split('\n').filter((line) => !line.startsWith('  ')), ['backend#3 [committed]  ← window#5 (tell)', 'backend#4 [committed]'])
+    deepStrictEqual(inspector.format({ ref: 'desk' }).split('\n').filter((line) => !line.startsWith('  ')).map((line) => line.split(' ')[0]), ['backend#1', 'window#2', 'backend#2', 'window#3', 'window#5', 'backend#3', 'backend#4'])
+    const exported = inspector.export()
+    deepStrictEqual({ ...exported, steps: exported.steps.length }, { version: 1, systems: ['backend', 'window'], steps: 10, defects: [], inFlight: [], ignored: [] })
+    deepStrictEqual(exported.steps[3], {
+      seq: 4,
+      system: 'backend',
+      log: { number: 2, handled: [{ kind: 'ask', ref: 'desk', name: 'NOW', id: 1, across: 'window' }], changed: {}, sent: [{ kind: 'answer', to: 'desk', name: 'NOW', id: 1, outcome: 'ok' }], status: 'committed' },
+      defects: [],
+      causes: [inspector.edges[0]],
+    })
+  }],
+  ['a broadcast is given its edge only where one alone could be the one a window took: not in a burst, and never from before the window was hooked', async () => {
+    const inspector = createInspector()
+    const { backend, made, win, handle } = joined(inspector)
+    await rest()
+    const shout = (): number => { backend.send(made, { type: 'SHOUT' }); return inspector.steps.at(-1)!.log.number }
+    const noted = (window: string): string[][] => inspector.steps
+      .filter((step) => step.system === window && step.log.handled.some((each) => each.name === 'NOTE'))
+      .map((step) => step.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`))
+    // Two before the window takes either: which it took first is not in any log, and neither is given an edge.
+    shout()
+    shout()
+    await rest()
+    deepStrictEqual(noted('window'), [[], []])
+    // Caught up, the next is the only one it has not taken.
+    const third = shout()
+    await rest()
+    deepStrictEqual(noted('window'), [[], [], [`broadcast backend#${third}`]])
+    // A window hooked after those was sent none of them: the next broadcast is the first it could take.
+    const late = system({ side: 'window', ...inspector.hooks('late') })
+    connect(late, backend)
+    late.start('pane', pane)
+    await rest()
+    const fourth = shout()
+    await rest()
+    deepStrictEqual(noted('late'), [[`broadcast backend#${fourth}`]])
+    deepStrictEqual(noted('window').at(-1), [`broadcast backend#${fourth}`])
+    // A window hooked before a broadcast and joined after it was not sent it, and cannot say so: it is never caught up, and never given an edge.
+    const absent = system({ side: 'window', ...inspector.hooks('absent') })
+    absent.start('pane', pane)
+    shout()
+    await rest()
+    connect(absent, backend)
+    const sixth = shout()
+    await rest()
+    shout()
+    await rest()
+    deepStrictEqual(noted('absent'), [[], []])
+    strictEqual(absent.read({ ref: 'pane' } as typeof handle).data.notes, 2)
+    deepStrictEqual(noted('window').at(-2), [`broadcast backend#${sixth}`])
+    // The same event sent in the window is not a broadcast.
+    win.send(handle, { type: 'NOTE' })
+    deepStrictEqual(noted('window').at(-1), [])
+
+    // A backend that is not inspected: what its window takes came from nothing known, then and after.
+    const alone = createInspector()
+    const unseen = system({ side: 'backend' })
+    const other = unseen.start('desk', desk(() => Promise.resolve()))
+    const window = system({ side: 'window', ...alone.hooks('window') })
+    connect(window, unseen)
+    window.start('pane', pane)
+    unseen.send(other, { type: 'SHOUT' })
+    await rest()
+    deepStrictEqual(alone.edges, [])
+    strictEqual(alone.steps.at(-1)!.log.handled[0]!.across, 'backend')
+  }],
+  ['what two windows tell a backend alike is told apart only when one is waiting: both waiting, neither is given an edge, and the next alone is', async () => {
+    const inspector = createInspector()
+    const { backend, made, win, handle } = joined(inspector, undefined, 'one')
+    const two = system({ side: 'window', ...inspector.hooks('two') })
+    connect(two, backend)
+    const other = two.start('pane', pane)
+    await rest()
+    const pinged = (): string[][] => inspector.steps
+      .filter((step) => step.system === 'backend' && step.log.handled.some((each) => each.name === 'PING'))
+      .map((step) => step.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`))
+    const say = (window: typeof win, to: typeof handle): number => { window.send(to, { type: 'SAY', what: 'PING' }); return inspector.steps.at(-1)!.log.number }
+    // Both tell before the backend takes either.
+    say(win, handle)
+    say(two, other)
+    await rest()
+    deepStrictEqual(pinged(), [[], []])
+    // Both were taken, so nothing is waiting: the next is the only one, whichever window tells it.
+    const third = say(two, other)
+    await rest()
+    const fourth = say(win, handle)
+    await rest()
+    deepStrictEqual(pinged().slice(2), [[`tell two#${third}`], [`tell one#${fourth}`]])
+    // Two from one window are in the order it told them: a link keeps that.
+    const fifth = say(win, handle)
+    const sixth = say(win, handle)
+    await rest()
+    deepStrictEqual(pinged().slice(4), [[`tell one#${fifth}`], [`tell one#${sixth}`]])
+    // Sent here, the same event is no window's.
+    backend.send(made, { type: 'PING' })
+    deepStrictEqual(pinged().at(-1), [])
+    strictEqual(backend.read(made).data.pings, 7)
+
+    // More waiting under one name than are kept are not told apart: none is given an edge, and the next alone is.
+    const small = createInspector({ limit: 2 })
+    const few = joined(small)
+    await rest()
+    for (let count = 0; count < 3; count++) few.win.send(few.handle, { type: 'SAY', what: 'PING' })
+    await rest()
+    deepStrictEqual(small.edges.map((edge) => edge.kind), [])
+    few.win.send(few.handle, { type: 'SAY', what: 'PING' })
+    await rest()
+    deepStrictEqual(small.edges.map((edge) => edge.kind), ['tell'])
+  }],
+  ['an ask given up after it left may or may not be taken: alone it is the one taken, and with another behind it neither is told apart', async () => {
+    const inspector = createInspector()
+    const held = gated()
+    const { win, handle } = joined(inspector, held.gate)
+    await rest()
+    const taken = (): string[][] => inspector.steps
+      .filter((step) => step.system === 'backend' && step.log.handled.some((each) => each.kind === 'ask'))
+      .map((step) => step.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep} #${edge.opId}`))
+    // Asked and given up before the backend takes it: nothing else is waiting, so what is taken is it.
+    win.send(handle, { type: 'START' })
+    const first = inspector.steps.at(-1)!.log.number
+    win.send(handle, { type: 'STOP' })
+    await turns()
+    deepStrictEqual(taken(), [[`ask window#${first} #1`]])
+    // Asked, given up and asked again before the backend takes either: the first may never come, so neither is told apart.
+    win.send(handle, { type: 'START' })
+    win.send(handle, { type: 'STOP' })
+    win.send(handle, { type: 'START' })
+    await turns()
+    deepStrictEqual(taken().slice(1), [[], []])
+    // Both came. Given up and asked once more, the next is alone again.
+    win.send(handle, { type: 'STOP' })
+    await turns()
+    win.send(handle, { type: 'START' })
+    const last = inspector.steps.at(-1)!.log.number
+    await turns()
+    deepStrictEqual(taken().slice(3), [[`ask window#${last} #4`]])
+    held.open()
+    await rest()
+    deepStrictEqual(inspector.inFlight(), [])
+    strictEqual(win.read(handle).data.got, 'held')
+  }],
+  ['an ask is answered from the step its answerer left it in, and one its link ended before it was taken is never taken for the next', async () => {
+    const inspector = createInspector()
+    const held = gated()
+    const { backend, made, win, handle } = joined(inspector, held.gate)
+    await rest()
+    win.send(handle, { type: 'START' })
+    await turns()
+    // The desk stops before answering: the window's ask is answered, as abandoned, from the step it stopped in.
+    backend.stop(made)
+    const stopped = inspector.steps.at(-1)!
+    deepStrictEqual(stopped.log.sent, [{ kind: 'abandoned', to: 'desk', name: 'HOLD', id: 1 }])
+    await turns()
+    const answered = inspector.steps.find((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'answer'))!
+    deepStrictEqual(answered.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`), ['answer window#2', `answer backend#${stopped.log.number}`])
+    deepStrictEqual(inspector.inFlight(), [])
+    held.open()
+    await rest()
+
+    // A link that ends with an ask on it: the ask is answered by no step, and is never taken.
+    const lossy = createInspector()
+    const far = system({ side: 'backend', ...lossy.hooks('backend') })
+    far.start('desk', desk(() => Promise.resolve()))
+    const near = system({ side: 'window', ...lossy.hooks('window') })
+    let dropped = false
+    const later = (run: () => void): void => { queueMicrotask(run) }
+    const port: Port = {
+      tell: (to, event) => later(() => far.port.tell(to, event)),
+      ask: (to, name, args, progress, done) => {
+        if (!dropped) { dropped = true; later(() => done({ ok: false, failure: { kind: 'disconnected', message: 'the link ended' } })); return () => {} }
+        later(() => far.port.ask(to, name, args, progress, (outcome) => later(() => done(outcome))))
+        return () => {}
+      },
+      follow: (feature, view, args, updated, failed) => far.port.follow(feature, view, args, updated, failed),
+    }
+    near.attach(port)
+    const mine = near.start('pane', pane)
+    near.send(mine, { type: 'NOW' })
+    await rest()
+    const ended = lossy.steps.find((step) => step.system === 'window' && step.log.handled.some((each) => each.kind === 'answer'))!
+    deepStrictEqual(ended.causes.map((edge) => `${edge.kind} ${edge.fromSystem}`), ['answer window'])
+    // Asked again, what the backend takes is the second: with the first still not known to be gone, it is not said to be either.
+    near.send(mine, { type: 'NOW' })
+    await rest()
+    const took = lossy.steps.filter((step) => step.system === 'backend' && step.log.handled.some((each) => each.kind === 'ask'))
+    deepStrictEqual(took.map((step) => step.causes), [[]])
+    strictEqual(near.read(mine).data.got, 'now')
+    deepStrictEqual(lossy.inFlight(), [])
+  }],
+  ['a step whose rows could not be kept stops its system: nothing of it is under way and its states are nowhere, and another system\'s are as they were', async () => {
+    const inspector = createInspector()
+    let failing = false
+    const backend = system({ side: 'backend', views: oneDoc, ...inspector.hooks('backend') })
+    backend.start('desk', desk(() => new Promise(() => {})))
+    let depth = 0
+    // The whole step's unit fails as it is kept: the units inside it, one for each thing handled, do not.
+    const transact = <T,>(inner: () => T): T => { depth++; try { const made = inner(); if (failing && depth === 1) throw new Error('disk full'); return made } finally { depth-- } }
+    const flaky = system({ side: 'window', transact, ...inspector.hooks('flaky') })
+    const other = system({ side: 'window', views: oneDoc, ...inspector.hooks('other') })
+    connect(flaky, backend)
+    flaky.start('counting', counting)
+    flaky.start('mover', mover)
+    flaky.send(flaky.start('pane', pane), { type: 'START' })
+    other.start('counting', counting)
+    other.start('mover', mover)
+    await turns()
+    deepStrictEqual(inspector.inFlight().map((op) => `${op.system} ${op.kind} ${op.name}`).sort(), ['backend ask HOLD', 'flaky ask HOLD', 'flaky follow count', 'other follow count'])
+    failing = true
+    flaky.send({ ref: 'mover' } as never, { type: 'TO', at: 'busy' } as never)
+    strictEqual(inspector.steps.at(-1)!.log.status, 'lost')
+    deepStrictEqual(inspector.inFlight().filter((op) => op.system !== 'backend'), [{ kind: 'follow', system: 'other', opId: 1, startedStep: 1, to: 'docs', name: 'count' }])
+    deepStrictEqual(inspector.coverage({ mover: moverGraph })[0]!.currentAt, 'idle')
+    other.stop()
+    strictEqual('currentAt' in inspector.coverage({ mover: moverGraph })[0]!, false)
+  }],
+  ['every line of a trace: a key, an event raised, one ignored, a clock, two fields, a state that stopped, and defects with and without a step', async () => {
+    const inspector = createInspector()
+    const defects: InspectorUpdate[] = []
+    inspector.subscribe((update) => { if (update.kind === 'defect') defects.push(update) })
+    const sys = system({ side: 'backend', clock: { now: () => 7, after: () => () => {} }, ...inspector.hooks('one') })
+    const lines = desks<{
+      data: { a: number; b: number }
+      states: { on: {}; off: {} }
+      internal: { type: 'TWICE' }
+      calls: { now: 'each' }
+    }, { type: 'GO' } | { type: 'THROW' }>()({
+      data: { a: 0, b: 0 },
+      initial: 'on',
+      calls: ({ each }) => ({ now: each('desk', 'NOW', { done: () => undefined }) }),
+      internal: { TWICE: (_, { data }) => ({ data: { a: data.a + 1, b: data.b + 1 } }) },
+      on: {
+        GO: (_, { raise, call }) => { raise({ type: 'TWICE' }); call('now', 'k') },
+        THROW: () => { throw 'a string, thrown' },
+      },
+      states: { on: {}, off: {} },
+    })
+    sys.start('desk', desk(() => Promise.resolve()))
+    const made = sys.start('lines', lines)
+    sys.send(made, { type: 'GO' })
+    await rest()
+    sys.send(made, { type: 'THROW' })
+    sys.send({ ref: 'nobody' } as never, { type: 'GO' } as never)
+    sys.stop(made)
+    // Of no state: what hears an ask's progress throws, as the step that answered it commits.
+    const told = sys.start('slow', desks<{}, never, { SLOW: { args: {}; progress: string; answer: string } }>()({ answers: { SLOW: (_, { progress }) => { progress('half'); return 'done' } } }))
+    await sys.ask(told as never, 'SLOW' as never, {} as never, (() => { throw new Error('nobody listens') }) as never)
+    await rest()
+    // And of no step: reported between two.
+    inspector.hooks('one').onDefect({ message: 'of no step', ref: 'lines' })
+    inspector.hooks('one').onDefect({ message: 'of no step or state' })
+    deepStrictEqual(inspector.format().split('\n'), [
+      'one#1 [committed @ 7ms]',
+      'one#2 [committed @ 7ms]',
+      'one#3 [committed @ 7ms]',
+      '  ◀ event lines GO',
+      '  ◀ event lines TWICE (own)',
+      '  ◀ call lines now [k]',
+      '  ◀ ask desk NOW #1',
+      '  Δ lines: fields=[a, b], pending',
+      '  ▶ answer -> desk NOW #1 [ok]',
+      'one#4 [committed @ 7ms]  ← one#3 (done#1)',
+      '  ◀ done lines now [k] #1',
+      '  Δ lines: pending',
+      'one#5 [committed @ 7ms]',
+      '  ◀ event lines THROW',
+      '  ⚠ DEFECT (lines): lines threw handling THROW, and nothing changed: a string, thrown',
+      'one#6 [committed @ 7ms]',
+      '  ◀ event nobody GO (ignored)',
+      'one#7 [committed @ 7ms]',
+      'one#8 [committed @ 7ms]',
+      'one#9 [committed @ 7ms]',
+      '  ◀ ask slow SLOW #2',
+      '  ▶ progress -> slow SLOW #2',
+      '  ▶ answer -> slow SLOW #2 [ok]',
+      '  ⚠ DEFECT: what hears progress threw: nobody listens',
+      'one ⚠ DEFECT (lines): of no step',
+      'one ⚠ DEFECT: of no step or state',
+    ])
+    deepStrictEqual(inspector.defects, [
+      { seq: 5, system: 'one', message: 'lines threw handling THROW, and nothing changed: a string, thrown', ref: 'lines', step: 5, error: 'a string, thrown' },
+      { seq: 10, system: 'one', message: 'what hears progress threw: nobody listens', step: 9, error: 'nobody listens' },
+      { seq: 12, system: 'one', message: 'of no step', ref: 'lines' },
+      { seq: 13, system: 'one', message: 'of no step or state' },
+    ])
+    deepStrictEqual(defects, inspector.defects.map((defect) => ({ kind: 'defect', defect })))
+    deepStrictEqual(inspector.whyIgnored(), [
+      { seq: 5, system: 'one', step: 5, kind: 'defect', ref: 'lines', detail: 'lines threw handling THROW, and nothing changed: a string, thrown' },
+      { seq: 7, system: 'one', step: 6, kind: 'event', ref: 'nobody', name: 'GO', detail: 'nobody ignored GO' },
+      { seq: 10, system: 'one', step: 9, kind: 'defect', ref: 'one', detail: 'what hears progress threw: nobody listens' },
+      { seq: 12, system: 'one', kind: 'defect', ref: 'lines', detail: 'of no step' },
+      { seq: 13, system: 'one', kind: 'defect', ref: 'one', detail: 'of no step or state' },
+    ])
+    // Under way while it is, from when the clock said.
+    const held = system({ side: 'backend', clock: { now: () => 9, after: () => () => {} }, ...inspector.hooks('two') })
+    void held.ask(held.start('desk', desk(() => new Promise(() => {}))), 'HOLD', {})
+    deepStrictEqual(inspector.inFlight(), [{ kind: 'ask', system: 'two', opId: 1, startedStep: 2, startedAt: 9, to: 'desk', name: 'HOLD' }])
+  }],
+  ['a defect is its step\'s, whenever it is reported: before the step is logged, twice in one step, or after, in whichever system it was', async () => {
+    const inspector = createInspector()
+    const twice = desks<{ internal: { type: 'AGAIN' } }, { type: 'PING' }>()({
+      internal: { AGAIN: () => { throw new Error('and again') } },
+      on: { PING: (_, { raise }) => { raise({ type: 'AGAIN' }); raise({ type: 'AGAIN' }) } },
+    })
+    // A log that throws is reported after its step was logged, as a defect of that step.
+    let throwing = ''
+    const one = system({ side: 'backend', ...inspector.hooks('one', { log: () => { if (throwing === 'one') throw new Error('one\'s log broke') } }) })
+    const two = system({ side: 'backend', ...inspector.hooks('two', { log: () => { if (throwing === 'two') throw new Error('two\'s log broke') } }) })
+    throwing = 'one'
+    const made = one.start('twice', twice)
+    throwing = 'two'
+    two.start('twice', twice)
+    throwing = ''
+    // The first step of each was the one whose log threw: each has its own defect, and not the other's.
+    deepStrictEqual(inspector.steps.map((step) => [step.system, step.log.number, step.defects.map((defect) => defect.message)]), [
+      ['one', 1, ['the step log threw: one\'s log broke']],
+      ['two', 1, ['the step log threw: two\'s log broke']],
+    ])
+    // What it raises twice throws twice: two defects, both of the one step.
+    one.send(made, { type: 'PING' })
+    deepStrictEqual(inspector.steps.at(-1)!.defects.map((defect) => [defect.seq, defect.step, defect.error]), [[5, 2, 'and again'], [6, 2, 'and again']])
+    // The hooks are called by a kernel that keeps what they throw to itself: with nothing to forward to, they throw nothing.
+    const bare = createInspector().hooks('bare')
+    bare.onDefect({ message: 'nothing forwards this' })
+    bare.trace('nor this')
+  }],
+  ['what is forgotten at the limit is forgotten whole: a step, and each edge from it, while the step it led to still says what it came of', async () => {
+    const inspector = createInspector({ limit: 3 })
+    const { win, handle } = joined(inspector)
+    await rest()
+    win.send(handle, { type: 'NOW' })
+    await rest()
+    const kept = (): string[] => inspector.steps.map((step) => `${step.system}#${step.log.number}`)
+    const edges = (): string[] => inspector.edges.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}→${edge.toSystem}#${edge.toStep}`)
+    // Kept: the backend's answering, the window's taking the answer, and what it did with it. The window's asking,
+    // its second step as the answering is the backend's second, is forgotten, and both edges from it.
+    deepStrictEqual(kept(), ['backend#2', 'window#3', 'window#4'])
+    deepStrictEqual(edges(), ['answer backend#2→window#3', 'done window#3→window#4'])
+    // What the answer came of is still on its step, though one of those steps is gone: asked why, it is the steps that are kept.
+    deepStrictEqual(inspector.steps[1]!.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`), ['answer window#2', 'answer backend#2'])
+    deepStrictEqual(inspector.explain('pane', 'got').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#2', 'window#3', 'window#4'])
+    // The first step kept is found, as the last is.
+    deepStrictEqual(inspector.explain('desk').steps.map((step) => `${step.system}#${step.log.number}`), ['backend#2', 'window#3'])
+    win.send(handle, { type: 'NOTE' })
+    deepStrictEqual(kept(), ['window#3', 'window#4', 'window#5'])
+    deepStrictEqual(edges(), ['done window#3→window#4'])
+    // The first step kept is the last that touched the desk, and is found: what it came of is gone.
+    deepStrictEqual(inspector.explain('desk').steps.map((step) => `${step.system}#${step.log.number}`), ['window#3'])
+    win.send(handle, { type: 'NOTE' })
+    deepStrictEqual(edges(), [])
+    // Nothing the inspector did threw, which a kernel would have kept to itself and said as a defect.
+    deepStrictEqual(inspector.defects, [])
+  }],
+  ['an edge from a step already forgotten is not kept beside the steps, whatever other step has its number or its system', async () => {
+    const inspector = createInspector({ limit: 3 })
+    const held = gated()
+    const { win, handle } = joined(inspector, held.gate)
+    await rest()
+    // The window asks in its second step, and the backend holds the ask.
+    win.send(handle, { type: 'START' })
+    await turns()
+    // Another system takes its second step, and the window two more: its asking is forgotten, and steps are kept
+    // that share its number, and that share its system.
+    const other = system({ side: 'backend', ...inspector.hooks('other') })
+    win.send(handle, { type: 'NOTE' })
+    other.send(other.start('mover', mover), { type: 'TO', at: 'busy' })
+    win.send(handle, { type: 'NOTE' })
+    deepStrictEqual(inspector.steps.map((step) => `${step.system}#${step.log.number}`), ['other#1', 'other#2', 'window#4'])
+    held.open()
+    await rest()
+    // The answer came of the window's asking, which its step still says, and of the backend's answering, which is kept.
+    const answered = inspector.steps.find((step) => step.log.handled.some((each) => each.kind === 'answer' && step.system === 'window'))!
+    deepStrictEqual(answered.causes.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}`), ['answer window#2', 'answer backend#3'])
+    deepStrictEqual(inspector.edges.map((edge) => `${edge.kind} ${edge.fromSystem}#${edge.fromStep}→${edge.toSystem}#${edge.toStep}`), ['answer backend#3→window#5', 'done window#5→window#6'])
+  }],
+  ['an ask given up where it was made, in one system, is over there, and nothing else is disturbed by it', async () => {
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    sys.start('desk', desk(() => new Promise(() => {})))
+    const made = sys.start('pane', pane)
+    sys.send(made, { type: 'START' })
+    await turns()
+    deepStrictEqual(inspector.inFlight().map((op) => op.name), ['HOLD'])
+    sys.send(made, { type: 'STOP' })
+    deepStrictEqual(inspector.steps.at(-1)!.log.sent, [{ kind: 'cancelled', to: 'desk', name: 'HOLD', id: 1 }])
+    deepStrictEqual(inspector.inFlight(), [])
+    deepStrictEqual(inspector.defects, [])
+  }],
+  ['coverage counts what a state itself did: its own defects, a move from inside a state, by the event that made it, in a step another state began', async () => {
+    const inspector = createInspector()
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    type Deep = { data: { n: number }; states: { out: {}; in: { initial: 'near'; states: { near: {}; far: {} } } } }
+    const deep = desks<Deep, { type: 'IN' } | { type: 'OUT' } | { type: 'LEAVE' } | { type: 'COUNT' } | { type: 'THROW' }>()({
+      data: { n: 0 },
+      initial: 'out',
+      on: { COUNT: (_, { data }) => ({ data: { n: data.n + 1 } }), THROW: () => { throw new Error('it broke') } },
+      states: {
+        out: { on: { IN: () => ({ at: 'in.far' }) } },
+        in: { initial: 'near', on: { OUT: () => ({ at: 'out' }), LEAVE: () => ({ at: 'out' }) }, states: { near: {}, far: {} } },
+      },
+    })
+    const deepGraph: StateGraph = {
+      title: 'Deep',
+      states: ['out', 'in', 'in.near', 'in.far', 'i', 'in.f'],
+      moves: [{ from: 'out', on: 'IN', to: ['in'] }, { from: 'in', on: 'OUT', to: ['out'] }, { from: 'in', on: 'LEAVE', to: ['out'] }, { from: 'in.near', on: 'OUT', to: ['out'] }, { from: 'n', on: 'OUT', to: ['out'] }],
+      stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: 'Deep',
+    }
+    const made = sys.start('deep', deep)
+    // Told by another state, in a step that state began: what moved it is what it was told.
+    const sender = desks<{}, { type: 'GO' }>()({ on: { GO: (_, { tell }) => { tell({ ref: 'deep' } as never, { type: 'IN' } as never) } } })
+    sys.send(sys.start('sender', sender), { type: 'GO' })
+    // A change to its data where it is is no move.
+    sys.send(made, { type: 'COUNT' })
+    sys.send(made, { type: 'OUT' })
+    sys.send(made, { type: 'THROW' })
+    sys.send(made, { type: 'THROW' })
+    const flat = sys.start('flat', desks<{}, { type: 'PING' }>()({ on: { PING: () => { throw new Error('flat broke') } } }))
+    sys.send(flat, { type: 'PING' })
+    deepStrictEqual(inspector.coverage({ deep: deepGraph }), [{
+      title: 'Deep',
+      ref: 'deep',
+      declaredStates: ['out', 'in', 'in.near', 'in.far', 'i', 'in.f'],
+      visitedStates: ['out', 'in', 'in.far'],
+      unvisitedStates: ['in.near', 'i', 'in.f'],
+      declaredMoves: [
+        { from: 'out', on: 'IN', to: 'in', hit: true },
+        { from: 'in', on: 'OUT', to: 'out', hit: true },
+        { from: 'in', on: 'LEAVE', to: 'out', hit: false },
+        { from: 'in.near', on: 'OUT', to: 'out', hit: false },
+        { from: 'n', on: 'OUT', to: 'out', hit: false },
+      ],
+      observedMoves: [{ from: 'out', on: 'IN', to: 'in.far' }, { from: 'in.far', on: 'OUT', to: 'out' }],
+      defects: 2,
+      currentAt: 'out',
+    }])
+    // The same move by another event is another move.
+    sys.send(made, { type: 'IN' })
+    sys.send(made, { type: 'LEAVE' })
+    deepStrictEqual(inspector.coverage({ deep: deepGraph })[0]!.observedMoves.slice(2), [{ from: 'in.far', on: 'LEAVE', to: 'out' }])
+    // Asked by a function, it is asked of every state that was somewhere or broke, and of nothing else.
+    const asked: string[] = []
+    deepStrictEqual(inspector.coverage((ref) => { asked.push(ref); return ref === 'flat' ? moverGraph : undefined }).map((each) => [each.ref, each.defects, each.visitedStates]), [['flat', 1, []]])
+    deepStrictEqual(asked, ['deep', 'flat'])
+    // A defect of no state asks of none.
+    inspector.hooks('one').onDefect({ message: 'of no state' })
+    asked.length = 0
+    inspector.coverage((ref) => { asked.push(ref); return undefined })
+    deepStrictEqual(asked, ['deep', 'flat'])
+  }],
+  ['a trace asked for by system, state or count holds the defects that are theirs: of that system, of that state, and from the first step shown on', async () => {
+    const inspector = createInspector({ limit: 3 })
+    const thrower = desks<{}, { type: 'PING' } | { type: 'NOTE' }>()({ on: { PING: () => { throw new Error('it broke') }, NOTE: () => {} } })
+    const one = system({ side: 'backend', ...inspector.hooks('one') })
+    const two = system({ side: 'backend', ...inspector.hooks('two') })
+    const first = one.start('a', thrower)
+    const second = two.start('b', thrower)
+    one.send(first, { type: 'PING' })
+    two.send(second, { type: 'PING' })
+    two.send(second, { type: 'NOTE' })
+    two.send(second, { type: 'NOTE' })
+    // Kept: two's throw and its two notes. The step in which `a` threw is forgotten, and its defect is not.
+    const unattached = 'one#2 ⚠ DEFECT (a): a threw handling PING, and nothing changed: it broke'
+    const attached = '  ⚠ DEFECT (b): b threw handling PING, and nothing changed: it broke'
+    const marks = (text: string): string[] => text.split('\n').filter((line) => line.includes('DEFECT'))
+    deepStrictEqual(marks(inspector.format()), [attached])
+    deepStrictEqual(marks(inspector.format({ system: 'one' })), [unattached])
+    deepStrictEqual(marks(inspector.format({ ref: 'a' })), [unattached])
+    deepStrictEqual(marks(inspector.format({ system: 'two' })), [attached])
+    deepStrictEqual(marks(inspector.format({ ref: 'b' })), [attached])
+    strictEqual(inspector.format({ system: 'one', last: 1 }), '(no steps recorded)')
+    strictEqual(inspector.format({ last: 0 }), '(no steps recorded)')
+    // A defect of no step, reported between the steps shown, is shown with them, and not with later ones alone.
+    const hooks = inspector.hooks('two')
+    hooks.onDefect({ message: 'between steps' })
+    two.send(second, { type: 'NOTE' })
+    deepStrictEqual(marks(inspector.format({ last: 2 })), ['two ⚠ DEFECT: between steps'])
+    deepStrictEqual(marks(inspector.format({ last: 1 })), [])
+  }],
+  ['a system that is bound is read as it stands, and as it stood after each step if that is asked for, until it is unbound', async () => {
+    const inspector = createInspector({ captureSnapshots: true })
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    const unbind = inspector.bind('one', sys)
+    const made = sys.start('mover', mover)
+    sys.send(made, { type: 'TO', at: 'busy' })
+    deepStrictEqual(inspector.snapshots(), { one: { mover: { at: 'busy', data: {} } } })
+    deepStrictEqual(inspector.steps.map((step) => step.snapshot), [{ mover: { at: 'idle', data: {} } }, { mover: { at: 'busy', data: {} } }])
+    deepStrictEqual(inspector.export().systems, ['one'])
+    // Bound again to another, the first's unbinding is no longer its to undo.
+    const other = { snapshot: () => ({ other: true }) }
+    inspector.bind('one', other)
+    unbind()
+    deepStrictEqual(inspector.snapshots(), { one: { other: true } })
+    inspector.bind('one', sys)()
+    deepStrictEqual(inspector.snapshots(), {})
+    sys.send(made, { type: 'TO', at: 'idle' })
+    strictEqual('snapshot' in inspector.steps.at(-1)!, false)
+    // Unasked, no step holds one, bound or not; and a system that is only bound is one of the systems.
+    const plain = createInspector()
+    plain.bind('two', sys)
+    const hooked = system({ side: 'backend', ...plain.hooks('three') })
+    hooked.start('mover', mover)
+    strictEqual('snapshot' in plain.steps[0]!, false)
+    deepStrictEqual(plain.export().systems, ['two', 'three'])
+  }],
+  ['an ask that has ended is forgotten, so that what is still under way is what is kept, and what is cleared mid-way is heard of no more', async () => {
+    // One ask kept for each step: four in all, so a fifth would push the oldest out.
+    const inspector = createInspector({ limit: 1 })
+    const held = gated()
+    const { win, handle } = joined(inspector, held.gate)
+    await rest()
+    win.send(handle, { type: 'START' })
+    await turns()
+    const under = inspector.inFlight()
+    deepStrictEqual(under.map((op) => `${op.system} ${op.name}`), ['window HOLD', 'backend HOLD'])
+    // Five asks answered at once, each over on both sides before the next: the held one is still what is kept.
+    for (let count = 0; count < 5; count++) { win.send(handle, { type: 'NOW' }); await turns() }
+    deepStrictEqual(inspector.inFlight(), under)
+    // Cleared while the held ask is under way: its answer, and what is done with it, come of nothing known.
+    inspector.clear()
+    deepStrictEqual([inspector.steps, inspector.edges, inspector.defects, inspector.inFlight(), inspector.whyIgnored()], [[], [], [], [], []])
+    held.open()
+    await rest()
+    strictEqual(win.read(handle).data.got, 'held')
+    deepStrictEqual(inspector.steps.map((step) => step.seq), [3])
+    deepStrictEqual(inspector.edges, [])
+    deepStrictEqual(inspector.inFlight(), [])
+  }],
+  ['a peer told is not something ignored, and one that was dropped or failed is, by name', async () => {
+    const inspector = createInspector()
+    const backend = system({ side: 'backend', ...inspector.hooks('backend') })
+    const heard: string[] = []
+    backend.peer('audit', (event) => { heard.push((event as { type: string }).type) })
+    const made = backend.start('svc', makeSvc(() => Promise.resolve()))
+    backend.send(made, { type: 'PING' })
+    await backend.ask(made, 'SAVE', { text: 'said' })
+    await rest()
+    deepStrictEqual(heard, ['LOG'])
+    // The tell that was heard is not there, nor the progress the ask sent: only the peer nobody named.
+    deepStrictEqual(inspector.whyIgnored(), [{ seq: 2, system: 'backend', step: 2, kind: 'peer', ref: 'missing', name: 'LOG', detail: 'peer missing LOG dropped' }])
+  }],
+  ['a line the kernel traces that explains nothing is not kept in place of one that does', async () => {
+    const inspector = createInspector({ limit: 1 })
+    const sys = system({ side: 'backend', ...inspector.hooks('one') })
+    sys.start('a', desks<{ internal: { type: 'SECRET' } }, never>()({ internal: { SECRET: () => {} } }))
+    sys.start('mover', mover)
+    // One step: `a` is sent what only it raises, and then the mover moves, which the kernel also traces.
+    const sender = desks<{}, { type: 'GO' }>()({
+      on: { GO: (_, { tell }) => { tell({ ref: 'a' } as never, { type: 'SECRET' } as never); tell({ ref: 'mover' } as never, { type: 'TO', at: 'busy' } as never) } },
+    })
+    sys.send(sys.start('sender', sender), { type: 'GO' })
+    deepStrictEqual(inspector.whyIgnored().map((entry) => entry.detail), ['a was sent SECRET from outside, which only it raises: ignored'])
   }],
 ])
