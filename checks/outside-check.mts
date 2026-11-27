@@ -281,7 +281,7 @@ await run([
 
   ['a thenable that throws as it is read is the failure of the work, as one that rejects is', async () => {
     const saw: string[] = []
-    const broken = Object.defineProperty({}, 'then', { get: () => { throw new Error('no then') } }) as PromiseLike<string>
+    const broken = new Proxy({}, { get: () => { throw new Error('no then') } }) as PromiseLike<string>
     const sys = system({ side: 'window' })
     const handle = sys.start('o', opening(broken, saw))
     await rest()
