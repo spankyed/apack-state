@@ -1097,6 +1097,21 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(explored.orderings >= 1)
   }],
 
+  ['a timer declared with something other than options is refused on start, saying what it was given, and one with none or with options is not', async () => {
+    const manual = manualClock()
+    const sys = system({ side: 'backend', clock: manual.clock })
+    const given = (what: unknown) => ({ def: { arms: ({ single }: { single: Function }) => ({ retry: single(what) }) } })
+    throws(() => sys.start('number', given(100) as never), { message: 'number declares timer retry with a number where its options go: a timer takes { after, whenArmed, done }' })
+    throws(() => sys.start('function', given(() => {}) as never), { message: 'function declares timer retry with a function where its options go: a timer takes { after, whenArmed, done }' })
+    // One inside a state is refused as the one at the top is.
+    throws(
+      () => sys.start('inner', { def: { initial: 'a', states: { a: { arms: ({ each }: { each: Function }) => ({ flash: each('soon') }) } } } } as never),
+      { message: 'inner declares timer flash with a string where its options go: a timer takes { after, whenArmed, done }' },
+    )
+    deepStrictEqual(sys.read(sys.start('none', given(undefined) as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('options', given({ after: 100 }) as never)), { data: {}, armed: { retry: false } })
+  }],
+
   ['conflicting timer kinds across states fail fast on start while matching kinds across sibling states succeed', async () => {
     const manual = manualClock()
     const sys = system({ side: 'backend', clock: manual.clock })

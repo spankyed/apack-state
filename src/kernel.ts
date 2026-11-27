@@ -93,7 +93,7 @@ type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>;
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { single: Function; each: Function; many: Function }) => Record<string, { kind: 'single' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
-  arms?: (arms: { single: Function; each: Function }) => Record<string, { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }>
+  arms?: (arms: { single: Function; each: Function }) => Record<string, { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string }>
 }
 
 interface Armed { stop?: () => void }
@@ -877,8 +877,11 @@ export function system<N extends Net = Net>(host: {
     descend(kept, names.slice(shared), entering)
   }
 
-  const armEntry = (kind: 'single' | 'each', options?: { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }): { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function } =>
-    ({ kind, after: options?.after, whenArmed: options?.whenArmed, done: options?.done })
+  /** A timer as its builder was called. What was passed where its options go, if that was not options, is kept to be refused. */
+  const armEntry = (kind: 'single' | 'each', options?: { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }): { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string } =>
+    options == null || typeof options === 'object'
+      ? { kind, after: options?.after, whenArmed: options?.whenArmed, done: options?.done }
+      : { kind, not: typeof options }
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
   const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>>; arms: ReturnType<NonNullable<LooseDef['arms']>> }>()
   const declaredBy = (def: LooseDef) => {
@@ -1150,6 +1153,7 @@ export function system<N extends Net = Net>(host: {
         seenCalls.set(name, entry.kind)
       }
       for (const [name, entry] of Object.entries(declaredBy(node).arms)) {
+        if (entry.not) return `declares timer ${name} with a ${entry.not} where its options go: a timer takes { after, whenArmed, done }`
         const prev = seenArms.get(name)
         if (prev && prev !== entry.kind) return `declares timer ${name} with conflicting kinds (${prev} and ${entry.kind})`
         seenArms.set(name, entry.kind)
