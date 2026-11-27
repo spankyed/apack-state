@@ -541,16 +541,24 @@ export interface Start<D> {
   <X extends AnyState>(state: X, options: { given: (data: Read<D>) => RootGiven<X> }): OneOf<D, X>
 }
 
-/** What `args` is given: the fields it named, after the key for one of many. One of many that names none is given the key alone. */
-type Given_<R, H extends string, K extends string, Many> =
-  [Many] extends [string] ? ([K] extends [never] ? [key: string] : [key: string, from: Named<R, H, K>]) : [from: Named<R, H, K>]
+/**
+ * What `args` is given: the fields it named, after the key for one of many. One of many is given the key alone where
+ * it has no `from`, and the key and then the fields wherever it has one, an empty object where `from` is `[]`: it
+ * goes by whether `from` is there, as the kernel does, and not by what is in it. `Written` is which options it was
+ * written with, where that is read from them: `from: []` names no field, and is told from no `from` at all by it.
+ */
+type Given_<R, H extends string, K extends string, Many, Written extends string> =
+  [Many] extends [string]
+    ? ('from' extends Written ? [key: string, from: Named<R, H, K>] : [K] extends [never] ? [key: string] : [key: string, from: Named<R, H, K>])
+    : [from: Named<R, H, K>]
 type Named<R, H extends string, K extends string> = Read<Pick<DataAt<R, H>, K & keyof DataAt<R, H>>>
 /** What a handler of one of many is given beside its scope: which one it is. */
 type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
-type StandingArgsOpt<R, H extends string, K extends string, Many, A> =
-  {} extends Read<A>
-    ? { args?: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
-    : { args: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
+type StandingArgsOpt<R, H extends string, K extends string, Many, Written extends string, A> =
+  ({} extends Read<A>
+    ? { args?: (...given: Given_<R, H, K, Many, Written>) => Read<A> | null | undefined | false }
+    : { args: (...given: Given_<R, H, K, Many, Written>) => Read<A> | null | undefined | false }
+  ) & { readonly [Option in Written]: unknown }
 
 /** A view a state follows, as `follow` makes it. */
 export interface Followed<R, H extends string, E extends AnyEvent, N extends Net> {
@@ -561,16 +569,17 @@ export interface Followed<R, H extends string, E extends AnyEvent, N extends Net
 /**
  * Makes a view to follow. With `from`, it is asked for what `args` makes of those fields, and followed again when
  * one of them changes; where `args` returns nothing (`null`, `undefined`, or `false`), nothing is followed and any
- * previous view stops. With `each`, one is followed for each key of that field, and `args` is given the key: alone, or with the
- * fields named in `from` after it where it names any.
+ * previous view stops. With `each`, one is followed for each key of that field, and `args` is given the key: alone
+ * where there is no `from`, and with the fields named in `from` after it where there is one, which is an empty object
+ * for `from: []`.
  * With both, each key's view is followed again when a field in `from` changes, and a key that appears or goes
  * starts or stops its own alone. `args` may be omitted when the view accepts `{}`. What it delivers goes to
  * `updated`, which returns what happens next as any handler does.
  */
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   F extends keyof N['views'] & string, V extends keyof N['views'][F] & string,
-  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
->(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
+  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined, Written extends 'args' | 'from' | 'each' | 'updated' = never,
+>(feature: F, view: V, options: StandingArgsOpt<R, H, Exclude<K, Many>, Many, Written, N['views'][F][V]['args']> & {
   /** The fields one reads. It is followed again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
   from?: readonly Exclude<K, Many>[]
   /** A field with one to follow for each of its keys. */
@@ -694,15 +703,16 @@ export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> 
  * makes of those fields, and asked again when one of them changes, cancelling the previous one. Where `args` returns
  * nothing, nothing is asked. To refresh with nothing else changed, name a counter field and increment it. With `each`
  * there is one for each key of that field: an added key asks, and a removed key cancels, and `args` is given the
- * key, alone or with the fields named in `from` after it. With both, each key's is asked again when a field in `from` changes, the one before for that key
- * cancelled. `args` may be omitted when the ask accepts `{}`.
+ * key: alone where there is no `from`, and with the fields named in `from` after it where there is one, which is an
+ * empty object for `from: []`. With both, each key's is asked again when a field in `from` changes, the one before for
+ * that key cancelled. `args` may be omitted when the ask accepts `{}`.
  *
  * Outcomes go to `done`, and streamed progress to `progress` as a list at most once a frame.
  */
 export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
   S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string,
-  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
->(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
+  K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined, Written extends 'args' | 'from' | 'each' | 'done' | 'progress' = never,
+>(of: S, ask: Q, options: StandingArgsOpt<R, H, Exclude<K, Many>, Many, Written, AskOf<N, S, Q>['args']> & {
   /** The fields one reads. It is asked again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
   from?: readonly Exclude<K, Many>[]
   /** A field with one ask for each of its keys. */

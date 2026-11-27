@@ -242,9 +242,14 @@ points at.
     `each: 'openDiffs', from: ['statusRev']`: one for each key, and every one asked again when a field in `from`
     changes, the one before for that key stopped. A key that appears or goes starts or stops its own alone, whatever
     `from` did in the same step: one that appears as a field changes is asked once, and one that goes is not asked.
-    `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it names
-    none. It may return nothing for a key, as it may for one alone, and that key is then not read until
-    there is something to ask for. The field its keys come from is not among the fields it names: each key would
+    `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it has
+    no `from`. That goes by whether `from` is there and not by what is in it, in the types as in the kernel: one
+    written with `from: []` is given the key and then an empty object, as a single one written with `from: []` is
+    given an empty object and asked once. It may return nothing for a key, as it may for one alone, and that key is
+    then not read until there is something to ask for: what was read or followed for it is given up, and it is asked
+    again when a field it names changes. An `args` that throws is reported, and has seen the values it threw for: it
+    is not called for them again at some later look, and what it had live goes on as it was, since what it threw is
+    the state's own defect and not a reason to drop what is already there. The field its keys come from is not among the fields it names: each key would
     give up and ask again whenever another came or went, so that is refused where the definition is written and
     where it starts. One refused for leading round to itself has seen the values it was refused for, and is not
     asked again for them at some later look. What a state starts is given

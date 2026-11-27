@@ -116,22 +116,32 @@ type DiffsEvent =
   | { type: 'CLOSE'; path: string; changed?: boolean }
   | { type: 'CHANGED' }
   | { type: 'RENAME'; title: string }
-type Diffs = { data: { title: string; open: Record<string, string | null>; rev: number; spins: number; ended: string[]; late: string[] } }
+  | { type: 'ONLY'; only: string | null }
+  | { type: 'BREAK'; path: string | null }
+type Diffs = { data: { title: string; open: Record<string, string | null>; rev: number; spins: number; only: string | null; broken: string | null; ended: string[]; late: string[] } }
 
-/** `spinning` has how a diff ended count `spins` up, which is a field it is read from. */
+/**
+ * `spinning` has how a diff ended count `spins` up, which is a field it is read from. With `only` set there is
+ * nothing to read for any other path, and what to read cannot be said for the `broken` path, nor for one named `bad`.
+ */
 const diffs = (spinning = false) => beside<Diffs, DiffsEvent>()({
-  data: { title: 'Diffs', open: {}, rev: 0, spins: 0, ended: [], late: [] },
+  data: { title: 'Diffs', open: {}, rev: 0, spins: 0, only: null, broken: null, ended: [], late: [] },
   on: {
     OPEN: ({ paths, changed }) => ({ data: (d) => { for (const path of paths) d.open[path] = null; if (changed) d.rev += 1 } }),
     CLOSE: ({ path, changed }) => ({ data: (d) => { delete d.open[path]; if (changed) d.rev += 1 } }),
     CHANGED: (_, { data }) => ({ data: { rev: data.rev + 1 } }),
     RENAME: ({ title }) => ({ data: { title } }),
+    ONLY: ({ only }) => ({ data: { only } }),
+    BREAK: ({ path }) => ({ data: { broken: path } }),
   },
   loads: (load) => ({
     diff: load('repo', 'DIFF', {
       each: 'open',
-      from: ['rev', 'spins'],
-      args: (path, { rev, spins }) => ({ path, rev: rev + spins }),
+      from: ['rev', 'spins', 'only', 'broken'],
+      args: (path, { rev, spins, only, broken }) => {
+        if (path === broken || path === 'bad') throw new Error(`${path} cannot be read`)
+        return (only === null || only === path) && { path, rev: rev + spins }
+      },
       done: (outcome, { key, data }) => ({
         data: (d) => {
           if (!outcome.ok) return
@@ -358,6 +368,126 @@ const checks: Array<[string, () => Promise<void>]> = [
     await turns(8)
     deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up b@0', 'read b@1', 'read c@2'])
     strictEqual(defects.length, 3)
+  }],
+  ['one refused for leading round to itself is read again once a field it names changes', async () => {
+    const { send, did, defects, end } = opened(true)
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    await end('a@0')
+    await end('b@1')
+    deepStrictEqual([did, defects.length], [['read a@0', 'read b@0', 'gave up b@0', 'read b@1'], 3])
+    send({ type: 'CHANGED' })
+    await turns(8)
+    deepStrictEqual([did.slice(4), defects.length], [['read a@3', 'read b@3'], 3])
+  }],
+  ['one refused for leading round to itself is read again once its key has gone and come back', async () => {
+    const { send, did, defects, end } = opened(true)
+    send({ type: 'OPEN', paths: ['a', 'b'] })
+    await turns(8)
+    await end('a@0')
+    await end('b@1')
+    send({ type: 'CLOSE', path: 'a' })
+    send({ type: 'OPEN', paths: ['a'] })
+    await turns(8)
+    deepStrictEqual([did.slice(4), defects.length], [['read a@2'], 3])
+  }],
+  ['a read under way for a key there comes to be nothing to ask for is given up and never heard, and read again once there is', async () => {
+    const { send, now, did, end } = opened()
+    send({ type: 'OPEN', paths: ['a'] })
+    await turns(8)
+    send({ type: 'ONLY', only: 'elsewhere' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'gave up a@0'])
+    // Whoever answers ends it all the same: how it ended is not heard.
+    await end('a@0')
+    deepStrictEqual([now().open, now().ended], [{ a: null }, []])
+    send({ type: 'ONLY', only: null })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'gave up a@0', 'read a@0'])
+    await end('a@0')
+    deepStrictEqual([now().open, now().ended], [{ a: 'a@0' }, ['a@0']])
+  }],
+  ['a key whose read cannot be said while one is under way keeps that one: it is reported, not given up, and how it ends is heard', async () => {
+    const { send, now, did, defects, end } = opened()
+    send({ type: 'OPEN', paths: ['a'] })
+    await turns(8)
+    send({ type: 'BREAK', path: 'a' })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0'])
+    strictEqual(defects.length, 1)
+    ok(defects[0]!.includes('diffs could not say what to ask diff/a for: a cannot be read'), defects[0])
+    await end('a@0')
+    deepStrictEqual([now().open, now().ended], [{ a: 'a@0' }, ['a@0']])
+  }],
+  ['a key whose read could not be said is not asked what to read again until a field it names changes: how its own ended, and another key coming, report nothing more', async () => {
+    const { send, did, defects, end } = opened()
+    send({ type: 'OPEN', paths: ['a'] })
+    await turns(8)
+    send({ type: 'BREAK', path: 'a' })
+    await turns(8)
+    // How it ended is written into the field its keys come from, and so is the key that comes.
+    await end('a@0')
+    send({ type: 'OPEN', paths: ['b'] })
+    await turns(8)
+    deepStrictEqual([did, defects.length], [['read a@0', 'read b@0'], 1])
+    // A field it names changes, and it still cannot say: that is asked, and reported, once more.
+    send({ type: 'CHANGED' })
+    await turns(8)
+    deepStrictEqual([did, defects.length], [['read a@0', 'read b@0', 'gave up b@0', 'read b@1'], 2])
+    // And once it can, it is read.
+    send({ type: 'BREAK', path: null })
+    await turns(8)
+    deepStrictEqual([did.slice(4), defects.length], [['gave up b@1', 'read a@1', 'read b@1'], 2])
+  }],
+  ['a key whose read could never be said is reported once, whatever comes and goes beside it, and again when a field it names changes', async () => {
+    const { send, did, defects, end } = opened()
+    send({ type: 'OPEN', paths: ['bad', 'a'] })
+    await turns(8)
+    await end('a@0')
+    send({ type: 'OPEN', paths: ['b'] })
+    send({ type: 'RENAME', title: 'Another' })
+    await turns(8)
+    deepStrictEqual([did, defects.length], [['read a@0', 'read b@0'], 1])
+    ok(defects[0]!.includes('diffs could not say what to ask diff/bad for: bad cannot be read'), defects[0])
+    send({ type: 'CHANGED' })
+    await turns(8)
+    strictEqual(defects.length, 2)
+  }],
+  ['a read that cannot say what to ask for is reported once, not at each change to another field, and asked once it can', async () => {
+    type WaitAsks = { WAIT: { args: { id: string }; answer: string } }
+    const waitState = forNet<{ systems: { slow: { events: never; asks: WaitAsks } }; surfaces: {}; views: {} }>()
+    const defects: string[] = []
+    const sys = system({ side: 'backend', trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    sys.start('slow', waitState<{}, never, WaitAsks>()({ answers: { WAIT: ({ id }) => id.toUpperCase() } }))
+    const it = sys.start('waiter', waitState<{ data: { id: string | null; note: string; got: string | null } }, { type: 'NOTE'; note: string } | { type: 'SET'; id: string }>()({
+      data: { id: null, note: '', got: null },
+      on: { NOTE: ({ note }) => ({ data: { note } }), SET: ({ id }) => ({ data: { id } }) },
+      loads: (load) => ({
+        wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => { if (id === null) throw new Error('no id yet'); return { id } }, done: (outcome) => ({ data: { got: outcome.ok ? outcome.value : null } }) }),
+      }),
+    }))
+    sys.send(it, { type: 'NOTE', note: 'one' })
+    sys.send(it, { type: 'NOTE', note: 'two' })
+    await rest()
+    deepStrictEqual(defects.map((line) => line.includes('waiter could not say what to ask wait for: no id yet')), [true])
+    sys.send(it, { type: 'SET', id: 'a' })
+    await rest()
+    deepStrictEqual([sys.read(it).data.got, defects.length], ['A', 1])
+    sys.stop()
+  }],
+  ['one for each key written with no fields to name is given its key and then none: an empty object', async () => {
+    type EchoAsks = { ECHO: { args: { given: unknown[] }; answer: null } }
+    const echoState = forNet<{ systems: { svc: { events: never; asks: EchoAsks } }; surfaces: {}; views: {} }>()
+    const asked: unknown[][] = []
+    const sys = system({ side: 'backend' })
+    sys.start('svc', echoState<{}, never, EchoAsks>()({ answers: { ECHO: ({ given }) => { asked.push(given); return null } } }))
+    sys.start('reader', echoState<{ data: { keys: Record<string, true> } }>()({
+      data: { keys: { a: true } },
+      loads: (load) => ({ none: load('svc', 'ECHO', { each: 'keys', from: [], args: (key, from) => ({ given: [key, from] }), done: () => {} }) }),
+    }))
+    await rest()
+    deepStrictEqual(asked, [['a', {}]])
+    sys.stop()
   }],
   ['a key there is nothing to ask for is not read, the others are, and it is read once there is', async () => {
     type FileAsks = { READ: { args: { path: string; repo: string }; answer: string } }

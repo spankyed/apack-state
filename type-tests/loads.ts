@@ -47,6 +47,7 @@ type BatchNet = {
   surfaces: {}
   views: {}
 }
+declare const worked: readonly 'ids'[]
 forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single'; each: 'each' } }, never>()({
   data: { ids: [], rev: 0 },
   loads: (load) => ({
@@ -58,6 +59,17 @@ forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single
     pingEachFrom: load('svc', 'PING', { each: 'ids', from: ['rev'], done: () => {} }),
     // @ts-expect-error `args` is required because BATCH expects `{ ids: string[] }`
     missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),
+    // One for each key that says it names fields, and names none, is given its key and then none of them: an empty object.
+    eachNone: load('svc', 'BATCH', { each: 'ids', from: [], args: (id, from) => ({ ids: [id, ...Object.keys(from)] }), done: () => {} }),
+    // @ts-expect-error one for each key that names none of its fields has none of them to read
+    eachNoneRead: load('svc', 'BATCH', { each: 'ids', from: [], args: (id, { rev }) => ({ ids: [id, String(rev)] }), done: () => {} }),
+    // @ts-expect-error given its type arguments outright, one for each key is still not given the field its keys come from
+    eachOutright: load<'svc', 'BATCH', 'rev' | 'ids', 'ids'>('svc', 'BATCH', { each: 'ids', from: ['rev'], args: (id, { ids }) => ({ ids: [id, ...ids] }), done: () => {} }),
+    eachOutrightNamed: load<'svc', 'BATCH', 'rev' | 'ids', 'ids'>('svc', 'BATCH', { each: 'ids', from: ['rev'], args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    // @ts-expect-error a read has no such option, with fields named or with none
+    eachMisspelt: load('svc', 'PING', { each: 'ids', from: [], dnoe: () => {}, done: () => {} }),
+    // @ts-expect-error one for each key of a field is not also read again from that field, where the fields it names are worked out
+    eachTwiceWorkedOut: load('svc', 'BATCH', { each: 'ids', from: worked, args: (id) => ({ ids: [id] }), done: () => {} }),
   }),
   calls: ({ single, each }) => ({
     run: single('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
