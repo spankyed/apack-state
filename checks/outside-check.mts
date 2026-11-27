@@ -67,14 +67,17 @@ await run([
 
   ['what the work throws is thrown where it is awaited, and is the failure of the state\'s work', async () => {
     const saw: string[] = []
+    const traces: string[] = []
     const work = held<string>()
-    const sys = system({ side: 'window' })
+    const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
     const handle = sys.start('o', opening(work.promise, saw))
     work.reject(new Error('no such entity'))
     await rest()
     strictEqual(sys.read(handle).at, 'checking')
     strictEqual(sys.read(handle).data.failure, 'Error: no such entity')
     deepStrictEqual(saw, ['threw Error: no such entity', 'finally'])
+    // It was waited for, so it is the work's failure and not one that came too late.
+    deepStrictEqual(traces.filter((line) => /no longer waiting/.test(line)), [])
   }],
 
   ['a state left while it waits is given Cancelled there: finally runs, and nothing after the wait does', async () => {
@@ -94,7 +97,7 @@ await run([
     strictEqual(sys.idle(), true)
   }],
 
-  ['work that fails after its state was left fails nothing', async () => {
+  ['work that fails after its state was left fails nothing, and is said', async () => {
     const saw: string[] = []
     const traces: string[] = []
     const work = held<string>()
@@ -105,7 +108,44 @@ await run([
     work.reject(new Error('aborted'))
     await rest()
     strictEqual(sys.read(handle).data.failure, null)
-    deepStrictEqual(traces.filter((line) => /DEFECT|failed/.test(line)), [])
+    deepStrictEqual(traces.filter((line) => /DEFECT|failed/.test(line)), ['o in checking was no longer waiting for outside work when it failed: aborted'])
+  }],
+
+  ['a wait that has ended is not taken back: a state left before its work went on is Cancelled at the next wait', async () => {
+    const saw: string[] = []
+    const first = held<string>()
+    const second = held<string>()
+    const going = state<{ data: { told: number }; states: { working: {}; shown: {}; left: {} } }, { type: 'LEAVE' } | { type: 'TOLD' }>()({
+      data: { told: 0 },
+      on: { TOLD: () => ({ data: (d) => { d.told++ } }) },
+      initial: 'working',
+      states: {
+        working: {
+          on: { LEAVE: () => ({ at: 'left' }) },
+          async run({ outside, raise }) {
+            const found = await outside(first.promise)
+            // Here the state has been left, and nothing can have kept the work from resuming.
+            saw.push(`went on with ${found}`)
+            raise({ type: 'TOLD' })
+            try { await outside(second.promise) } catch (error) { saw.push(error instanceof Cancelled ? 'Cancelled at the next wait' : String(error)); throw error }
+            saw.push('went on again')
+            return { at: 'shown' }
+          },
+          failed: () => { saw.push('failed') },
+        },
+        shown: {},
+        left: {},
+      },
+    })
+    const sys = system({ side: 'window' })
+    const handle = sys.start('g', going)
+    await turns(4)
+    first.resolve('thread')
+    // A leaving sent from a promise callback queued behind the wait's ending, and ahead of the work resuming.
+    await Promise.resolve().then(() => { sys.send(handle, { type: 'LEAVE' }) })
+    await rest()
+    deepStrictEqual(saw, ['went on with thread', 'Cancelled at the next wait'])
+    deepStrictEqual({ at: sys.read(handle).at, told: sys.read(handle).data.told }, { at: 'left', told: 0 })
   }],
 
   ['one that was waited for is not heard from when the state is left afterwards', async () => {

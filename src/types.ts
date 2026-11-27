@@ -355,7 +355,8 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   /**
    * Waits for work the kernel did not start, and gives what it ends with. Cancels with `Cancelled` when this state
    * exits, when whoever asked has gone, or when the work that called it finishes, so nothing after it runs for a
-   * state that was left. The work itself is not stopped: hand it `signal` for that.
+   * state that was left by the time the work ended. The work itself is not stopped: hand it `signal` for that. What
+   * it fails with once nothing is waiting is traced and goes nowhere.
    */
   outside<T>(work: PromiseLike<T>): Promise<Awaited<T>>
 }

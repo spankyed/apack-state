@@ -129,13 +129,15 @@ if (!exists) { refuse(request, '…'); … }
 
 | Site | Today | With `outside` |
 |---|---|---|
-| Entity opening, `unreachable` | One guard each, before an effect the kernel cannot stop | No guard. The effect cannot happen after the state was left |
+| Entity opening, `unreachable` | One guard each, before an effect the kernel cannot stop | No guard. The effect cannot happen for a state left before the work ended |
 | Pack frontends | Seven guards in one body | None. A pack's frontend is not loaded for a state that was left |
 | The terminal's `awaitRestore` | An 18-line helper with its own listener, throwing its own `Error('Cancelled')` | `await outside(restore.ready)` at its 9 callers |
 | Brain's step | A promise built around a callback, settled by the signal, 6 guards | Unchanged: what it waits on is a callback, not a promise |
 
-What it does not do: it does not stop the outside work, which still needs the signal handed to it, and it does not
-undo what that work already did.
+What it does not do: it does not stop the outside work, which still needs the signal handed to it, it does not
+undo what that work already did, and it does not take back a wait that has ended. A state left after the work ended
+and before the body resumed, which takes a leaving sent from a promise callback in that same turn, lets the body run
+to its next wait ([guarantees](../guarantees.md)). Only a body the kernel resumes closes that, which is a generator.
 
 ## What would make them worth starting
 

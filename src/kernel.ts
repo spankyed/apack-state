@@ -731,9 +731,13 @@ export function system<N extends Net = Net>(host: {
     outside: <T,>(work: PromiseLike<T>): Promise<Awaited<T>> => {
       const waiting = new Promise<Awaited<T>>((resolve, reject) => {
         const gone = (): void => { reject(new Cancelled('outside work')) }
-        // What the work ends with is always taken, so that one that fails after its owner has gone is not a failure of the process.
+        // What the work ends with is always taken, so that one that fails after its owner has gone is not a failure of
+        // the process. It is said, as work that fails after its state was left is.
         const ended = <V,>(settle: (with_: V) => void) => (with_: V): void => { workSignal.removeEventListener('abort', gone); settle(with_) }
-        Promise.resolve(work).then(ended(resolve), ended(reject))
+        Promise.resolve(work).then(ended(resolve), (error: unknown) => {
+          if (workSignal.aborted) trace(`${mine.top.ref}${mine.path ? ` in ${mine.path}` : ''} was no longer waiting for outside work when it failed: ${said(error)}`)
+          ended(reject)(error)
+        })
         if (workSignal.aborted) gone()
         else workSignal.addEventListener('abort', gone)
       })
