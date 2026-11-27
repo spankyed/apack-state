@@ -219,6 +219,14 @@ await run([
     ok(out.includes('reaches: tell where()'), out)
     ok(out.includes('loads   lookup: library LOOKUP, from what from names'), out)
   }],
+  ['one for each key that is also from fields says both, and one that names no fields says its keys alone', () => {
+    const { out, err, status } = graph('checks/graphs/keyed-from.mts')
+    strictEqual(status, 0, err)
+    ok(out.includes('loads   diff: repo DIFF, one for each key of open, each from rev, depth'), out)
+    ok(out.includes('once: repo DIFF, one for each key of open\n'), out)
+    ok(out.includes('follows blame: repo blame, one for each key of open, each from rev'), out)
+    ok(out.includes('findings: none'), out)
+  }],
   ['detects states built with hostState, inline forNet<Net>(), and bare state() by resolved State return type', () => {
     const file = join(root, 'checks', 'graphs', 'custom-alias.mts')
     const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })

@@ -587,10 +587,11 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           const each = valueOf(option('each'))
           const from = valueOf(option('from'))
           const helper = entry.initializer.expression.getText()
+          // The fields it is asked from, where it names any: `from []` names none, which is as good as leaving it out.
+          const named = from && (!ts.isArrayLiteralExpression(from) ? `from what ${text(from)} names` : from.elements.length ? `from ${from.elements.map(text).join(', ')}` : undefined)
           const depends = name === 'calls' ? (helper === 'each' ? 'for each key it is told' : helper === 'many' ? 'many at once' : 'one at a time')
-            : each ? `one for each key of ${text(each)}`
-            : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
-            : from ? `from what ${text(from)} names` : 'from nothing: once'
+            : each ? `one for each key of ${text(each)}${named ? `, each ${named}` : ''}`
+            : named ?? 'from nothing: once'
           ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entryName}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
           for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
             const handler = option(hears)
