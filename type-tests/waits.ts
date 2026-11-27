@@ -214,3 +214,34 @@ state<ConflictingWaitsShape, never>()({
     },
   },
 })
+
+// A wait a state around it declares cannot be declared again inside it: both could be armed under one `waiting`
+// entry. A state beside it may share the name, which is covered above.
+type RedeclaredWaitShape = {
+  waits: { retry: 'one' }
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { states: { deep: { waits: { retry: 'one' } } } }
+    c: { waits: { other: 'one' } }
+  }
+}
+state<RedeclaredWaitShape, never>()({
+  initial: 'a',
+  waits: ({ one }) => ({ retry: one(100) }),
+  states: {
+    a: {
+      // @ts-expect-error a wait a state around it declares cannot be declared again inside it
+      waits: ({ one }) => ({ retry: one(100) }),
+    },
+    b: {
+      initial: 'deep',
+      states: {
+        deep: {
+          // @ts-expect-error a wait declared at the root cannot be declared again two states down
+          waits: ({ one }) => ({ retry: one(250) }),
+        },
+      },
+    },
+    c: { waits: ({ one }) => ({ other: one(100) }) },
+  },
+})

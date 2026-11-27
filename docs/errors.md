@@ -44,6 +44,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `const _wrongManyPending: boolean = typedValue.pending.uploadDirect` | TS2322: Type 'number' is not assignable to type 'boolean'. | a `many` call exposes its in-flight count (`number`), not a `boolean` |
 | `calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ one }: { one: CallOne&lt;ConflictingCallsShape, "a", never, TypedNet>; each: CallEach&lt;ConflictingCallsShape, "a", never, TypedNet>; many: CallMany&lt;...>; }) => { ...; }' is… | a call name cannot be declared with conflicting kinds across states of one machine |
 | `calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ each }: { one: CallOne&lt;ConflictingCallsShape, "b", never, TypedNet>; each: CallEach&lt;ConflictingCallsShape, "b", never, TypedNet>; many: CallMany&lt;...>; }) => { ...; }' i… | a call name cannot be declared with conflicting kinds across states of one machine |
+| `calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ one }: { one: CallOne&lt;RedeclaredCallShape, "a", never, TypedNet>; each: CallEach&lt;RedeclaredCallShape, "a", never, TypedNet>; many: CallMany&lt;...>; }) => { ...; }' is not… | a call a state around it declares cannot be declared again inside it |
+| `calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),` | TS2322: Type '({ one }: { one: CallOne&lt;RedeclaredCallShape, "b.deep", never, TypedNet>; each: CallEach&lt;RedeclaredCallShape, "b.deep", never, TypedNet>; many: CallMany&lt;...>; }) => { ...;… | a call declared at the root cannot be declared again two states down |
 
 ## Reaching a started state from outside, checked against what its starter declares.
 
@@ -246,6 +248,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `void plainValue.waiting` | TS2339: Property 'waiting' does not exist on type '{ readonly data: { readonly n: number; }; }'. | a state with no declared waits has no `waiting` property on its value |
 | `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;ConflictingWaitsShape, "a", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "a", never, Nothing>; }) => { ...; }' is not assignable to type… | a wait name cannot be declared with conflicting kinds across states of one machine |
 | `waits: ({ each }) => ({ retry: each(100) }),` | TS2322: Type '({ each }: { one: WaitOne&lt;ConflictingWaitsShape, "b", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "b", never, Nothing>; }) => { ...; }' is not assignable to typ… | a wait name cannot be declared with conflicting kinds across states of one machine |
+| `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;RedeclaredWaitShape, "a", never, Nothing>; each: WaitEach&lt;RedeclaredWaitShape, "a", never, Nothing>; }) => { ...; }' is not assignable to type '((… | a wait a state around it declares cannot be declared again inside it |
+| `waits: ({ one }) => ({ retry: one(250) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;RedeclaredWaitShape, "b.deep", never, Nothing>; each: WaitEach&lt;RedeclaredWaitShape, "b.deep", never, Nothing>; }) => { ...; }' is not assignable t… | a wait declared at the root cannot be declared again two states down |
 
 ## `within`: narrowing a state read from outside by where it is.
 

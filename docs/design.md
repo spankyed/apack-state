@@ -76,7 +76,9 @@ The same split holds for imperative timers under **`waits`**: armed on demand wi
 Which timers are armed lives on `waiting` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
 never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that declared it (so exiting or
 self-re-entering that state in the same step drops it); to arm a timer on state entry or self-transition, call `arm`
-from that state's `listen` or `run`.
+from that state's `listen` or `run`. A name under `calls` or `waits` is one entry of `pending` or `waiting` and stands for
+one thing: it has one kind across a definition, and a state does not declare again a name a state around it declares.
+States beside each other may share one.
 
 ## A complete example
 

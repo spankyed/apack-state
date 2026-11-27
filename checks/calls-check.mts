@@ -593,6 +593,29 @@ const checks: Array<[string, () => Promise<void>]> = [
     guarded.stop()
     sys.stop()
   }],
+
+  ['a call a state around it declares cannot be declared again inside it, at any depth', async () => {
+    const sys = system({ side: 'backend' })
+    const call = ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) })
+    throws(
+      () => sys.start('child', { def: { calls: call, initial: 'a', states: { a: { calls: call } } } } as never),
+      { message: 'child declares call save again at a, which an enclosing state declares' },
+    )
+    throws(
+      () => sys.start('grandchild', { def: { calls: call, initial: 'a', states: { a: { initial: 'x', states: { x: { calls: call } } } } } } as never),
+      { message: 'grandchild declares call save again at a.x, which an enclosing state declares' },
+    )
+    // A call and a wait are two namespaces: the same name in each, one inside the other, is two different things.
+    const both = state<{ calls: { save: 'one' }; states: { a: { waits: { save: 'one' } } } }>()({
+      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+      initial: 'a',
+      states: { a: { waits: ({ one }) => ({ save: one(100) }) } },
+    })
+    const handle = sys.start('both', both)
+    deepStrictEqual(sys.read(handle).pending, { save: false })
+    deepStrictEqual(sys.read(handle).waiting, { save: false })
+    sys.stop()
+  }],
 ]
 
 // ── the commit surface's writes, under every ordering ───────────────────────────────────────────────────────────────

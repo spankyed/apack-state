@@ -1120,18 +1120,26 @@ export function system<N extends Net = Net>(host: {
     for (const [field, initial] of Object.entries(def.data ?? {})) {
       if (initial === given && !Object.hasOwn(provided, field)) return `cannot start without ${field}`
     }
-    const shadowed = (node: LooseDef, above: ReadonlySet<string>, path: string): string | undefined => {
+    // A name is declared once on the way down to any state: a field, a call or a wait a state around it declares is
+    // not declared again inside it. States beside each other may share one, since they are never active together.
+    const shadowed = (node: LooseDef, above: ReadonlySet<string>, calls: ReadonlySet<string>, waits: ReadonlySet<string>, path: string): string | undefined => {
       const own = Object.keys(node.data ?? {})
       for (const field of own) if (above.has(field)) return `declares ${field} again at ${path}, shadowing an enclosing state`
+      const called = Object.keys(declaredBy(node).calls)
+      for (const name of called) if (calls.has(name)) return `declares call ${name} again at ${path}, which an enclosing state declares`
+      const waited = Object.keys(declaredBy(node).waits)
+      for (const name of waited) if (waits.has(name)) return `declares wait ${name} again at ${path}, which an enclosing state declares`
       if (!node.states) return undefined
       const next = new Set([...above, ...own])
+      const nextCalls = new Set([...calls, ...called])
+      const nextWaits = new Set([...waits, ...waited])
       for (const [name, inner] of Object.entries(node.states)) {
-        const problem = shadowed(inner, next, path ? `${path}.${name}` : name)
+        const problem = shadowed(inner, next, nextCalls, nextWaits, path ? `${path}.${name}` : name)
         if (problem) return problem
       }
       return undefined
     }
-    const shadow = shadowed(def, new Set(), '')
+    const shadow = shadowed(def, new Set(), new Set(), new Set(), '')
     if (shadow) return shadow
     const seenCalls = new Map<string, 'one' | 'each' | 'many'>()
     const seenWaits = new Map<string, 'one' | 'each'>()

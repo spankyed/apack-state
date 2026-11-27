@@ -1097,6 +1097,39 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'bad-waits declares wait retry with conflicting kinds (one and each)' },
     )
   }],
+
+  ['a wait a state around it declares cannot be declared again inside it, at any depth, and one beside it can', async () => {
+    const manual = manualClock()
+    const defects: Defect[] = []
+    const sys = system({ side: 'backend', clock: manual.clock, onDefect: (d) => defects.push(d) })
+    const wait = ({ one }: { one: Function }) => ({ retry: one(100) })
+
+    throws(
+      () => sys.start('child', { def: { waits: wait, initial: 'a', states: { a: { waits: wait } } } } as never),
+      { message: 'child declares wait retry again at a, which an enclosing state declares' },
+    )
+    throws(
+      () => sys.start('grandchild', { def: { waits: wait, initial: 'a', states: { a: { initial: 'x', states: { x: { waits: wait } } } } } } as never),
+      { message: 'grandchild declares wait retry again at a.x, which an enclosing state declares' },
+    )
+
+    // Beside each other, and under a state that does not declare it, the name is free: one entry, one timer.
+    const beside = state<{ states: { a: { states: { x: { waits: { retry: 'one' } } } }; b: { waits: { retry: 'one' } } } }, { type: 'ARM' } | { type: 'OFF' }>()({
+      initial: 'a',
+      states: {
+        a: { initial: 'x', states: { x: { waits: ({ one }) => ({ retry: one(100) }), on: { ARM: (_, { arm }) => { arm('retry') }, OFF: (_, { disarm }) => { disarm('retry') } } } } },
+        b: { waits: ({ one }) => ({ retry: one(100) }) },
+      },
+    })
+    const handle = sys.start('beside', beside)
+    sys.send(handle, { type: 'ARM' })
+    deepStrictEqual(sys.read(handle).waiting, { retry: true })
+    sys.send(handle, { type: 'OFF' })
+    // What was disarmed is what `waiting` showed: nothing else is under the name.
+    deepStrictEqual(sys.read(handle).waiting, { retry: false })
+    strictEqual(manual.activeCount(), 0)
+    deepStrictEqual(defects, [])
+  }],
 ]
 
 await run(checks)

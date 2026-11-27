@@ -200,3 +200,35 @@ typed<ConflictingCallsShape, never>()({
     },
   },
 })
+
+// A call a state around it declares cannot be declared again inside it: both could be in flight under one
+// `pending` entry. The same name in a state beside it is fine, and is covered above; a wait of the same name is
+// another namespace, so one inside the other is two different things.
+type RedeclaredCallShape = {
+  calls: { save: 'one' }
+  states: {
+    a: { calls: { save: 'one' } }
+    b: { states: { deep: { calls: { save: 'one' } } } }
+    c: { calls: { other: 'one' }; waits: { save: 'one' } }
+  }
+}
+typed<RedeclaredCallShape, never>()({
+  initial: 'a',
+  calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+  states: {
+    a: {
+      // @ts-expect-error a call a state around it declares cannot be declared again inside it
+      calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+    },
+    b: {
+      initial: 'deep',
+      states: {
+        deep: {
+          // @ts-expect-error a call declared at the root cannot be declared again two states down
+          calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+        },
+      },
+    },
+    c: { calls: ({ one }) => ({ other: one('svc', 'PING', { done: () => {} }) }), waits: ({ one }) => ({ save: one(100) }) },
+  },
+})
