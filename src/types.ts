@@ -483,10 +483,10 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
   }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /**
-   * The state inside it that it enters first when whoever enters it does not say: one that needs no data given. A
-   * state that does is here as the reason it cannot be named, which is what the compiler prints when it is.
+   * The state inside it that it enters first when whoever enters it does not say. It has to be one that needs no
+   * data given, which `NoInitialGiven` holds the definition to, saying which state was named and why it cannot be.
    */
-  initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`> }[Names<S>]
+  initial: { [K in Names<S>]: K }[Names<S>]
   /** Every state inside it. */
   states: { [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N> }
 })
@@ -677,9 +677,11 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
  * prints it as `Refused<"…">`, so its error says which rule was broken and by which name. `forNet` intersects the
  * refusals ahead of the definition, which puts the reason first in the type the error names. It is held to by the
  * whole of what declares the name (a state's `data`, `calls` or `waits`), not by the one entry: it asks for a property
- * nothing has, so what any entry is written as, `any` included, does not come into it.
+ * nothing has, so what any entry is written as, `any` included, does not come into it. The property is one of its own
+ * making, so there is no reason, not even none at all, that leaves it something a definition can be.
  */
-type Refused<Why extends string> = { readonly [K in Why]: never }
+declare const refused: unique symbol
+type Refused<Why extends string> = { readonly [refused]: Why }
 /**
  * A refusal of a field's value: `any` can be anything but `never`, and what it is intersected with is `any` again, so
  * a value written as `any` is held to `never` and every other to the reason.
@@ -687,22 +689,25 @@ type Refused<Why extends string> = { readonly [K in Why]: never }
 type RefusedValue<Written, Why extends string> = 0 extends 1 & Written ? never : Refused<Why>
 
 /**
- * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
- * with no supplied fields, so a `given` field there would never be provided.
+ * Refuses what an `initial` cannot be, at any depth: a state whose data has to be given, since it is entered with
+ * nothing given, and a `given` field in the state it does name, which would never be provided.
  */
-type NoInitialGiven<D> =
+type NoInitialGiven<S, D> =
   D extends { initial: infer K extends string; states: infer T extends Record<string, unknown> }
-    ? {
+    ? (K extends Names<S>
+        ? ({} extends DataOf<StatesOf<S>[K]> ? unknown : { initial: Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`> })
+        : unknown)
+      & {
         states: {
           [P in keyof T]: P extends K
             ? (T[P] extends { data: infer X }
                 ? { data: { [F in keyof X]: [X[F]] extends [Given] ? RefusedValue<X[F], `data field '${F & string}' cannot be given: an initial state is entered with nothing given`> : unknown } }
-                : unknown) & NoInitialGiven<T[P]>
-            : NoInitialGiven<T[P]>
+                : unknown) & NoInitialGiven<Sub<S, P>, T[P]>
+            : NoInitialGiven<Sub<S, P>, T[P]>
         }
       }
     : D extends { states: infer T extends Record<string, unknown> }
-      ? { states: { [P in keyof T]: NoInitialGiven<T[P]> } }
+      ? { states: { [P in keyof T]: NoInitialGiven<Sub<S, P>, T[P]> } }
       : unknown
 
 /**
@@ -746,19 +751,17 @@ type ConflictingNames<Entries> =
   ([Entries] extends [[infer K extends string, unknown]]
     ? { [P in K]: IsUnion<Extract<Entries, [P, unknown]>[1]> extends true ? P : never }[K]
     : never) & string
-/** The kinds one name is declared with, as words: `one, each`. */
-type KindsListed<Kinds> =
-  `${'one' extends Kinds ? ', one' : ''}${'each' extends Kinds ? ', each' : ''}${'many' extends Kinds ? ', many' : ''}` extends `, ${infer Listed}` ? Listed : never
 /**
  * Each reason is written where it is used and under no name of its own: the compiler prints an argument that has a
- * name by that name, and one that has none as the sentences it holds.
+ * name by that name, and one that has none as the sentences it holds. There is a sentence for each kind a name is
+ * declared with, made from the kinds as they are declared, so none is spelled here.
  */
 type RejectConflicting<S, Calls, Waits, BadCalls extends string, BadWaits extends string> =
   ([Extract<keyof CallsOf<S> & string, BadCalls>] extends [never] ? unknown : {
-    calls: Refused<{ [K in Extract<keyof CallsOf<S> & string, BadCalls>]: `call '${K}' is declared with more than one kind across states: ${KindsListed<Extract<Calls, [K, unknown]>[1]>}` }[Extract<keyof CallsOf<S> & string, BadCalls>]>
+    calls: Refused<{ [K in Extract<keyof CallsOf<S> & string, BadCalls>]: `call '${K}' is declared with more than one kind across states: '${Extract<Calls, [K, unknown]>[1] & string}' is one of them` }[Extract<keyof CallsOf<S> & string, BadCalls>]>
   })
   & ([Extract<keyof WaitsOf<S> & string, BadWaits>] extends [never] ? unknown : {
-    waits: Refused<{ [K in Extract<keyof WaitsOf<S> & string, BadWaits>]: `wait '${K}' is declared with more than one kind across states: ${KindsListed<Extract<Waits, [K, unknown]>[1]>}` }[Extract<keyof WaitsOf<S> & string, BadWaits>]>
+    waits: Refused<{ [K in Extract<keyof WaitsOf<S> & string, BadWaits>]: `wait '${K}' is declared with more than one kind across states: '${Extract<Waits, [K, unknown]>[1] & string}' is one of them` }[Extract<keyof WaitsOf<S> & string, BadWaits>]>
   })
   & (S extends { states: infer T extends Record<string, Shape> }
     ? { states: { [P in keyof T]: RejectConflicting<T[P], Calls, Waits, BadCalls, BadWaits> } }
@@ -782,7 +785,7 @@ type NoConflictingKinds<S> =
  * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
  * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<S, NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })
 }
 

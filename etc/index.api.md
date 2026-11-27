@@ -244,7 +244,7 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
     states?: never;
 } : {
     initial: {
-        [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : Refused<`state '${K}' cannot be entered first: its data has to be given, and nothing is given to an initial state`>;
+        [K in Names<S>]: K;
     }[Names<S>];
     states: {
         [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N>;
@@ -338,7 +338,7 @@ export interface Following {
 // Warning: (ae-forgotten-export) The symbol "GivenIn" needs to be exported by the entry point index.d.ts
 //
 // @public
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<S, NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export const given: unique symbol;
@@ -591,7 +591,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 }
 
 // @public
-export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: NoShadowed<S, never, never, never> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
+export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: NoShadowed<S, never, never, never> & NoConflictingKinds<S> & NoInitialGiven<S, NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export interface StepLog {
@@ -777,7 +777,6 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:568:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:582:5 - (ae-forgotten-export) The symbol "WaitKind" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:582:5 - (ae-forgotten-export) The symbol "WaitNeedsMs" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:596:5 - (ae-forgotten-export) The symbol "Refused" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:600:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:695:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:776:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts

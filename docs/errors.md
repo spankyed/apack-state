@@ -86,7 +86,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 
 | What was written | What TypeScript says | Why |
 |---|---|---|
-| `working: { data: { how: given }, async run() { await Promise.resolve() } },` | TS2322: Type '{ data: { how: unique symbol; }; run(): Promise&lt;void>; }' is not assignable to type 'Def&lt;Panel, { data: { how: How; }; }, "working", PanelEvent, {}, App>'. | its work awaits, and it does not say where it goes when that fails |
+| `working: { data: { how: given }, async run() { await Promise.resolve() } },` | TS2322: Type '{ data: { how: unique symbol; }; run(): Promise&lt;void>; }' is not assignable to type '{ data: { how: unknown; }; } &amp; Def&lt;Panel, { data: { how: How; }; }, "working", PanelEv… | its work awaits, and it does not say where it goes when that fails |
 
 ## The views a state follows: what can be followed, and what it is followed from.
 
@@ -204,8 +204,8 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `a: { data: { error: '', note: '' } },` | TS2322: Type '{ error: string; note: string; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state" \| "data field 'note' is already declare… | each field a child declares again is named in the refusal |
 | `leaf: { data: { error: '' } },` | TS2322: Type '{ error: string; }' is not assignable to type 'Refused&lt;"data field 'error' is already declared by an enclosing state"> &amp; { error: string; }'. | a deeply nested state cannot shadow a field name declared by an ancestor |
 | `const unsafe: string = read(child('card', 'a')).data.label` | TS2532: Object is possibly 'undefined'. | a started child might not be running, so read() may be undefined |
-| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type '"waiting" \| Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state">'. | a state whose data has to be given cannot be entered first |
-| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type '"waiting" \| Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state">'. | a nested state whose data has to be given cannot be entered first either |
+| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type 'Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state"> &amp; "editing"'. | a state whose data has to be given cannot be entered first |
+| `initial: 'editing',` | TS2322: Type '"editing"' is not assignable to type 'Refused&lt;"state 'editing' cannot be entered first: its data has to be given, and nothing is given to an initial state"> &amp; "editing"'. | a nested state whose data has to be given cannot be entered first either |
 
 ## What a component may read of a running state and send it, as render functions.
 
