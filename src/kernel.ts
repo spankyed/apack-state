@@ -973,7 +973,13 @@ export function system<N extends Net = Net>(host: {
         const now = live.get(id)
         if (now && now.seen.length === seen.length && now.seen.every((value, index) => Object.is(value, seen[index]))) return
         let what: object | null | undefined | false
-        try { what = args() as object | null | undefined | false } catch (error) { defect(`${top.ref} could not say what to ask ${id} for: ${said(error)}`, top.ref, error); return }
+        try { what = args() as object | null | undefined | false } catch (error) {
+          defect(`${top.ref} could not say what to ask ${id} for: ${said(error)}`, top.ref, error)
+          // What it could not say for is what it has now seen: it is not asked to say again until one of those values
+          // changes. What was asked before goes on as it was, and where nothing was, nothing is.
+          if (now) now.seen = seen; else live.set(id, { seen, because: new Set(), stop: () => {} })
+          return
+        }
         // There is nothing to ask for now: what was asked is given up, and nothing can come round.
         if (!what) { now?.stop(); live.set(id, { seen, because: new Set(), stop: () => {} }); return }
         const here = `${top.ref}#${id}`

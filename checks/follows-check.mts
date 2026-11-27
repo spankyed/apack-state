@@ -634,21 +634,34 @@ const moreChecks: Array<[string, () => void | Promise<void>]> = [
 
 // ── one view for each item watched, all followed again when the currency changes ────────────────────────────────────
 
-type QuotesEvent = { type: 'WATCH'; ids: string[]; currency?: string } | { type: 'SET_CURRENCY'; currency: string } | { type: 'SET_NOTE'; note: string }
-type Quotes = { data: { currency: string; watching: string[]; quotes: Record<string, number>; note: string; rounds: number } }
-/** `echoing` has what a quote delivers count `rounds` up, which is a field it is followed from. */
+type QuotesEvent =
+  | { type: 'WATCH'; ids: string[]; currency?: string }
+  | { type: 'SET_CURRENCY'; currency: string }
+  | { type: 'SET_NOTE'; note: string }
+  | { type: 'MUTE'; ids: string[] }
+  | { type: 'BREAK'; id: string | null }
+type Quotes = { data: { currency: string; watching: string[]; quotes: Record<string, number>; note: string; rounds: number; muted: string[]; broken: string | null } }
+/**
+ * `echoing` has what a quote delivers count `rounds` up, which is a field it is followed from. There is nothing to
+ * follow for an id that is `muted`, and what to follow cannot be said for the `broken` id, nor for one named `bad`.
+ */
 const quotes = (echoing: boolean) => state<Quotes, QuotesEvent>()({
-  data: { currency: 'EUR', watching: [], quotes: {}, note: '', rounds: 0 },
+  data: { currency: 'EUR', watching: [], quotes: {}, note: '', rounds: 0, muted: [], broken: null },
   on: {
     WATCH: ({ ids, currency }, { data }) => ({ data: { watching: ids, currency: currency ?? data.currency } }),
     SET_CURRENCY: ({ currency }) => ({ data: { currency } }),
     SET_NOTE: ({ note }) => ({ data: { note } }),
+    MUTE: ({ ids }) => ({ data: { muted: ids } }),
+    BREAK: ({ id }) => ({ data: { broken: id } }),
   },
   follows: (follow) => ({
     quote: follow('shop', 'quote', {
       each: 'watching',
-      from: ['currency', 'rounds'],
-      args: (id, { currency, rounds }) => ({ id, currency: `${currency}${rounds || ''}` }),
+      from: ['currency', 'rounds', 'muted', 'broken'],
+      args: (id, { currency, rounds, muted, broken }) => {
+        if (id === broken || id === 'bad') throw new Error(`${id} cannot be quoted`)
+        return !muted.includes(id) && { id, currency: `${currency}${rounds || ''}` }
+      },
       updated: (update, { key }) => (update.ok ? { data: (d) => { d.quotes[key] = update.value; if (echoing) d.rounds += 1 } } : undefined),
     }),
   }),
@@ -725,6 +738,97 @@ const keyedFrom: Array<[string, () => void]> = [
     deepStrictEqual([data().quotes, data().rounds], [{ a: 3, b: 5 }, 2])
     strictEqual(defects.length, 3)
     ok(defects.some((line) => line.includes('what quotes#quote/b delivered changed a field quotes#quote/a is asked from, and quotes#quote/a is what led to quotes#quote/b being asked')), defects.join('\n'))
+  }],
+  ['one refused for leading round to itself is followed again once a field it names changes, and once its key has gone and come back', () => {
+    const { send, calls, deliver, defects } = quoted(true)
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    deliver('a in EUR', 3)
+    deliver('b in EUR1', 5)
+    calls.length = 0
+    send({ type: 'WATCH', ids: ['b'] })
+    send({ type: 'WATCH', ids: ['b', 'a'] })
+    deepStrictEqual(calls, ['stop a in EUR', 'follow a in EUR2'])
+    calls.length = 0
+    send({ type: 'SET_CURRENCY', currency: 'USD' })
+    deepStrictEqual(calls, ['stop b in EUR1', 'follow b in USD2', 'stop a in EUR2', 'follow a in USD2'])
+    strictEqual(defects.length, 3)
+  }],
+  ['a view followed for a key there comes to be nothing to follow for is stopped and no longer heard, and followed again once there is', () => {
+    const { send, calls, deliver, data } = quoted()
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    calls.length = 0
+    send({ type: 'MUTE', ids: ['a'] })
+    deepStrictEqual(calls, ['stop a in EUR', 'stop b in EUR', 'follow b in EUR'])
+    deliver('a in EUR', 99)
+    deepStrictEqual(data().quotes, {})
+    calls.length = 0
+    send({ type: 'MUTE', ids: [] })
+    deepStrictEqual(calls, ['follow a in EUR', 'stop b in EUR', 'follow b in EUR'])
+    deliver('a in EUR', 3)
+    deepStrictEqual(data().quotes, { a: 3 })
+  }],
+  ['a key whose view cannot be said while one is followed keeps that one: it is reported, not stopped, and still heard', () => {
+    const { send, calls, deliver, data, defects } = quoted()
+    send({ type: 'WATCH', ids: ['a'] })
+    calls.length = 0
+    send({ type: 'BREAK', id: 'a' })
+    deepStrictEqual(calls, [])
+    strictEqual(defects.length, 1)
+    ok(defects[0]!.includes('quotes could not say what to ask quote/a for: a cannot be quoted'), defects[0])
+    deliver('a in EUR', 3)
+    deepStrictEqual(data().quotes, { a: 3 })
+  }],
+  ['a key whose view could not be said is not asked what to follow again until a field it names changes: keys coming and going report nothing more', () => {
+    const { send, calls, defects } = quoted()
+    send({ type: 'WATCH', ids: ['a'] })
+    send({ type: 'BREAK', id: 'a' })
+    send({ type: 'WATCH', ids: ['a', 'b'] })
+    send({ type: 'WATCH', ids: ['a'] })
+    deepStrictEqual([calls, defects.length], [['follow a in EUR', 'follow b in EUR', 'stop b in EUR'], 1])
+    // A field it names changes, and it still cannot say: that is asked, and reported, once more.
+    send({ type: 'SET_CURRENCY', currency: 'USD' })
+    deepStrictEqual([calls.slice(3), defects.length], [[], 2])
+    // And once it can, it is followed, and the one that was kept stopped.
+    send({ type: 'BREAK', id: null })
+    deepStrictEqual([calls.slice(3), defects.length], [['stop a in EUR', 'follow a in USD'], 2])
+  }],
+  ['a key whose view could never be said is reported once, whatever comes and goes beside it, and again when a field it names changes', () => {
+    const { send, calls, defects } = quoted()
+    send({ type: 'WATCH', ids: ['bad', 'a'] })
+    send({ type: 'WATCH', ids: ['bad', 'a', 'b'] })
+    send({ type: 'SET_NOTE', note: 'a note' })
+    deepStrictEqual([calls, defects.length], [['follow a in EUR', 'follow b in EUR'], 1])
+    ok(defects[0]!.includes('quotes could not say what to ask quote/bad for: bad cannot be quoted'), defects[0])
+    send({ type: 'SET_CURRENCY', currency: 'USD' })
+    strictEqual(defects.length, 2)
+  }],
+  ['a view that cannot say what to ask for is reported once, not at each change to another field, and followed once it can', () => {
+    const made: unknown[] = []
+    const defects: string[] = []
+    const sys = system({ side: 'window', views: (_feature, _view, args) => { made.push(args); return () => {} }, trace: (line) => { if (line.startsWith('DEFECT')) defects.push(line) } })
+    const it = sys.start('watcher', state<{ data: { currency: string | null; note: string } }, { type: 'NOTE'; note: string } | { type: 'SET'; currency: string }>()({
+      data: { currency: null, note: '' },
+      on: { NOTE: ({ note }) => ({ data: { note } }), SET: ({ currency }) => ({ data: { currency } }) },
+      follows: (follow) => ({
+        total: follow('shop', 'total', { from: ['currency'], args: ({ currency }) => { if (currency === null) throw new Error('no currency yet'); return { currency } }, updated: () => {} }),
+      }),
+    }))
+    sys.send(it, { type: 'NOTE', note: 'one' })
+    sys.send(it, { type: 'NOTE', note: 'two' })
+    deepStrictEqual(defects.map((line) => line.includes('watcher could not say what to ask total for: no currency yet')), [true])
+    sys.send(it, { type: 'SET', currency: 'EUR' })
+    deepStrictEqual([made, defects.length], [[{ currency: 'EUR' }], 1])
+    sys.stop()
+  }],
+  ['one for each key written with no fields to name is given its key and then none: an empty object', () => {
+    const made: unknown[][] = []
+    const sys = system({ side: 'window', views: () => () => {} })
+    sys.start('watcher', state<{ data: { watching: Record<string, true> } }>()({
+      data: { watching: { a: true } },
+      follows: (follow) => ({ none: follow('shop', 'price', { each: 'watching', from: [], args: (id, from) => { made.push([id, from]); return { id } }, updated: () => {} }) }),
+    }))
+    deepStrictEqual(made, [['a', {}]])
+    sys.stop()
   }],
   ['what a view for each key is asked for is made of its key alone, and of its key and the fields it names where it names some', () => {
     const made: unknown[][] = []

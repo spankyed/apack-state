@@ -167,6 +167,10 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `eachAlone: follow('shop', 'price', { each: 'watching', args: (id, from) => ({ id: id + …` | TS2322: Type '(id: any, from: any) => { id: any; }' is not assignable to type '(key: string) => false \| { readonly id: string; } \| null \| undefined'. | one for each key that names no fields is given its key alone |
 | `eachTwice: follow('shop', 'price', { each: 'watching', from: ['watching'], args: (id) =…` | TS2322: Type 'string' is not assignable to type 'never'. | one for each key of a field is not also followed again from that same field |
 | `missingArgs: follow('items', 'list', { from: ['ids'], updated: () => {} }),` | TS2345: Argument of type '{ from: "ids"[]; updated: () => void; }' is not assignable to parameter of type '{ args: (from: { readonly ids: readonly string[]; }) => false \| { readonly ids… | `args` is required because `list` expects `{ ids: string[] }` |
+| `eachNoneRead: follow('items', 'list', { each: 'ids', from: [], args: (id, { rev }) => (…` | TS2339: Property 'rev' does not exist on type '{}'. | one for each key that names none of its fields has none of them to read |
+| `eachOutright: follow<'items', 'list', 'rev' \| 'ids', 'ids'>('items', 'list', { each: 'i…` | TS2339: Property 'ids' does not exist on type '{ readonly rev: number; }'. | given its type arguments outright, one for each key is still not given the field its keys come from |
+| `eachMisspelt: follow('items', 'all', { each: 'ids', from: [], udpated: () => {}, update…` | TS2561: Object literal may only specify known properties, but 'udpated' does not exist in type '{ args?: ((key: string, from: {}) => false \| {} \| null \| undefined) \| undefined; } &amp; { re… | a view has no such option, with fields named or with none |
+| `eachTwiceWorkedOut: follow('items', 'list', { each: 'ids', from: worked, args: (id) => …` | TS2322: Type 'readonly "ids"[]' is not assignable to type 'readonly never[]'. | one for each key of a field is not also followed again from that field, where the fields it names are worked out |
 
 ## Who may send a state what: the events it raises, and the surfaces it tells.
 
@@ -220,6 +224,10 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `eachKeyless: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: ({ aga…` | TS2339: Property 'again' does not exist on type 'String'. | one for each key is given its key first, which is a string, and the fields it named after it |
 | `unkeyed: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }),…` | TS2339: Property 'key' does not exist on type 'EventScope&lt;Reader, "", ReaderEvent, App>'. | one read from fields alone is not one of many, so how it ended has no key |
 | `missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),` | TS2345: Argument of type '{ from: "ids"[]; done: () => void; }' is not assignable to parameter of type '{ args: (from: { readonly ids: readonly string[]; }) => false \| { readonly ids: r… | `args` is required because BATCH expects `{ ids: string[] }` |
+| `eachNoneRead: load('svc', 'BATCH', { each: 'ids', from: [], args: (id, { rev }) => ({ i…` | TS2339: Property 'rev' does not exist on type '{}'. | one for each key that names none of its fields has none of them to read |
+| `eachOutright: load<'svc', 'BATCH', 'rev' \| 'ids', 'ids'>('svc', 'BATCH', { each: 'ids',…` | TS2339: Property 'ids' does not exist on type '{ readonly rev: number; }'. | given its type arguments outright, one for each key is still not given the field its keys come from |
+| `eachMisspelt: load('svc', 'PING', { each: 'ids', from: [], dnoe: () => {}, done: () => …` | TS2353: Object literal may only specify known properties, and 'dnoe' does not exist in type '{ args?: ((key: string, from: {}) => false \| {} \| null \| undefined) \| undefined; } &amp; { reado… | a read has no such option, with fields named or with none |
+| `eachTwiceWorkedOut: load('svc', 'BATCH', { each: 'ids', from: worked, args: (id) => ({ …` | TS2322: Type 'readonly "ids"[]' is not assignable to type 'readonly never[]'. | one for each key of a field is not also read again from that field, where the fields it names are worked out |
 
 ## Telling a named peer is checked against the peers and events declared on Net.
 

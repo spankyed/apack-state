@@ -36,6 +36,14 @@ network) that already ran.
   have no gap for it, and it does not count against `limit`. That holds whether it went stale before it arrived or
   while it waited behind the step that made it so. An answer that crosses a link to an ask already given up is not one
   of these: it is taken in a step, logged as `answer`, and reaches nobody.
+- **An `args` that throws changes nothing that is live, and is asked once.** Where the `args` of a `follows` or
+  `loads` entry throws, a `Defect` is reported (`could not say what to ask … for`) and what that entry had live goes on
+  as it was: a view followed is not stopped and is still heard, a read under way is not given up and how it ends is
+  heard, and where nothing was live nothing is asked. The values it threw for are what it has then seen. `args` is not
+  called for them again, so one defect is reported and not one at each later look: one of many is not asked again
+  because another key came or went, or because what any of them delivered was written into the field their keys come
+  from, and a single one is not asked again because some other field changed. It is asked again when a field it names
+  changes, when its key goes and comes back, or when its state is left and entered again.
 - **Windows vs. named peers.** Broadcasts and answers to windows wait for any affected views' `caughtUp()` hold (when wired
   through `@apackdev/link` or a `ViewHost`) so a window never sees a message ahead of the rows it reflects. Named peer tells
   (`tell({ peer }, event)`) are delivered after commit with no view hold.
