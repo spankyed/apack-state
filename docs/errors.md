@@ -210,6 +210,34 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `void one.state.value.data.bumps` | TS18048: 'one.state.value' is possibly 'undefined'. | a card may not be running, so what it holds cannot be read without saying what if it is not |
 | `void it.ask` | TS2339: Property 'ask' does not exist on type 'Bound&lt;Value&lt;Board>, BoardEvent, { card: Each&lt;State&lt;Card, { type: "BUMP"; }, {}, "id" \| "label">>; }>'. | a component sends; it does not ask |
 
+## The timers a state waits on: where one may be armed or disarmed, its duration, and its waiting record.
+
+`type-tests/waits.ts`
+
+| What was written | What TypeScript says | Why |
+|---|---|---|
+| `BAD_1: (_, { arm }) => { arm('inner') },` | TS2345: Argument of type '"inner"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | an inner wait is declared by a state inside, so only a handler there can arm it |
+| `BAD_2: (_, { arm }) => { arm('backoff') },` | TS2554: Expected 2 arguments, but got 1. | a runtime-ms `one` wait requires `ms` when armed |
+| `BAD_3: (_, { arm }) => { arm('pulse', 100, { payload: true }) },` | TS2554: Expected 1-2 arguments, but got 3. | a fixed-ms `one` wait takes no extra payload argument beyond optional `ms` |
+| `BAD_4: (_, { arm }) => { arm('flash') },` | TS2554: Expected 2-3 arguments, but got 1. | an `each` wait requires its key |
+| `BAD_5: (_, { arm }) => { arm('retry', 'k1') },` | TS2554: Expected 3 arguments, but got 2. | a runtime-ms `each` wait requires both key and `ms` |
+| `BAD_6: (_, { arm }) => { arm('flash', 'k1', 100, { payload: true }) },` | TS2554: Expected 2-3 arguments, but got 4. | an `each` wait takes no extra payload argument beyond key and `ms` |
+| `BAD_7: (_, { disarm }) => { disarm('pulse', 'k1') },` | TS2554: Expected 1 arguments, but got 2. | a `one` wait takes no key when disarmed |
+| `BAD_8: (_, { arm }) => { arm('unknown') },` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | it declares no such wait |
+| `BAD_9: (_, { arm }) => { arm('backoff', 250, 'extra') },` | TS2554: Expected 2 arguments, but got 3. | a runtime-ms `one` wait takes no extra payload argument |
+| `state<{ waits: { pulse: 'one' } }>()({})` | TS2345: Argument of type '{}' is not assignable to parameter of type 'Def&lt;{ waits: { pulse: "one"; }; }, { waits: { pulse: "one"; }; }, "", never, {}, Nothing>'. | a state whose shape declares waits has to define them |
+| `fixed: one(),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, true>' is not assigna… | a fixed-ms `'one'` wait requires a default `ms` |
+| `dynamic: one(100),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, false>' is not assign… | a runtime-ms `{ one: 'ms' }` wait does not accept a default `ms` |
+| `keyed: one(100),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, false>' is not assign… | an `'each'` wait must be built with `each`, not `one` |
+| `dynKeyed: one(),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, true>' is not assigna… | a `{ each: 'ms' }` wait must be built with `each`, not `one` |
+| `badDone: one(100, () => ({ data: { n: 'wrong' } })),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { badDone: "one"; badEachDone: "each"; }; }, "", never, Nothing, boolean>' is not assignable to type 'WaitedOne&lt;{ data: { n: numbe… | a `one` wait's `done` return value is checked against the state's data |
+| `badEachDone: each(100, { done: () => ({ data: { n: 'wrong' } }) }),` | TS2322: Type 'WaitedEach&lt;{ data: { n: number; }; waits: { badDone: "one"; badEachDone: "each"; }; }, "", never, Nothing, boolean>' is not assignable to type 'WaitedEach&lt;{ data: { n: num… | an `each` wait's `done` return value is checked against the state's data |
+| `waits: () => ({}),` | TS2322: Type '() => {}' is not assignable to type 'undefined'. | a state whose shape declares no waits cannot define `waits` |
+| `const _badOne: Readonly<Record<string, true>> = timersValue.waiting.pulse` | TS2322: Type 'boolean' is not assignable to type 'Readonly&lt;Record&lt;string, true>>'. | a `one` wait exposes `boolean` on `waiting`, not a record |
+| `const _badEach: boolean = timersValue.waiting.flash` | TS2322: Type 'Readonly&lt;Record&lt;string, true>>' is not assignable to type 'boolean'. | an `each` wait exposes `Readonly<Record<string, true>>` on `waiting`, not a `boolean` |
+| `timersValue.waiting.pulse = true` | TS2540: Cannot assign to 'pulse' because it is a read-only property. | `waiting` is read-only and cannot be mutated |
+| `void plainValue.waiting` | TS2339: Property 'waiting' does not exist on type '{ readonly data: { readonly n: number; }; }'. | a state with no declared waits has no `waiting` property on its value |
+
 ## `within`: narrowing a state read from outside by where it is.
 
 `type-tests/within.ts`

@@ -21,6 +21,7 @@ export interface StateGraph {
   readonly follows: readonly string[]
   readonly loads: readonly string[]
   readonly calls: readonly string[]
+  readonly waits: readonly string[]
   readonly reaches: readonly string[]
   readonly findings: readonly string[]
   readonly text: string
@@ -28,7 +29,7 @@ export interface StateGraph {
 
 type Type = any
 
-const VERBS = new Set(['tell', 'ask', 'broadcast', 'call', 'cancel'])
+const VERBS = new Set(['tell', 'ask', 'broadcast', 'call', 'cancel', 'arm', 'disarm'])
 
 const loadTs = (fromDir: string): any => {
   try { return createRequire(resolve(fromDir, 'package.json'))('typescript') } catch { return createRequire(import.meta.url)('typescript') }
@@ -71,7 +72,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
   const literalsOf = (type: Type): string[] => members(type).filter((m: Type) => m.isStringLiteral()).map((m: Type) => m.value as string)
   const join = (within: string, name: string): string => (within ? `${within}.${name}` : name)
 
-  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[]): StateGraph => {
+  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[], armedWaits: ReadonlySet<string>, hasDynamicArm: boolean): StateGraph => {
     const moves: Array<{ from: string; on: string; to: string[] }> = []
     const stays: string[] = []
     const answers: string[] = []
@@ -81,6 +82,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const follows: string[] = []
     const loads: string[] = []
     const calls: string[] = []
+    const waits: string[] = []
     const uncertain = new Set<string>(initialUncertain)
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
 
@@ -161,7 +163,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           }
           continue
         }
-        if (name !== 'follows' && name !== 'loads' && name !== 'calls') continue
+        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') continue
         if (!made || !ts.isArrowFunction(made)) {
           uncertain.add(`could not statically read ${where(path, name)}`)
           continue
@@ -179,6 +181,38 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           }
           if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) {
             uncertain.add(`could not statically read ${where(path, `${name}.${entry.name?.getText() ?? '?'}`)}`)
+            continue
+          }
+          if (name === 'waits') {
+            const [first, second] = entry.initializer.arguments
+            const helper = entry.initializer.expression.getText()
+            const hasMs = Boolean(first && (checker.getTypeAtLocation(first).flags & ts.TypeFlags.NumberLike))
+            const rest = hasMs ? second : first
+            let noReset = false
+            if (rest && ts.isObjectLiteralExpression(rest)) {
+              if (rest.properties.some((p: any) => ts.isSpreadAssignment(p))) {
+                uncertain.add(`spread in ${where(path, `waits.${entry.name.getText()}`)} could not be statically read`)
+              }
+              const resetProp = rest.properties.find((each: any) => each.name?.getText() === 'reset')
+              const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
+              if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
+              const doneProp = rest.properties.find((each: any) => each.name?.getText() === 'done')
+              const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
+              if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (done)`)
+            } else if (rest) {
+              const restType = checker.getTypeAtLocation(rest)
+              const sigs = restType.getCallSignatures()
+              if (sigs.length) {
+                read(unwrap(sigs[0].getReturnType()), path, `${entry.name.getText()} (done)`)
+              } else {
+                const doneProp = restType.getProperty?.('done')
+                const sig = doneProp && real(typeOf(doneProp))[0]?.getCallSignatures()[0]
+                if (sig) read(unwrap(sig.getReturnType()), path, `${entry.name.getText()} (done)`)
+                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entry.name.getText()}`)}`)
+              }
+            }
+            const msLabel = hasMs ? (ts.isNumericLiteral(first) ? `${first.text}ms` : text(first)) : 'ms at arm'
+            waits.push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
             continue
           }
           const [first, second, opts] = entry.initializer.arguments
@@ -222,9 +256,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
 
     const declared: string[] = []
     const startsStates: string[] = []
+    const declaredWaits: Array<{ name: string; within: string }> = []
     const survey = (of: Type, within: string): void => {
       const started = of.getProperty('starts')
       if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
+      const waited = of.getProperty('waits')
+      if (waited) for (const each of typeOf(waited).getProperties()) declaredWaits.push({ name: each.name, within })
       const states = of.getProperty('states')
       if (!states) return
       for (const inner of typeOf(states).getProperties()) { declared.push(join(within, inner.name)); survey(typeOf(inner), join(within, inner.name)) }
@@ -234,6 +271,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
+    if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm) {
+      for (const w of declaredWaits) if (!armedWaits.has(w.name)) findings.push(`nothing arms ${where(w.within, w.name)}`)
+    }
     for (const note of uncertain) findings.push(note)
 
     const lines: string[] = [title]
@@ -245,11 +285,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const followed of follows) lines.push(`  follows ${followed}`)
     for (const loaded of loads) lines.push(`  loads   ${loaded}`)
     for (const called of calls) lines.push(`  calls   ${called}`)
+    for (const waited of waits) lines.push(`  waits   ${waited}`)
     if (reaches.length) lines.push(`  reaches: ${reaches.join(', ')}`)
     lines.push(`  findings: ${findings.length ? findings.join('; ') : 'none'}`)
 
     return {
-      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, reaches, findings,
+      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, waits, reaches, findings,
       text: lines.join('\n').replaceAll('\r\n', '\n'),
     }
   }
@@ -313,6 +354,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const asks = askType ? askType.getProperties().map((p: any) => p.name as string) : []
             const reaches = new Set<string>()
             const scanUncertain: string[] = []
+            const armedWaits = new Set<string>()
+            let hasDynamicArm = false
             const arg = node.arguments[0]
             if (ts.isObjectLiteralExpression(arg)) {
               const scan = (inner: any): void => {
@@ -322,16 +365,22 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
                     const target = inner.arguments[0]
                     const resolvedTarget = unwrapConst(target)
                     reaches.add(`${verb} ${isChildCall(resolvedTarget) ? `its ${resolvedTarget.arguments[0].getText()}` : target.getText()}`)
-                    if (!hasStaticTarget(target)) scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
+                    if (!hasStaticTarget(target)) {
+                      scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
+                      if (verb === 'arm') hasDynamicArm = true
+                    } else if (verb === 'arm') {
+                      if (ts.isStringLiteralLike(resolvedTarget)) armedWaits.add(resolvedTarget.text)
+                      else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) armedWaits.add(m.value as string)
+                    }
                   }
                 }
                 ts.forEachChild(inner, scan)
               }
               scan(arg)
             } else {
-              scanUncertain.push('definition is not an inline object literal; reaches, follows, loads, and calls could not be scanned')
+              scanUncertain.push('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
             }
-            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain))
+            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain, armedWaits, hasDynamicArm))
           }
         }
       }

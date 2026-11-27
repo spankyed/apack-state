@@ -10,7 +10,7 @@ The kernel tracks four distinct lifetimes. They nest, but they are **not** inter
 | Lifetime | Begins | Ends | What is atomic or cancelled |
 |---|---|---|---|
 | **System** | `system(...)` | `stop()` / `[Symbol.dispose]()` or a lost transaction | Stops all running states, cancels all work and asks, detaches ports |
-| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, and runs `onExit` releases (LIFO) |
+| **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, `waits`, and runs `onExit` releases (LIFO) |
 | **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `send`/`tell`/`progress` calls are ignored |
 | **Transactional step** | One outside arrival (`send`, `ask`, view update, work result) | `transact` returns and `flush()` runs | Data updates, database rows written via `transact`, and managed outgoing sends (`tell`, `broadcast`, `ask`, `answer`, `peer`) commit or roll back together |
 
@@ -48,11 +48,18 @@ network) that already ran.
 - **`listen` vs. `run()`.** `listen` runs synchronously on entry (before `run()`) with a state-lifetime `EventScope` (no
   `ask` or `sleep`) and does not block `sys.idle()`. If it returns a cleanup function, that function is registered with
   `onExit` and runs LIFO on exit (returning a non-function non-`undefined` value reports a `Defect`). Any late callback
-  firing after the state exits ignores `send`, `tell`, `broadcast`, `call`, `cancel`, and `report`, while a late
+  firing after the state exits ignores `send`, `tell`, `broadcast`, `call`, `cancel`, `arm`, `disarm`, and `report`, while a late
   `onExit(release)` runs `release()` immediately under exception isolation so resources never leak (consistent with
   `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
   registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
   absent, matching synchronous `run()`).
+- **Imperative timers (`waits`).** `arm` and `disarm` enqueue onto the step's internal queue so they obey exact FIFO
+  ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the handler throws or
+  returns a refused edit. Armed timers belong to the state that declared them (disarming automatically when that state
+  exits or the system stops), never block `sys.idle()`, and never deliver stale expirations after disarm, re-arm, or
+  exit. Arming with a non-finite or negative `ms` (or without a `clock` on the system) reports a structured `Defect`
+  without arming; a throwing `done` handler reports a `Defect` and rolls back its own sayings while still clearing the
+  expired timer from `waiting`.
 
 ## Handle semantics
 
@@ -100,7 +107,7 @@ Every callback supplied to `system(...)` has a defined failure contract:
 | `Port.ask` / `Port.tell` | Yes (`safely` → defect / failure outcome) | Ask settles as `failed`; system continues running |
 | `forNet(resolve)` | Yes (`try/catch` + non-empty string check → defect) | Reported as a defect before mutating `following`/`awaiting`/`pending`; `ask()` resolves to `failed`; valid results memoized per running state |
 | `transact(fn)` | Atomic boundary | Inner throw rolls back one handler; outer commit throw stops the system (`status: 'lost'`) and settles pending asks |
-| `clock.now()` / `clock.after()` | `after` throw rejects `sleep()`; `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
+| `clock.now()` / `clock.after()` | `after` throw rejects `sleep()` or reports a `Defect` for `waits` (preserving any prior armed timer on re-arm); `cancel` isolated (`safely`); `now` during `stop()` falls back to last timestamp | A healthy clock must not throw from `now()` during normal steps; `clock.now()` is assumed monotonic and clamped if it moves backward |
 
 ## Cycle and deadlock boundaries
 

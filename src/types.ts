@@ -36,6 +36,12 @@ export type Shape = {
    * - `'many'` / `{ many: In }`: unkeyed concurrent, `pending.<name>: number`
    */
   calls?: Record<string, 'one' | 'each' | 'many' | { readonly one: unknown } | { readonly each: unknown } | { readonly many: unknown }>
+  /**
+   * The imperative timers it can arm on demand, by name:
+   * - `'one'` / `{ one: 'ms' }`: single timer, `waiting.<name>: boolean`
+   * - `'each'` / `{ each: 'ms' }`: keyed timers (one per key), `waiting.<name>: Readonly<Record<string, true>>`
+   */
+  waits?: Record<string, 'one' | 'each' | { readonly one: 'ms' } | { readonly each: 'ms' }>
 }
 
 /** Any state, as something another can start. */
@@ -120,6 +126,23 @@ type PendingOf<M> = {
     : CallKind<M[K]> extends 'many' ? number
     : boolean
 }
+type WaitKind<W> = W extends 'each' | { readonly each: 'ms' } ? 'each' : 'one'
+type WaitNeedsMs<W> = W extends { readonly one: 'ms' } | { readonly each: 'ms' } ? true : false
+type ArmParams<W> =
+  WaitKind<W> extends 'each'
+    ? (WaitNeedsMs<W> extends true ? [key: string, ms: number] : [key: string, ms?: number])
+    : (WaitNeedsMs<W> extends true ? [ms: number] : [ms?: number])
+type DisarmParams<W> = WaitKind<W> extends 'each' ? [key?: string] : []
+type WaitsOf<S> = S extends { waits: infer M extends object } ? M : {}
+type WaitsBelow<S, P> = P extends `${infer H}.${infer T}` ? WaitsOf<Sub<S, H>> & WaitsBelow<Sub<S, H>, T> : WaitsOf<Sub<S, P>>
+/** The timers that can be armed where a handler sits: its own state's and those of every state around it. */
+type WaitsAt<S, P extends string> = P extends '' ? WaitsOf<S> : WaitsOf<S> & WaitsBelow<S, P>
+/** Every imperative timer a state declares, whichever of its states declares it: what is read from outside it. */
+type AllWaits<S> = WaitsOf<S> & ([Names<S>] extends [never] ? {} : UnionToIntersection<{ [K in Names<S>]: AllWaits<StatesOf<S>[K]> }[Names<S>]>)
+/** Which of them are armed: by key for `each`, and boolean for `one`. */
+type WaitingOf<M> = {
+  readonly [K in keyof M]: WaitKind<M[K]> extends 'each' ? Readonly<Record<string, true>> : boolean
+}
 type StartsAt<S, P extends string> = P extends '' ? StartsOf<S> : StartsOf<S> & StartsBelow<S, P>
 type ReportsOf<S> = S extends { reports: infer P extends AnyEvent } ? P : never
 type InternalOf<S> = S extends { internal: infer P extends AnyEvent } ? P : never
@@ -184,6 +207,8 @@ export type Value<S> = ([Names<S>] extends [never]
   : { [L in Leaves<S>]: { readonly at: L; readonly data: Read<DataAt<S, L>> } }[Leaves<S>])
   // What it has called and has not yet finished. The kernel keeps this, and nothing else writes it.
   & ([keyof AllCalls<S>] extends [never] ? {} : { readonly pending: PendingOf<AllCalls<S>> })
+  // What timers it has armed and have not yet expired or been disarmed. The kernel keeps this, and nothing else writes it.
+  & ([keyof AllWaits<S>] extends [never] ? {} : { readonly waiting: WaitingOf<AllWaits<S>> })
 
 /** Every state a path passes through: `thread` and `thread.idle` for `thread.idle`. */
 type Through<A> = A extends `${infer H}.${infer T}` ? H | `${H}.${Through<T>}` : A
@@ -294,6 +319,14 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
   call<K extends keyof CallsAt<R, H> & string>(name: K, ...rest: CallParams<CallsAt<R, H>[K]>): void
   /** Cancels an in-flight call (`one`/`each`), or all in-flight instances (`many`): the responder is aborted and `done` is not called. */
   cancel<K extends keyof CallsAt<R, H> & string>(name: K, ...key: CancelParams<CallsAt<R, H>[K]>): void
+
+  /**
+   * Arms a timer this state declares under `waits`. By default (`reset: true`), arming one already armed resets its
+   * deadline; with `reset: false`, arming while already armed is a no-op.
+   */
+  arm<K extends keyof WaitsAt<R, H> & string>(name: K, ...rest: ArmParams<WaitsAt<R, H>[K]>): void
+  /** Disarms an armed timer (`one`, or one key of `each`; omitting `key` on `each` disarms every active key). */
+  disarm<K extends keyof WaitsAt<R, H> & string>(name: K, ...key: DisarmParams<WaitsAt<R, H>[K]>): void
 
   /** A state this one started, as it is now: nothing while it is not running. */
   read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined
@@ -435,6 +468,17 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
       : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>>
       : CalledOne<R, H, E, N, CallInput<CallsOf<S>[K]>>
   }
+}) & ([keyof WaitsOf<S>] extends [never] ? { waits?: never } : {
+  /**
+   * The imperative timers armed when a handler calls `arm(name)`. Each is owned by this state (disarmed on exit),
+   * does not block `idle()`, and exposes its armed status on `waiting`.
+   */
+  waits: (waits: { one: WaitOne<R, H, E, N>; each: WaitEach<R, H, E, N> }) => {
+    [K in keyof WaitsOf<S>]:
+      WaitKind<WaitsOf<S>[K]> extends 'each'
+        ? WaitedEach<R, H, E, N, WaitNeedsMs<WaitsOf<S>[K]>>
+        : WaitedOne<R, H, E, N, WaitNeedsMs<WaitsOf<S>[K]>>
+  }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
   /** The state inside it that it enters first when whoever enters it does not say. */
   initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
@@ -557,6 +601,32 @@ export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
 }) => CalledMany<R, H, E, N, I>
+
+type WaitDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N>) => Next<R, H> | void
+type WaitEachDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
+type WaitOption<D> = D | { readonly reset?: boolean; readonly done?: D }
+/** An imperative timer armed one at a time, as `one` builds it. */
+export interface WaitedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+  readonly kind: 'one'; readonly ms?: number; readonly reset?: boolean; readonly done?: Function
+  readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
+}
+/** An imperative timer armed per key, as `each` builds it. */
+export interface WaitedEach<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+  readonly kind: 'each'; readonly ms?: number; readonly reset?: boolean; readonly done?: Function
+  readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
+}
+/** Declares an imperative timer (`one`). Pass a default `ms` for `'one'`, or omit `ms` for `{ one: 'ms' }`. */
+export type WaitOne<R, H extends string, E extends AnyEvent, N extends Net> = <
+  Args extends
+    | [ms: number, doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>]
+    | [doneOrOptions?: WaitOption<WaitDone<R, H, E, N>>],
+>(...args: Args) => WaitedOne<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
+/** Declares an imperative keyed timer (`each`). Pass a default `ms` for `'each'`, or omit `ms` for `{ each: 'ms' }`. */
+export type WaitEach<R, H extends string, E extends AnyEvent, N extends Net> = <
+  Args extends
+    | [ms: number, doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>]
+    | [doneOrOptions?: WaitOption<WaitEachDone<R, H, E, N>>],
+>(...args: Args) => WaitedEach<R, H, E, N, Args extends [number, ...unknown[]] ? false : true>
 
 /** A standing ask a state loads, as `load` makes it. */
 export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> {

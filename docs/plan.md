@@ -84,6 +84,7 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
 | `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
 | `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
+| `waits` | The timers it arms when a handler says `arm`, each with an optional `done` handler for when it expires |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
 
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
@@ -318,6 +319,15 @@ points at.
     never changes a state's data, the record has one writer, and a state that is restored reads again and does not
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
     by hand, and no event for how one finished.
+
+    **Imperative timers follow the same split under `waits`.** A state declares them in `Shape.waits` (`'one'`,
+    `'each'`, `{ one: 'ms' }`, `{ each: 'ms' }`), builds them in `waits: ({ one, each }) => ({ ... })` with a fixed
+    default `ms` (overridable per `arm`) or runtime `ms`, `reset: true` (debounce, the default) or `reset: false`
+    (throttle), and an optional `done` handler (omitted for pure-TTL flags). Handlers arm and disarm them transactionally
+    with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
+    clears every active key). Which timers are armed lives on `waiting` beside `at`, `data`, and `pending` (`boolean`
+    for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
+    never blocks `sys.idle()`.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
