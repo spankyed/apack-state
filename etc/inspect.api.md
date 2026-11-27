@@ -335,8 +335,9 @@ export interface System {
     //
     // (undocumented)
     start<S extends Shape, E extends AnyEvent, A extends Asks, G extends string = never>(ref: string, made: State<S, E, A, G>, ...given: [G] extends [never] ? [] : [given: RootGiven<State<S, E, A, G>>]): Handle<Value<S>, E, A, AllStarts<S>>;
-    // (undocumented)
-    stop(): void;
+    stop(of?: Handle<unknown, never, Asks, any> & {
+        readonly _started?: never;
+    }): void;
     // Warning: (ae-forgotten-export) The symbol "Changes" needs to be exported by the entry point inspect.d.ts
     subscribe(listener: (changed: readonly string[], fields: Readonly<Record<string, readonly string[]>>, changes: Readonly<Record<string, Changes>>) => void): () => void;
 }
