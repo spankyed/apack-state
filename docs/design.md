@@ -299,10 +299,12 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
 - **An ask, a `sleep` or an `outside` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
 - **Work waits through its scope.** A promise the kernel did not make is waited for with `outside(work)`, and then
-  nothing after it runs for a state that was left by the time the work ended. A wait that has ended is not taken
-  back: a state left after that, before its work has gone on, is `Cancelled` at the work's next wait. Awaited bare, it resumes the work whenever it settles: what the
+  nothing after it runs for a state that was left. What the work ends with is given on a later turn, when nothing is
+  queued between the wait ending and the work going on, so a state left after its outside work ended and before its
+  work went on is `Cancelled` like any other. Awaited bare, a promise resumes the work whenever it settles: what the
   work then says through its scope does nothing, and what it does outside the kernel happens. `outside` does not stop
-  the work it waits for, which is what handing it `signal` is for.
+  the work it waits for, which is what handing it `signal` is for. One that fails with nothing having waited for it
+  by the time its work ends is traced.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
 - **What is no longer held is not heard from.** What a view delivers, how a read or a write ended, what it said
   before it ended, and a timer's expiry reach a handler only while the state holds the very one they belong to. One

@@ -85,8 +85,8 @@ a while, `arms` declares the timer and its `expired` handler says what happens, 
 
 ## Why not generators
 
-What a generator gives that `async` cannot is the last two rows of the first table: the body is not resumed. That is
-real, and it is the only thing. Against it:
+What a generator gives that `async` cannot is the last two rows of the first table: the body is not resumed, even
+where it awaits a promise bare. That is real, and it is the only thing. Against it:
 
 - **It does not remove the wrapping.** A generator has one type for what every `yield` evaluates to, so a typed result
   needs `yield*` over a helper at each wait: `const packs = yield* outside(client.loadedPacks())`. Each outside
@@ -134,10 +134,10 @@ if (!exists) { refuse(request, '…'); … }
 | The terminal's `awaitRestore` | An 18-line helper with its own listener, throwing its own `Error('Cancelled')` | `await outside(restore.ready)` at its 9 callers |
 | Brain's step | A promise built around a callback, settled by the signal, 6 guards | Unchanged: what it waits on is a callback, not a promise |
 
-What it does not do: it does not stop the outside work, which still needs the signal handed to it, it does not
-undo what that work already did, and it does not take back a wait that has ended. A state left after the work ended
-and before the body resumed, which takes a leaving sent from a promise callback in that same turn, lets the body run
-to its next wait ([guarantees](../guarantees.md)). Only a body the kernel resumes closes that, which is a generator.
+What it does not do: it does not stop the outside work, which still needs the signal handed to it, and it does not
+undo what that work already did. A state left after the work ended and before the body resumed is covered: what the
+work ends with is given on a later turn, with nothing queued ahead of the body going on
+([guarantees](../guarantees.md)).
 
 ## What would make them worth starting
 

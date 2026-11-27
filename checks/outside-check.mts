@@ -88,11 +88,11 @@ await run([
     await turns(4)
     sys.send(handle, { type: 'LEAVE' })
     await rest()
-    deepStrictEqual(saw, ['Cancelled: outside work was cancelled before it finished', 'finally'])
+    deepStrictEqual(saw, ['Cancelled: waiting for outside work was cancelled before it finished', 'finally'])
     // The work is not stopped, and what it ends with later reaches nothing.
     work.resolve('thread')
     await rest()
-    deepStrictEqual(saw, ['Cancelled: outside work was cancelled before it finished', 'finally'])
+    deepStrictEqual(saw, ['Cancelled: waiting for outside work was cancelled before it finished', 'finally'])
     deepStrictEqual({ at: sys.read(handle).at, data: sys.read(handle).data }, { at: 'left', data: { found: null, failure: null } })
     strictEqual(sys.idle(), true)
   }],
@@ -124,41 +124,78 @@ await run([
     deepStrictEqual(traces.filter((line) => /no longer waiting/.test(line)), ['w was no longer waiting for outside work when it failed: aborted'])
   }],
 
-  ['a wait that has ended is not taken back: a state left before its work went on is Cancelled at the next wait', async () => {
+  ['a state left after its outside work ended, and before its work went on, is Cancelled there: the work does not go on', async () => {
+    for (const ending of ['resolve', 'reject'] as const) {
+      const saw: string[] = []
+      const traces: string[] = []
+      const work = held<string>()
+      const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
+      const handle = sys.start('o', opening(work.promise, saw))
+      await turns(4)
+      if (ending === 'resolve') work.resolve('thread')
+      else work.reject(new Error('no such entity'))
+      // A leaving sent from a promise callback queued behind the work's ending.
+      await Promise.resolve().then(() => { sys.send(handle, { type: 'LEAVE' }) })
+      await rest()
+      deepStrictEqual(saw, ['Cancelled: waiting for outside work was cancelled before it finished', 'finally'])
+      deepStrictEqual({ at: sys.read(handle).at, data: sys.read(handle).data }, { at: 'left', data: { found: null, failure: null } })
+      deepStrictEqual(traces.filter((line) => /outside work/.test(line)), ending === 'resolve' ? [] : ['o in checking was no longer waiting for outside work when it failed: no such entity'])
+      strictEqual(sys.idle(), true)
+    }
+  }],
+
+  ['a system is not idle between outside work ending and its work going on', async () => {
     const saw: string[] = []
-    const first = held<string>()
-    const second = held<string>()
-    const going = state<{ data: { told: number }; states: { working: {}; shown: {}; left: {} } }, { type: 'LEAVE' } | { type: 'TOLD' }>()({
-      data: { told: 0 },
-      on: { TOLD: () => ({ data: (d) => { d.told++ } }) },
-      initial: 'working',
-      states: {
-        working: {
-          on: { LEAVE: () => ({ at: 'left' }) },
-          async run({ outside, raise }) {
-            const found = await outside(first.promise)
-            // Here the state has been left, and nothing can have kept the work from resuming.
-            saw.push(`went on with ${found}`)
-            raise({ type: 'TOLD' })
-            try { await outside(second.promise) } catch (error) { saw.push(error instanceof Cancelled ? 'Cancelled at the next wait' : String(error)); throw error }
-            saw.push('went on again')
-            return { at: 'shown' }
-          },
-          failed: () => { saw.push('failed') },
-        },
-        shown: {},
-        left: {},
-      },
-    })
+    const work = held<string>()
     const sys = system({ side: 'window' })
-    const handle = sys.start('g', going)
+    sys.start('o', opening(work.promise, saw))
     await turns(4)
-    first.resolve('thread')
-    // A leaving sent from a promise callback queued behind the wait's ending, and ahead of the work resuming.
-    await Promise.resolve().then(() => { sys.send(handle, { type: 'LEAVE' }) })
+    work.resolve('thread')
+    await Promise.resolve()
+    await Promise.resolve()
+    deepStrictEqual(saw, [])
+    strictEqual(sys.idle(), false)
     await rest()
-    deepStrictEqual(saw, ['went on with thread', 'Cancelled at the next wait'])
-    deepStrictEqual({ at: sys.read(handle).at, told: sys.read(handle).data.told }, { at: 'left', told: 0 })
+    deepStrictEqual(saw, ['effect thread', 'finally'])
+  }],
+
+  ['outside work that fails, started and waited for by nothing before its work ends, is said then; one waited for later is thrown there and not said', async () => {
+    for (const waitsLater of [false, true]) {
+      const saw: string[] = []
+      const traces: string[] = []
+      const failing = held<string>()
+      const gate = held<void>()
+      const forgetful = state<{ states: { working: {}; done: {} } }>()({
+        initial: 'working',
+        states: {
+          working: {
+            async run({ outside }) {
+              const started = outside(failing.promise)
+              // One that ends well with nothing waiting for it is nothing to say.
+              void outside(Promise.resolve('kept by nobody'))
+              await outside(gate.promise)
+              saw.push('went on')
+              if (waitsLater) await started
+              return { at: 'done' }
+            },
+            failed: (error) => { saw.push(`failed ${String(error)}`) },
+          },
+          done: {},
+        },
+      })
+      const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
+      const handle = sys.start('f', forgetful)
+      await turns(4)
+      failing.reject(new Error('save failed'))
+      await turns(4)
+      // While its work is under way it may yet be waited for, so nothing is said.
+      deepStrictEqual(traces.filter((line) => /outside work/.test(line)), [])
+      gate.resolve()
+      await rest()
+      deepStrictEqual(saw, waitsLater ? ['went on', 'failed Error: save failed'] : ['went on'])
+      strictEqual(sys.read(handle).at, waitsLater ? 'working' : 'done')
+      deepStrictEqual(traces.filter((line) => /outside work/.test(line)), waitsLater ? [] : ['f in working did not wait for outside work it started, which failed: save failed'])
+    }
   }],
 
   ['one that was waited for is not heard from when the state is left afterwards', async () => {

@@ -766,24 +766,24 @@ export function within<V extends {
 //
 // .temp/api-types/types.d.ts:286:5 - (ae-forgotten-export) The symbol "PendingOf" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:288:5 - (ae-forgotten-export) The symbol "ArmedOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:526:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:531:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:533:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:545:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:556:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:577:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:577:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:591:5 - (ae-forgotten-export) The symbol "ArmKind" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:591:5 - (ae-forgotten-export) The symbol "ArmNeedsMs" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:609:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:739:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:820:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:820:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:908:5 - (ae-forgotten-export) The symbol "ArmExpired" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:913:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:913:5 - (ae-forgotten-export) The symbol "ArmEachExpired" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:913:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:913:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:528:5 - (ae-forgotten-export) The symbol "On" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:533:5 - (ae-forgotten-export) The symbol "InternalOf" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:535:5 - (ae-forgotten-export) The symbol "Answering" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:547:5 - (ae-forgotten-export) The symbol "Given" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:558:5 - (ae-forgotten-export) The symbol "NeedsGiven" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:579:5 - (ae-forgotten-export) The symbol "CallKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:579:5 - (ae-forgotten-export) The symbol "CallInput" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:593:5 - (ae-forgotten-export) The symbol "ArmKind" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:593:5 - (ae-forgotten-export) The symbol "ArmNeedsMs" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:611:5 - (ae-forgotten-export) The symbol "Join" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:741:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:822:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:822:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:910:5 - (ae-forgotten-export) The symbol "ArmExpired" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:915:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:915:5 - (ae-forgotten-export) The symbol "ArmEachExpired" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:915:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:915:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

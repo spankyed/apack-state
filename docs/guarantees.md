@@ -59,12 +59,14 @@ network) that already ran.
   as `ask()` and `sleep()` are: it rejects with `Cancelled` when the state is left, the asker goes, or the work
   finishes, and gives what the promise ends with otherwise. The promise itself is not stopped, and what it ends with
   after its owner has gone is taken and dropped: a late failure is traced, as work that fails after its state was
-  left is, and is not an unhandled rejection.
-- **A wait that has ended is not taken back.** `ask()`, `sleep()` and `outside()` are `Cancelled` when their owner
-  goes before they end. One that has already ended has queued its work to go on, and JavaScript gives nothing a way
-  to unqueue that: a state left after a wait ended and before its work resumed (a leaving sent from a promise callback
-  in the same turn) lets the work run to its next wait, where it is `Cancelled`. Until then what it says through its
-  scope does nothing and what it returns is dropped, and what it does outside the kernel happens.
+  left is, and is not an unhandled rejection. A failure that arrives while the owner is there is thrown where it is
+  awaited; one that nothing has waited for by the time its work ends is traced then, and is not an unhandled
+  rejection either.
+- **Outside work that has ended is given on a later turn.** A promise's ending is heard in a microtask, with whatever
+  else was queued in that turn still to run, and any of it may leave the state. So `outside()` does not end its wait
+  there: it ends it on the system's next turn, by itself, when the only thing queued behind it is its work going on.
+  A state left in between is `Cancelled` where it waited, and its work does not go on. The cost is one turn for each
+  wait.
 - **Detached external promises.** JavaScript cannot forcibly cancel arbitrary non-kernel promises. If a losing branch of
   `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `raise`, `tell`, `progress`, and
   `onExit` calls from that closed scope are ignored, and cooperative code should check `scope.signal.aborted`.
