@@ -709,36 +709,22 @@ type NoInitialGiven<D> =
  * states share one `pending` / `waiting` snapshot map so a shared `calls` or `waits` name would alias live entries.
  * Sibling states may share names because they are never active together.
  */
-type NoShadowed<S, D> = [RedeclaresData<S>] extends [never] ? NoShadowedIn<S, unknown> : NoShadowedIn<S, D>
-/**
- * Whether a nested state declares a data field again, as `true` or nothing. It reads the shape alone, so it is
- * worked out once for a shape, and only a shape that does redeclare one has its refusals worked out against the
- * definition as written, which is every time the definition is inferred.
- */
-type RedeclaresData<S, Above extends string = never> =
-  S extends { states: infer T extends Record<string, Shape> }
-    ? { [P in keyof T]:
-        | ([Extract<keyof DataOf<T[P]> & string, Above | (keyof DataOf<S> & string)>] extends [never] ? never : true)
-        | RedeclaresData<T[P], Above | (keyof DataOf<S> & string)>
-      }[keyof T]
-    : never
-type NoShadowedIn<S, D, AboveData extends string = never, AboveCalls extends string = never, AboveWaits extends string = never> =
+type NoShadowed<S, AboveData extends string = never, AboveCalls extends string = never, AboveWaits extends string = never> =
   S extends { states: infer T extends Record<string, Shape> }
     ? {
         states: {
           [P in keyof T]:
             ([Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>] extends [never]
               ? unknown
-              : { data: { [F in Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>]: RefusedValue<WrittenAt<D, P, F>, `data field '${F}' is already declared by an enclosing state`> } })
+              : { data: { [F in Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>]: Refused<`data field '${F}' is already declared by an enclosing state`> } })
             & ([Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>] extends [never]
               ? unknown
               : { calls: Refused<`call '${Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>}' is already declared by an enclosing state`> })
             & ([Extract<keyof WaitsOf<T[P]> & string, AboveWaits | (keyof WaitsOf<S> & string)>] extends [never]
               ? unknown
               : { waits: Refused<`wait '${Extract<keyof WaitsOf<T[P]> & string, AboveWaits | (keyof WaitsOf<S> & string)>}' is already declared by an enclosing state`> })
-            & NoShadowedIn<
+            & NoShadowed<
                 T[P],
-                WrittenIn<D, P>,
                 AboveData | (keyof DataOf<S> & string),
                 AboveCalls | (keyof CallsOf<S> & string),
                 AboveWaits | (keyof WaitsOf<S> & string)
@@ -746,10 +732,6 @@ type NoShadowedIn<S, D, AboveData extends string = never, AboveCalls extends str
         }
       }
     : unknown
-
-/** The definition written for one substate, and the value written for one of its data fields. */
-type WrittenIn<D, P> = D extends { states: infer T } ? (P extends keyof T ? T[P] : unknown) : unknown
-type WrittenAt<D, P, F> = WrittenIn<D, P> extends { data: infer X } ? (F extends keyof X ? X[F] : unknown) : unknown
 
 type CallEntries<S, Above extends string = never> =
   | { [K in Exclude<keyof CallsOf<S> & string, Above>]: [K, CallKind<CallsOf<S>[K]>] }[Exclude<keyof CallsOf<S> & string, Above>]
@@ -798,7 +780,7 @@ type NoConflictingKinds<S> =
  * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
  * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S, NoInfer<D>> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })
 }
 

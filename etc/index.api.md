@@ -338,7 +338,7 @@ export interface Following {
 // Warning: (ae-forgotten-export) The symbol "GivenIn" needs to be exported by the entry point index.d.ts
 //
 // @public
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S, NoInfer<D>> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export const given: unique symbol;
@@ -591,7 +591,7 @@ export interface State<S extends Shape, E extends AnyEvent, A extends Asks, G ex
 }
 
 // @public
-export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: NoShadowed<S, NoInfer<D>> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
+export const state: <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, "", E, A, Nothing>>(def: NoShadowed<S, never, never, never> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>>;
 
 // @public
 export interface StepLog {

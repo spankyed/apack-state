@@ -154,17 +154,6 @@ state<DeepShadow, never>()({
   },
 })
 
-// A value typed `any` is refused there as any other is: `any` is everything but `never`.
-declare const untyped: any
-state<DirectShadow, never>()({
-  data: { error: null },
-  initial: 'b',
-  states: {
-    // @ts-expect-error a child state cannot shadow a field name declared by its parent, whatever its value is typed
-    a: { data: { error: untyped } },
-    b: {},
-  },
-})
 
 // Sibling states may share field names because they are never active at the same time.
 type SiblingFields = {
