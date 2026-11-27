@@ -214,3 +214,45 @@ state<ConflictingWaitsShape, never>()({
     },
   },
 })
+
+// A nested state cannot redeclare a wait name already declared by an enclosing state (direct child or grandchild),
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs.
+type DirectShadowWaitsShape = {
+  waits: { retry: 'one' }
+  states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: 'each' } } }
+}
+state<DirectShadowWaitsShape, never>()({
+  initial: 'a',
+  waits: ({ one }) => ({ retry: one(100) }),
+  states: {
+    a: {
+      // @ts-expect-error a child state cannot shadow a wait name declared by its parent
+      waits: ({ one }) => ({ retry: one(100) }),
+    },
+    b: {
+      // @ts-expect-error shadowing an enclosing wait name is reported on the redeclaring child even with a different kind
+      waits: ({ each }) => ({ retry: each(100) }),
+    },
+  },
+})
+
+type DeepShadowWaitsShape = {
+  waits: { retry: 'one' }
+  states: { mid: { states: { idle: {}; leaf: { waits: { retry: 'one' } } } } }
+}
+state<DeepShadowWaitsShape, never>()({
+  initial: 'mid',
+  waits: ({ one }) => ({ retry: one(100) }),
+  states: {
+    mid: {
+      initial: 'idle',
+      states: {
+        idle: {},
+        leaf: {
+          // @ts-expect-error a deeply nested state cannot shadow a wait name declared by an ancestor
+          waits: ({ one }) => ({ retry: one(100) }),
+        },
+      },
+    },
+  },
+})

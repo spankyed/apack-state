@@ -418,4 +418,96 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
+  ['tracks wait reachability from non-done sources and resolves arm by declaring path', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-reachability-'))
+    try {
+      const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
+      const file = join(work, 'reachability.ts')
+      writeFileSync(file, `
+import { state } from '${stateIndex}'
+
+type SelfLoopShape = { waits: { loop: 'one' } }
+export const selfLoop = state<SelfLoopShape, never>()({
+  waits: ({ one }) => ({
+    loop: one(100, ({ arm }) => { arm('loop') }),
+  }),
+})
+
+type DeadChainShape = { waits: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
+export const deadChain = state<DeadChainShape, never>()({
+  waits: ({ one }) => ({
+    first: one(100, ({ arm }) => { arm('second') }),
+    second: one(100, ({ arm }) => { arm('second') }),
+    ping: one(100, ({ arm }) => { arm('pong') }),
+    pong: one(100, ({ arm }) => { arm('ping') }),
+  }),
+})
+
+type LiveChainShape = { waits: { step1: 'one'; step2: 'one' } }
+export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({
+    step1: one(100, ({ arm }) => { arm('step2') }),
+    step2: one(100, ({ arm }) => { arm('step2') }),
+  }),
+  on: { GO: (_, { arm }) => { arm('step1') } },
+})
+
+type SiblingsShape = {
+  states: {
+    a: { waits: { t: 'one' } }
+    b: { waits: { t: 'one' } }
+  }
+}
+export const siblingWaits = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
+  initial: 'a',
+  states: {
+    a: {
+      waits: ({ one }) => ({ t: one(100) }),
+      on: {
+        GO: (_, { arm }) => { arm('t') },
+        NEXT: () => ({ at: 'b' }),
+      },
+    },
+    b: {
+      waits: ({ one }) => ({ t: one(100) }),
+    },
+  },
+})
+
+type ParentArmedFromChildShape = {
+  waits: { keepalive: 'one' }
+  states: { active: {}; idle: {} }
+}
+export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO' } | { type: 'STOP' }>()({
+  initial: 'active',
+  waits: ({ one }) => ({ keepalive: one(100) }),
+  states: {
+    active: {
+      on: {
+        GO: (_, { arm }) => { arm('keepalive') },
+        STOP: () => ({ at: 'idle' }),
+      },
+    },
+    idle: {},
+  },
+})
+`)
+      const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
+      const graphs = all.get(file) ?? []
+      strictEqual(graphs.length, 5, formatGraphs(graphs))
+
+      deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
+      deepStrictEqual(graphs[1]!.findings, [
+        'nothing arms first',
+        'nothing arms second except unreachable waits',
+        'nothing arms ping except unreachable waits',
+        'nothing arms pong except unreachable waits',
+      ])
+      deepStrictEqual(graphs[2]!.findings, [])
+      deepStrictEqual(graphs[3]!.findings, ['nothing arms t in b'])
+      deepStrictEqual(graphs[4]!.findings, [])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }],
 ])

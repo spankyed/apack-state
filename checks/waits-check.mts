@@ -888,9 +888,13 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(logs.length, logsBefore)
     strictEqual(sys.read(h).data.fired, 0)
 
-    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and ignored!
+    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and dropped before starting a step!
     sys.send(h, { type: 'ARM' })
     const secondCallback = manual.timers[1]!.run
+    const trigger = sys.start('t', state<{ data: { n: number } }, { type: 'GO' }>()({
+      data: { n: 0 },
+      on: { GO: (_, { data }) => ({ data: { n: data.n + 1 } }) },
+    }))
     let triggered = false
     const unsub = sys.subscribe(() => {
       if (triggered) return
@@ -898,17 +902,15 @@ const checks: Array<[string, () => Promise<void>]> = [
       sys.send(h, { type: 'DISARM' })
       secondCallback()
     })
-    // Trigger a data change (actually wait: PING doesn't change fired if already 0, so arm a second state or re-trigger via disarm/arm)
-    // Use a separate state to trigger flush cleanly!
-    const trigger = sys.start('t', state<{ data: { n: number } }, { type: 'GO' }>()({
-      data: { n: 0 },
-      on: { GO: (_, { data }) => ({ data: { n: data.n + 1 } }) },
-    }))
+    const logsBeforeCaseB = logs.length
     sys.send(trigger, { type: 'GO' })
     unsub()
     strictEqual(triggered, true)
     strictEqual(sys.read(h).waiting.w, false)
     strictEqual(sys.read(h).data.fired, 0)
+    // Only `trigger GO` and `m DISARM` logged steps; the stale queued `wait` emitted no StepLog entry.
+    strictEqual(logs.length, logsBeforeCaseB + 2)
+    strictEqual(logs.slice(logsBeforeCaseB).some((s) => s.handled.some((x) => x.kind === 'wait')), false)
   }],
 
   ['done throwing reports exact defect and rolls back its sayings while still clearing waiting', async () => {
@@ -1095,6 +1097,60 @@ const checks: Array<[string, () => Promise<void>]> = [
     throws(
       () => sys.start('bad-waits', conflicting as never),
       { message: 'bad-waits declares wait retry with conflicting kinds (one and each)' },
+    )
+
+    const directShadow = {
+      def: {
+        initial: 'a',
+        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        states: {
+          a: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+        },
+      },
+    }
+    throws(
+      () => sys.start('direct-wait', directShadow as never),
+      { message: 'direct-wait declares wait retry again at a, shadowing an enclosing state' },
+    )
+    strictEqual('direct-wait' in sys.snapshot(), false)
+
+    const deepShadow = {
+      def: {
+        initial: 'mid',
+        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        states: {
+          mid: {
+            initial: 'leaf',
+            states: {
+              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('deep-wait', deepShadow as never),
+      { message: 'deep-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
+    )
+    strictEqual('deep-wait' in sys.snapshot(), false)
+
+    const midShadow = {
+      def: {
+        initial: 'mid',
+        states: {
+          mid: {
+            initial: 'leaf',
+            waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+            states: {
+              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('mid-wait', midShadow as never),
+      { message: 'mid-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
     )
   }],
 ]

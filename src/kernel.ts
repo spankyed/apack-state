@@ -1120,18 +1120,30 @@ export function system<N extends Net = Net>(host: {
     for (const [field, initial] of Object.entries(def.data ?? {})) {
       if (initial === given && !Object.hasOwn(provided, field)) return `cannot start without ${field}`
     }
-    const shadowed = (node: LooseDef, above: ReadonlySet<string>, path: string): string | undefined => {
-      const own = Object.keys(node.data ?? {})
-      for (const field of own) if (above.has(field)) return `declares ${field} again at ${path}, shadowing an enclosing state`
+    const shadowed = (
+      node: LooseDef,
+      aboveData: ReadonlySet<string>,
+      aboveCalls: ReadonlySet<string>,
+      aboveWaits: ReadonlySet<string>,
+      path: string,
+    ): string | undefined => {
+      const ownData = Object.keys(node.data ?? {})
+      for (const field of ownData) if (aboveData.has(field)) return `declares ${field} again at ${path}, shadowing an enclosing state`
+      const ownCalls = Object.keys(declaredBy(node).calls)
+      for (const name of ownCalls) if (aboveCalls.has(name)) return `declares call ${name} again at ${path}, shadowing an enclosing state`
+      const ownWaits = Object.keys(declaredBy(node).waits)
+      for (const name of ownWaits) if (aboveWaits.has(name)) return `declares wait ${name} again at ${path}, shadowing an enclosing state`
       if (!node.states) return undefined
-      const next = new Set([...above, ...own])
+      const nextData = new Set([...aboveData, ...ownData])
+      const nextCalls = new Set([...aboveCalls, ...ownCalls])
+      const nextWaits = new Set([...aboveWaits, ...ownWaits])
       for (const [name, inner] of Object.entries(node.states)) {
-        const problem = shadowed(inner, next, path ? `${path}.${name}` : name)
+        const problem = shadowed(inner, nextData, nextCalls, nextWaits, path ? `${path}.${name}` : name)
         if (problem) return problem
       }
       return undefined
     }
-    const shadow = shadowed(def, new Set(), '')
+    const shadow = shadowed(def, new Set(), new Set(), new Set(), '')
     if (shadow) return shadow
     const seenCalls = new Map<string, 'one' | 'each' | 'many'>()
     const seenWaits = new Map<string, 'one' | 'each'>()
@@ -1461,7 +1473,6 @@ export function system<N extends Net = Net>(host: {
       return MADE
     }
     if (item.kind === 'wait') {
-      if (item.of.waiting.get(item.id) !== item.live) return MADE
       const declared = declaredBy(item.of.def).waits[item.name]!
       const top = item.of.top
       item.of.waiting.delete(item.id)
@@ -1737,6 +1748,7 @@ export function system<N extends Net = Net>(host: {
   const pump = (): void => {
     while (!stepping && !flushing && outside.any) {
       const next = outside.peek()
+      if (next.kind === 'wait' && next.of.waiting.get(next.id) !== next.live) { outside.shift(); continue }
       if (next.kind === 'run') { outside.shift(); step(next.fn, next.stopping) }
       else step(() => { outside.shift(); handle(next) })
     }

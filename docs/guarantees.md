@@ -54,16 +54,21 @@ network) that already ran.
   registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
   absent, matching synchronous `run()`).
 - **Imperative calls (`calls`) and timers (`waits`).** Both project into one flat namespace per machine (`pending` and
-  `waiting`), so declaring the same `call` or `wait` name with conflicting kinds (`one` vs `each` vs `many`) across
-  states of one machine is refused at compile time and on `start()`. `arm` and `disarm` enqueue onto the step's
-  internal queue so they obey exact FIFO ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole
-  under `unsay` if the handler throws or returns a refused edit. Armed timers belong to the active state instance that
-  declared them (disarming automatically when that state exits, self-re-enters, or the system stops; to arm a timer on
-  entry or self-transition, call `arm` from that state's `listen` or `run`), never block `sys.idle()`, and never deliver
-  stale expirations after disarm, re-arm, or exit. Calling or arming an `each` entry without a string key, arming with
-  a non-finite or negative `ms`, or arming without a `clock` on the system reports a structured `Defect` without
-  starting the call or timer; a throwing `done` handler reports a `Defect` and rolls back its own sayings while still
-  clearing the expired timer from `waiting`.
+  `waiting`). Because an active child and its enclosing ancestors run simultaneously and share one snapshot map, a
+  nested state may not redeclare a `call` or `wait` name already declared by an enclosing state; sibling states may
+  share a name provided their kinds match, while conflicting kinds (`one` vs `each` vs `many`) across states of one
+  machine are refused at compile time and on `start()`. `arm` and `disarm` enqueue onto the step's internal queue so
+  they obey exact FIFO ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the
+  handler throws or returns a refused edit. Armed timers belong to the active state instance that declared them
+  (disarming automatically when that state exits, self-re-enters, or the system stops; to arm a timer on entry or
+  self-transition, call `arm` from that state's `listen` or `run`), never block `sys.idle()`, and never deliver or log
+  stale expirations after disarm, re-arm, or exit. An `each` key must be a string — calling or arming an `each` entry
+  with `undefined`, a number, or any other non-string reports a structured `Defect` without starting the call or timer,
+  because `pending` and `waiting` are plain objects where `5` and `'5'` would coerce to one entry `'5'` while
+  `scope.key` is typed `string` (and `undefined` would omit `'/'` and overwrite `{}` with `true`). Arming with a
+  non-finite or negative `ms`, or without a `clock` on the system, likewise reports a structured `Defect`; a throwing
+  `done` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
+  `waiting`.
 
 ## Handle semantics
 

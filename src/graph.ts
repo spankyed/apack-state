@@ -72,7 +72,60 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
   const literalsOf = (type: Type): string[] => members(type).filter((m: Type) => m.isStringLiteral()).map((m: Type) => m.value as string)
   const join = (within: string, name: string): string => (within ? `${within}.${name}` : name)
 
-  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, reaches: string[], literal: any, initialUncertain: readonly string[], armedWaits: ReadonlySet<string>, hasDynamicArm: boolean): StateGraph => {
+  const isScopeReceiver = (expr: any): boolean => {
+    const t = checker.getTypeAtLocation(expr)
+    return Boolean(t?.getProperty?.('tell') && t?.getProperty?.('broadcast') && t?.getProperty?.('onExit'))
+  }
+  const verbOf = (expr: any): string | undefined => {
+    if (ts.isIdentifier(expr)) {
+      if (VERBS.has(expr.text)) return expr.text
+      const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration
+      if (decl && ts.isBindingElement(decl) && decl.propertyName && VERBS.has(decl.propertyName.getText())) return decl.propertyName.getText()
+    }
+    if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
+    return undefined
+  }
+  const unwrapConst = (expr: any): any => {
+    const seen = new Set<any>()
+    let current = expr
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      while (ts.isParenthesizedExpression(current)) current = current.expression
+      if (!ts.isIdentifier(current)) break
+      const decl = checker.getSymbolAtLocation(current)?.valueDeclaration
+      if (!decl || !ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || !decl.initializer) break
+      current = decl.initializer
+    }
+    return current
+  }
+  const isChildCall = (expr: any): boolean =>
+    ts.isCallExpression(expr) && expr.arguments.length > 0 && (
+      (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
+      || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeReceiver(expr.expression.expression))
+    )
+  const hasStaticTarget = (target: any): boolean => {
+    const resolvedTarget = unwrapConst(target)
+    if (ts.isStringLiteralLike(resolvedTarget)) return true
+    if (isChildCall(resolvedTarget)) return hasStaticTarget(resolvedTarget.arguments[0])
+    if (ts.isObjectLiteralExpression(resolvedTarget)) {
+      const prop = resolvedTarget.properties.find((p: any) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
+        && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
+      if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
+    }
+    const targetType = checker.getTypeAtLocation(target)
+    const nonEmpty = real(targetType)
+    return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
+  }
+  const isDeclName = (node: any): boolean => {
+    const p = node.parent
+    if (!p) return false
+    if (ts.isPropertyAccessExpression(p) && p.name === node) return true
+    if (ts.isBindingElement(p) && (p.name === node || p.propertyName === node)) return true
+    return (ts.isParameter(p) || ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p) || ts.isFunctionDeclaration(p) || ts.isMethodDeclaration(p)) && p.name === node
+  }
+
+  const analyse = (title: string, shape: Type, events: string[], asks: string[], def: Type, literal: any): StateGraph => {
     const moves: Array<{ from: string; on: string; to: string[] }> = []
     const stays: string[] = []
     const answers: string[] = []
@@ -83,8 +136,89 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const loads: string[] = []
     const calls: string[] = []
     const waits: string[] = []
-    const uncertain = new Set<string>(initialUncertain)
+    const reachesSet = new Set<string>()
+    const uncertain = new Set<string>()
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
+    const waitKey = (within: string, name: string): string => `${within}#${name}`
+
+    const declared: string[] = []
+    const startsStates: string[] = []
+    const declaredWaits: Array<{ key: string; name: string; within: string }> = []
+    const declaredWaitKeys = new Set<string>()
+    const survey = (of: Type, within: string): void => {
+      const started = of.getProperty('starts')
+      if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
+      const waited = of.getProperty('waits')
+      if (waited) {
+        for (const each of typeOf(waited).getProperties()) {
+          const key = waitKey(within, each.name)
+          declaredWaits.push({ key, name: each.name, within })
+          declaredWaitKeys.add(key)
+        }
+      }
+      const states = of.getProperty('states')
+      if (!states) return
+      for (const inner of typeOf(states).getProperties()) { declared.push(join(within, inner.name)); survey(typeOf(inner), join(within, inner.name)) }
+    }
+    survey(shape, '')
+
+    const resolveWait = (fromPath: string, name: string): string | undefined => {
+      for (let at = fromPath; ; ) {
+        const key = waitKey(at, name)
+        if (declaredWaitKeys.has(key)) return key
+        if (!at) return undefined
+        const cut = at.lastIndexOf('.')
+        at = cut >= 0 ? at.slice(0, cut) : ''
+      }
+    }
+
+    const rootArmed = new Set<string>()
+    const waitEdges = new Map<string, Set<string>>()
+    const armedByWait = new Map<string, Set<string>>()
+    let hasDynamicArm = false
+    const scan = (inner: any, statePath: string, fromWaitKey?: string): void => {
+      if (!isDeclName(inner)) {
+        const p = inner.parent
+        if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
+          hasDynamicArm = true
+        } else if (ts.isIdentifier(inner) && isScopeReceiver(inner)
+          && !(p && ts.isPropertyAccessExpression(p) && p.expression === inner)
+          && !(p && ts.isVariableDeclaration(p) && p.initializer === inner && ts.isObjectBindingPattern(p.name))) {
+          hasDynamicArm = true
+        }
+      }
+      if (ts.isCallExpression(inner) && inner.arguments[0]) {
+        const verb = verbOf(inner.expression)
+        if (verb) {
+          const target = inner.arguments[0]
+          const resolvedTarget = unwrapConst(target)
+          reachesSet.add(`${verb} ${isChildCall(resolvedTarget) ? `its ${resolvedTarget.arguments[0].getText()}` : target.getText()}`)
+          if (!hasStaticTarget(target)) {
+            uncertain.add(`dynamic target in ${verb} ${target.getText()}`)
+            if (verb === 'arm') hasDynamicArm = true
+          } else if (verb === 'arm') {
+            const names: string[] = []
+            if (ts.isStringLiteralLike(resolvedTarget)) names.push(resolvedTarget.text)
+            else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) names.push(m.value as string)
+            for (const armedName of names) {
+              const targetKey = resolveWait(statePath, armedName)
+              if (!targetKey) continue
+              if (fromWaitKey === undefined) {
+                rootArmed.add(targetKey)
+              } else {
+                let out = waitEdges.get(fromWaitKey)
+                if (!out) { out = new Set(); waitEdges.set(fromWaitKey, out) }
+                out.add(targetKey)
+                let inc = armedByWait.get(targetKey)
+                if (!inc) { inc = new Set(); armedByWait.set(targetKey, inc) }
+                inc.add(fromWaitKey)
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(inner, (child: any) => scan(child, statePath, fromWaitKey))
+    }
 
     const read = (returned: Type[], path: string, on: string): void => {
       const to = new Set<string>()
@@ -149,57 +283,78 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       for (const property of object.properties) {
         if (ts.isSpreadAssignment(property)) {
           uncertain.add(`spread in ${path || 'definition'} could not be statically read`)
+          scan(property.expression, path)
           continue
         }
-        if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property) && !ts.isMethodDeclaration(property)) continue
-        const name = property.name.getText()
+        if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property) && !ts.isMethodDeclaration(property)) {
+          scan(property, path)
+          continue
+        }
+        const name = text(property.name)
         const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
         if (name === 'on' || name === 'internal' || name === 'answers') {
           if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) hasOpaqueHandler = true
+          scan(property, path)
           continue
         }
         if (name === 'listen' || name === 'run' || name === 'failed') {
           if (!isInlineHandlerProp(property)) hasOpaqueHandler = true
+          scan(property, path)
           continue
         }
         if (name === 'states') {
           if (!made || !ts.isObjectLiteralExpression(made)) {
             uncertain.add(`could not statically read ${where(path, 'states')}`)
+            scan(property, path)
             continue
           }
           for (const inner of made.properties) {
             if (ts.isSpreadAssignment(inner)) {
               uncertain.add(`spread in ${where(path, 'states')} could not be statically read`)
+              scan(inner, path)
             } else if (ts.isPropertyAssignment(inner)) {
-              if (ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, inner.name.getText()))
-              else uncertain.add(`could not statically read ${join(path, inner.name.getText())}`)
+              const subName = text(inner.name)
+              if (ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, subName))
+              else { uncertain.add(`could not statically read ${join(path, subName)}`); scan(inner, path) }
             } else if (ts.isShorthandPropertyAssignment(inner)) {
-              uncertain.add(`could not statically read ${join(path, inner.name.getText())}`)
+              uncertain.add(`could not statically read ${join(path, text(inner.name))}`)
+              scan(inner, path)
+            } else {
+              scan(inner, path)
             }
           }
           continue
         }
-        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') continue
+        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') {
+          scan(property, path)
+          continue
+        }
         if (!made || !ts.isArrowFunction(made)) {
           uncertain.add(`could not statically read ${where(path, name)}`)
+          scan(property, path)
           continue
         }
         let body = made.body
         while (ts.isParenthesizedExpression(body)) body = body.expression
         if (!ts.isObjectLiteralExpression(body)) {
           uncertain.add(`could not statically read ${where(path, name)}`)
+          scan(property, path)
           continue
         }
         for (const entry of body.properties) {
           if (ts.isSpreadAssignment(entry)) {
             uncertain.add(`spread in ${where(path, name)} could not be statically read`)
+            scan(entry, path)
             continue
           }
           if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) {
-            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name?.getText() ?? '?'}`)}`)
+            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name ? text(entry.name) : '?'}`)}`)
+            scan(entry, path)
             continue
           }
+          const entryName = text(entry.name)
           if (name === 'waits') {
+            scan(entry.initializer, path, waitKey(path, entryName))
             const [first, second] = entry.initializer.arguments
             const helper = entry.initializer.expression.getText()
             const hasMs = Boolean(first && (checker.getTypeAtLocation(first).flags & ts.TypeFlags.NumberLike))
@@ -207,38 +362,39 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             let noReset = false
             if (rest && ts.isObjectLiteralExpression(rest)) {
               if (rest.properties.some((p: any) => ts.isSpreadAssignment(p))) {
-                uncertain.add(`spread in ${where(path, `waits.${entry.name.getText()}`)} could not be statically read`)
+                uncertain.add(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
               }
-              const resetProp = rest.properties.find((each: any) => each.name?.getText() === 'reset')
+              const resetProp = rest.properties.find((each: any) => each.name && text(each.name) === 'reset')
               const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
               if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
-              const doneProp = rest.properties.find((each: any) => each.name?.getText() === 'done')
+              const doneProp = rest.properties.find((each: any) => each.name && text(each.name) === 'done')
               if (doneProp && !isInlineHandlerProp(doneProp)) hasOpaqueHandler = true
               const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
-              if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (done)`)
+              if (signature) read(unwrap(signature.getReturnType()), path, `${entryName} (done)`)
             } else if (rest) {
               if (!isInlineFn(rest)) hasOpaqueHandler = true
               const restType = checker.getTypeAtLocation(rest)
               const sigs = restType.getCallSignatures()
               if (sigs.length) {
-                read(unwrap(sigs[0].getReturnType()), path, `${entry.name.getText()} (done)`)
+                read(unwrap(sigs[0].getReturnType()), path, `${entryName} (done)`)
               } else {
                 const doneProp = restType.getProperty?.('done')
                 const sig = doneProp && real(typeOf(doneProp))[0]?.getCallSignatures()[0]
-                if (sig) read(unwrap(sig.getReturnType()), path, `${entry.name.getText()} (done)`)
-                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entry.name.getText()}`)}`)
+                if (sig) read(unwrap(sig.getReturnType()), path, `${entryName} (done)`)
+                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entryName}`)}`)
               }
             }
             const msLabel = hasMs ? (ts.isNumericLiteral(first) ? `${first.text}ms` : text(first)) : 'ms at arm'
-            waits.push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
+            waits.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
             continue
           }
+          scan(entry.initializer, path)
           const [first, second, opts] = entry.initializer.arguments
           if (!first || !second || !opts || !ts.isObjectLiteralExpression(opts)) {
-            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name.getText()}`)}`)
+            uncertain.add(`could not statically read ${where(path, `${name}.${entryName}`)}`)
             continue
           }
-          const option = (key: string): any => opts.properties.find((each: any) => each.name?.getText() === key)
+          const option = (key: string): any => opts.properties.find((each: any) => each.name && text(each.name) === key)
           const valueOf = (prop: any): any => prop && (prop.initializer ?? prop.name)
           const each = valueOf(option('each'))
           const from = valueOf(option('from'))
@@ -247,17 +403,21 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             : each ? `one for each key of ${text(each)}`
             : from && ts.isArrayLiteralExpression(from) ? (from.elements.length ? `from ${from.elements.map(text).join(', ')}` : 'from nothing: once')
             : from ? `from what ${text(from)} names` : 'from nothing: once'
-          ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entry.name.getText()}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
+          ;(name === 'follows' ? follows : name === 'loads' ? loads : calls).push(`${entryName}${path ? ` in ${path}` : ''}: ${text(first)} ${text(second)}, ${depends}`)
           for (const hears of name === 'follows' ? ['updated'] : ['done', 'progress']) {
             const handler = option(hears)
             if (handler && !isInlineHandlerProp(handler)) hasOpaqueHandler = true
             const signature = handler && checker.getTypeAtLocation(handler.initializer ?? handler).getCallSignatures()[0]
-            if (signature) read(unwrap(signature.getReturnType()), path, `${entry.name.getText()} (${hears})`)
+            if (signature) read(unwrap(signature.getReturnType()), path, `${entryName} (${hears})`)
           }
         }
       }
     }
-    if (literal && ts.isObjectLiteralExpression(literal)) declarations(literal, '')
+    if (literal && ts.isObjectLiteralExpression(literal)) {
+      declarations(literal, '')
+    } else {
+      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
+    }
 
     const gone = new Set<string>()
     const enter = (path: string): void => {
@@ -273,25 +433,31 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     enter('')
     for (const move of moves) for (const target of move.to) enter(target)
 
-    const declared: string[] = []
-    const startsStates: string[] = []
-    const declaredWaits: Array<{ name: string; within: string }> = []
-    const survey = (of: Type, within: string): void => {
-      const started = of.getProperty('starts')
-      if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
-      const waited = of.getProperty('waits')
-      if (waited) for (const each of typeOf(waited).getProperties()) declaredWaits.push({ name: each.name, within })
-      const states = of.getProperty('states')
-      if (!states) return
-      for (const inner of typeOf(states).getProperties()) { declared.push(join(within, inner.name)); survey(typeOf(inner), join(within, inner.name)) }
+    const liveWaits = new Set<string>(rootArmed)
+    const queue = [...rootArmed]
+    while (queue.length) {
+      const cur = queue.shift()!
+      for (const next of waitEdges.get(cur) ?? []) {
+        if (!liveWaits.has(next)) {
+          liveWaits.add(next)
+          queue.push(next)
+        }
+      }
     }
-    survey(shape, '')
 
+    const reaches = [...reachesSet]
     const findings: string[] = []
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
     if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !hasOpaqueHandler && !uncertain.size) {
-      for (const w of declaredWaits) if (!armedWaits.has(w.name)) findings.push(`nothing arms ${where(w.within, w.name)}`)
+      for (const w of declaredWaits) {
+        if (liveWaits.has(w.key)) continue
+        const incoming = armedByWait.get(w.key)
+        const label = where(w.within, w.name)
+        if (!incoming || incoming.size === 0) findings.push(`nothing arms ${label}`)
+        else if (incoming.size === 1 && incoming.has(w.key)) findings.push(`nothing arms ${label} except its own done`)
+        else findings.push(`nothing arms ${label} except unreachable waits`)
+      }
     }
     for (const note of uncertain) findings.push(note)
 
@@ -314,59 +480,6 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
   }
 
-  const isScopeReceiver = (expr: any): boolean => {
-    const t = checker.getTypeAtLocation(expr)
-    return Boolean(t?.getProperty?.('tell') && t?.getProperty?.('broadcast') && t?.getProperty?.('onExit'))
-  }
-  const verbOf = (expr: any): string | undefined => {
-    if (ts.isIdentifier(expr)) {
-      if (VERBS.has(expr.text)) return expr.text
-      const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration
-      if (decl && ts.isBindingElement(decl) && decl.propertyName && VERBS.has(decl.propertyName.getText())) return decl.propertyName.getText()
-    }
-    if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
-    return undefined
-  }
-  const unwrapConst = (expr: any): any => {
-    const seen = new Set<any>()
-    let current = expr
-    while (current && !seen.has(current)) {
-      seen.add(current)
-      while (ts.isParenthesizedExpression(current)) current = current.expression
-      if (!ts.isIdentifier(current)) break
-      const decl = checker.getSymbolAtLocation(current)?.valueDeclaration
-      if (!decl || !ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || !decl.initializer) break
-      current = decl.initializer
-    }
-    return current
-  }
-  const isChildCall = (expr: any): boolean =>
-    ts.isCallExpression(expr) && expr.arguments.length > 0 && (
-      (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
-      || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeReceiver(expr.expression.expression))
-    )
-  const hasStaticTarget = (target: any): boolean => {
-    const resolvedTarget = unwrapConst(target)
-    if (ts.isStringLiteralLike(resolvedTarget)) return true
-    if (isChildCall(resolvedTarget)) return hasStaticTarget(resolvedTarget.arguments[0])
-    if (ts.isObjectLiteralExpression(resolvedTarget)) {
-      const prop = resolvedTarget.properties.find((p: any) =>
-        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
-        && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
-      if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
-    }
-    const targetType = checker.getTypeAtLocation(target)
-    const nonEmpty = real(targetType)
-    return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
-  }
-  const isDeclName = (node: any): boolean => {
-    const p = node.parent
-    if (!p) return false
-    if (ts.isPropertyAccessExpression(p) && p.name === node) return true
-    if (ts.isBindingElement(p) && (p.name === node || p.propertyName === node)) return true
-    return (ts.isParameter(p) || ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p) || ts.isFunctionDeclaration(p) || ts.isMethodDeclaration(p)) && p.name === node
-  }
-
   const results = new Map<string, readonly StateGraph[]>()
   for (const file of resolved) {
     const graphs: StateGraph[] = []
@@ -382,45 +495,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const title = titleNode ? titleNode.getText() : checker.typeToString(shapeType)
             const events = eventType ? members(eventType).flatMap((m: Type) => { const t = m.getProperty?.('type'); return t ? literalsOf(typeOf(t)) : [] }) : []
             const asks = askType ? askType.getProperties().map((p: any) => p.name as string) : []
-            const reaches = new Set<string>()
-            const scanUncertain: string[] = []
-            const armedWaits = new Set<string>()
-            let hasDynamicArm = false
             const arg = node.arguments[0]
-            if (ts.isObjectLiteralExpression(arg)) {
-              const scan = (inner: any): void => {
-                if (!isDeclName(inner)) {
-                  const p = inner.parent
-                  if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
-                    hasDynamicArm = true
-                  } else if (ts.isIdentifier(inner) && isScopeReceiver(inner)
-                    && !(p && ts.isPropertyAccessExpression(p) && p.expression === inner)
-                    && !(p && ts.isVariableDeclaration(p) && p.initializer === inner && ts.isObjectBindingPattern(p.name))) {
-                    hasDynamicArm = true
-                  }
-                }
-                if (ts.isCallExpression(inner) && inner.arguments[0]) {
-                  const verb = verbOf(inner.expression)
-                  if (verb) {
-                    const target = inner.arguments[0]
-                    const resolvedTarget = unwrapConst(target)
-                    reaches.add(`${verb} ${isChildCall(resolvedTarget) ? `its ${resolvedTarget.arguments[0].getText()}` : target.getText()}`)
-                    if (!hasStaticTarget(target)) {
-                      scanUncertain.push(`dynamic target in ${verb} ${target.getText()}`)
-                      if (verb === 'arm') hasDynamicArm = true
-                    } else if (verb === 'arm') {
-                      if (ts.isStringLiteralLike(resolvedTarget)) armedWaits.add(resolvedTarget.text)
-                      else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) armedWaits.add(m.value as string)
-                    }
-                  }
-                }
-                ts.forEachChild(inner, scan)
-              }
-              scan(arg)
-            } else {
-              scanUncertain.push('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
-            }
-            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), [...reaches], arg, scanUncertain, armedWaits, hasDynamicArm))
+            graphs.push(analyse(title, shapeType, events, asks, checker.getTypeAtLocation(arg), arg))
           }
         }
       }
