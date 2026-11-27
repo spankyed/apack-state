@@ -114,7 +114,7 @@ Either:
 
 Porting retry/backoff flows or brain step timeouts where pure timer states proliferate enough that dummy `failed`
 handlers become recurring noise or graph visibility of timeout edges matters. (Imperative debounces, throttles, TTL
-flags, and keyed timers are now handled by `Def.waits` without adding timer-only states.)
+flags, and keyed timers are now handled by `Def.arms` without adding timer-only states.)
 
 ---
 
@@ -128,7 +128,7 @@ waits for rapid data changes (such as typing a search query) to settle before re
 ### Why not yet
 
 - **Zero current `apack` call sites.** None of the ported or surveyed `apack` surfaces currently need debounced
-  `loads` or `follows` (debounced writes/flushes/pulses are imperative and covered by `Def.waits`).
+  `loads` or `follows` (debounced writes/flushes/pulses are imperative and covered by `Def.arms`).
 - Adding debounce timers to `settle()` before real call sites exist adds kernel complexity without deleting existing
   boilerplate.
 
@@ -145,7 +145,7 @@ If `loads`/`follows` `{ debounce?: number }` is implemented later, preserve thes
 
 ### What would make it worth starting
 
-Two or three real `apack` surfaces hand-rolling a `debouncedQuery` shadow field + `Def.waits` timer purely to feed a
+Two or three real `apack` surfaces hand-rolling a `debouncedQuery` shadow field + `Def.arms` timer purely to feed a
 standing `loads` or `follows` entry.
 
 ---
@@ -186,7 +186,7 @@ Recorded here so they are not re-proposed without new evidence:
 - **`reenter: true` (XState v6):** Unnecessary because `{ data }` updates in place while `{ at }` always enters the
   target state afresh.
 - **Standalone `peersFor<Net>()` curried helper (PR #63):** Declined to avoid `xxxFor<Net>()` export sprawl;
-  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.attach(name, peer)`
+  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.peer(name, peer)`
   directly with zero new runtime exports.
 - **Runtime `(ref, askName)` membership banning for ask cycles (PR #64):** Declined because `answers` handlers are
   concurrent and reentrant rather than per-`(ref, askName)` mutexes; `chain.includes(edge)` falsely rejects finite

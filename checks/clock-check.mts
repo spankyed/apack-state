@@ -119,7 +119,7 @@ await run([
         GO: (_, scope) => {
           strictEqual('key' in scope, false)
           seen.on!.push(scope.now)
-          scope.send({ type: 'INNER' })
+          scope.raise({ type: 'INNER' })
           return { at: 'working' }
         },
         INNER: (_, scope) => { seen.on!.push(scope.now) },

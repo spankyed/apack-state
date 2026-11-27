@@ -54,9 +54,9 @@ const state = forNet()
     data: { items: [], picked: [] },
     on: {
       TAKE: ({ items }) => ({ data: { picked: items } }),
-      PASS_ON: (_, { data, send }) => {
-        send({ type: 'TAKE', items: data.items })
-        send({ type: 'TAKEN', items: data.items })
+      PASS_ON: (_, { data, raise }) => {
+        raise({ type: 'TAKE', items: data.items })
+        raise({ type: 'TAKEN', items: data.items })
         return { data: { picked: data.items } }
       },
     },

@@ -36,35 +36,35 @@ await run([
   ['a name declared again inside a state that declares it is refused by that name, whichever of the three it is', () => {
     const errors = errorsIn(`
 export const field = state<{ data: { n: number }; states: { idle: {}; s: { data: { n: number } } } }>()({ data: { n: 0 }, initial: 'idle', states: { idle: {}, s: { data: { n: 1 } } } })
-export const call = state<{ calls: { save: 'one' }; states: { s: { calls: { save: 'one' } } } }>()({
-  initial: 's', calls: ({ one }) => ({ save: one('svc' as never, 'SAVE' as never, { done: () => {} } as never) }),
-  states: { s: { calls: ({ one }) => ({ save: one('svc' as never, 'SAVE' as never, { done: () => {} } as never) }) } },
+export const call = state<{ calls: { save: 'single' }; states: { s: { calls: { save: 'single' } } } }>()({
+  initial: 's', calls: ({ single }) => ({ save: single('svc' as never, 'SAVE' as never, { done: () => {} } as never) }),
+  states: { s: { calls: ({ single }) => ({ save: single('svc' as never, 'SAVE' as never, { done: () => {} } as never) }) } },
 })
-export const wait = state<{ waits: { retry: 'one' }; states: { s: { waits: { retry: 'one' } } } }>()({
-  initial: 's', waits: ({ one }) => ({ retry: one(100) }),
-  states: { s: { waits: ({ one }) => ({ retry: one(100) }) } },
+export const timer = state<{ arms: { retry: 'single' }; states: { s: { arms: { retry: 'single' } } } }>()({
+  initial: 's', arms: ({ single }) => ({ retry: single({ after: 100 }) }),
+  states: { s: { arms: ({ single }) => ({ retry: single({ after: 100 }) }) } },
 })
 `)
     says(errors, `data field 'n' is already declared by an enclosing state`)
     says(errors, `call 'save' is already declared by an enclosing state`)
-    says(errors, `wait 'retry' is already declared by an enclosing state`)
+    says(errors, `timer 'retry' is already declared by an enclosing state`)
   }],
   ['a name declared with two kinds is refused in each state that declares it, naming each kind', () => {
     const errors = errorsIn(`
-export const call = state<{ states: { a: { calls: { save: 'one' } }; b: { calls: { save: 'each' } } } }>()({
+export const call = state<{ states: { a: { calls: { save: 'single' } }; b: { calls: { save: 'each' } } } }>()({
   initial: 'a',
   states: {
-    a: { calls: ({ one }) => ({ save: one('svc' as never, 'SAVE' as never, { done: () => {} } as never) }) },
+    a: { calls: ({ single }) => ({ save: single('svc' as never, 'SAVE' as never, { done: () => {} } as never) }) },
     b: { calls: ({ each }) => ({ save: each('svc' as never, 'SAVE' as never, { done: () => {} } as never) }) },
   },
 })
-export const wait = state<{ states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: 'each' } } } }>()({
+export const timer = state<{ states: { a: { arms: { retry: 'single' } }; b: { arms: { retry: 'each' } } } }>()({
   initial: 'a',
-  states: { a: { waits: ({ one }) => ({ retry: one(100) }) }, b: { waits: ({ each }) => ({ retry: each(100) }) } },
+  states: { a: { arms: ({ single }) => ({ retry: single({ after: 100 }) }) }, b: { arms: ({ each }) => ({ retry: each({ after: 100 }) }) } },
 })
 `)
     // Each of the two states is told of both kinds: the one it declared and the one that is declared beside it.
-    for (const what of ['call \'save\'', 'wait \'retry\'']) {
+    for (const what of ['call \'save\'', 'timer \'retry\'']) {
       const [first, second] = [...new Set(errors.flatMap((error) => [...error.matchAll(new RegExp(`${what} is declared with more than one kind across states: '(\\w+)' is one of them`, 'g'))].map((found) => found[1]!)))].sort()
       ok(first && second && first !== second, `${what}: two kinds named, got ${first}, ${second}\n${errors.join('\n---\n')}`)
       says(errors, `${what} is declared with more than one kind across states: '${first}' is one of them`, 2)

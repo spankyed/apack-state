@@ -17,9 +17,9 @@ state<Jobs, JobsEvent>()({
   },
   states: {
     on: {
-      calls: ({ one, each }) => ({
+      calls: ({ single, each }) => ({
         run: each('worker', 'RUN', { args: (id) => ({ id }), done: () => {} }),
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: () => {} }),
+        save: single('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: () => {} }),
       }),
       on: {
         // @ts-expect-error a job is one of many, so calling one takes its key
@@ -38,11 +38,11 @@ state<Jobs, JobsEvent>()({
   initial: 'on',
   states: {
     on: {
-      calls: ({ one }) => ({
+      calls: ({ single }) => ({
         // @ts-expect-error a job is one for each of many, so it is declared with `each`
-        run: one('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),
+        run: single('worker', 'RUN', { args: () => ({ id: '' }), done: () => {} }),
         // @ts-expect-error what a save answers is a string, so it cannot be put where the list goes
-        save: one('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
+        save: single('worker', 'SAVE', { args: (data) => ({ text: data.text }), done: (outcome) => (outcome.ok ? { data: { done: outcome.value } } : undefined) }),
       }),
     },
     off: {},
@@ -51,7 +51,7 @@ state<Jobs, JobsEvent>()({
 // @ts-expect-error a state whose shape says it declares calls has to define them
 state<Jobs, JobsEvent>()({ data: { text: '', saved: null, done: [], heard: [], tries: {}, problem: null }, initial: 'on', states: { on: {}, off: {} } })
 
-// Typed calls (`one`, `each`, `many`), frozen `scope.input`, optional `args`, and `pending.<many>: number`.
+// Typed calls (`single`, `each`, `many`), frozen `scope.input`, optional `args`, and `pending.<many>: number`.
 import { forNet, type Value } from '../src/index.ts'
 type TypedAsks = {
   PING: { args: {}; answer: string }
@@ -65,12 +65,12 @@ const typed = forNet<TypedNet>()
 type TypedShape = {
   data: { prefix: string }
   calls: {
-    pingOne: 'one'
+    pingSingle: 'single'
     pingEach: 'each'
     pingMany: 'many'
-    commitDirect: { one: { message: string; amend?: boolean } }
-    commitMapped: { one: { msg: string } }
-    primOne: { one: string }
+    commitDirect: { single: { message: string; amend?: boolean } }
+    commitMapped: { single: { msg: string } }
+    primSingle: { single: string }
     hunk: { each: { hunk: number } }
     uploadDirect: { many: { file: string } }
     uploadMapped: { many: { name: string } }
@@ -86,19 +86,19 @@ type TypedEvent =
 // Positive check: contextual inference for `input`, `data`, `key`, `scope.input`, and omitted `args`.
 typed<TypedShape, TypedEvent>()({
   data: { prefix: '' },
-  calls: ({ one, each, many }) => ({
-    pingOne: one('svc', 'PING', { done: () => {} }),
+  calls: ({ single, each, many }) => ({
+    pingSingle: single('svc', 'PING', { done: () => {} }),
     pingEach: each('svc', 'PING', { done: (_o, { key }) => { const _k: string = key; void _k } }),
     pingMany: many('svc', 'PING', { done: () => {} }),
-    commitDirect: one('svc', 'COMMIT', {
+    commitDirect: single('svc', 'COMMIT', {
       progress: (_u, { input }) => { const _m: string = input.message; void _m },
       done: (_o, { input }) => { const _m: string = input.message; void _m },
     }),
-    commitMapped: one('svc', 'COMMIT', {
+    commitMapped: single('svc', 'COMMIT', {
       args: (input, data) => ({ message: input.msg + data.prefix }),
       done: (_o, { input }) => { const _m: string = input.msg; void _m },
     }),
-    primOne: one('svc', 'PING', {
+    primSingle: single('svc', 'PING', {
       args: () => ({}),
       done: (_o, { input }) => { const _s: string = input; void _s },
     }),
@@ -116,38 +116,38 @@ typed<TypedShape, TypedEvent>()({
   }),
   on: {
     A: (_, { call }) => {
-      call('pingOne')
+      call('pingSingle')
       call('pingEach', 'k')
       call('pingMany')
       call('commitDirect', { message: 'hi' })
       call('hunk', 'a.ts', { hunk: 1 })
       call('uploadDirect', { file: 'x.png' })
     },
-    // @ts-expect-error a typed `one` call requires its input argument
+    // @ts-expect-error a typed `single` call requires its input argument
     B: (_, { call }) => { call('commitDirect') },
     // @ts-expect-error a typed `each` call requires both key and input
     C: (_, { call }) => { call('hunk', 'a.ts') },
     // @ts-expect-error cancelling a `many` call takes no key (it cancels all in flight)
     D: (_, { cancel }) => { cancel('uploadDirect', 'k') },
-    // @ts-expect-error a bare `one` call takes no extra argument
-    E: (_, { call }) => { call('pingOne', 'extra') },
+    // @ts-expect-error a bare `single` call takes no extra argument
+    E: (_, { call }) => { call('pingSingle', 'extra') },
   },
 })
 
 // Negative checks for `args` omission, cardinality mismatch, and `scope.input` on bare calls.
 typed<TypedShape, never>()({
   data: { prefix: '' },
-  calls: ({ one, each, many }) => ({
-    // @ts-expect-error a bare `one` call has no `input` on scope
-    pingOne: one('svc', 'PING', { done: (_o, { input }) => { void input } }),
+  calls: ({ single, each, many }) => ({
+    // @ts-expect-error a bare `single` call has no `input` on scope
+    pingSingle: single('svc', 'PING', { done: (_o, { input }) => { void input } }),
     pingEach: each('svc', 'PING', { done: () => {} }),
     // @ts-expect-error `pingMany` is declared as `many`, so it must be built with `many`
-    pingMany: one('svc', 'PING', { done: () => {} }),
-    commitDirect: one('svc', 'COMMIT', { done: () => {} }),
+    pingMany: single('svc', 'PING', { done: () => {} }),
+    commitDirect: single('svc', 'COMMIT', { done: () => {} }),
     // @ts-expect-error `args` is required because `{ msg: string }` is not assignable to `{ message: string }`
-    commitMapped: one('svc', 'COMMIT', { done: () => {} }),
+    commitMapped: single('svc', 'COMMIT', { done: () => {} }),
     // @ts-expect-error `args` is required because a primitive input cannot pass through directly as ask args
-    primOne: one('svc', 'PING', { done: () => {} }),
+    primSingle: single('svc', 'PING', { done: () => {} }),
     // @ts-expect-error `args` is required for a typed `each` call
     hunk: each('svc', 'STAGE_HUNK', { done: () => {} }),
     uploadDirect: many('svc', 'UPLOAD', { done: () => {} }),
@@ -162,19 +162,19 @@ const _manyCount: number = typedValue.pending.uploadDirect
 const _wrongManyPending: boolean = typedValue.pending.uploadDirect
 void _manyCount; void _wrongManyPending
 
-// Sibling states may share a call name with the same kind (e.g. bare `'one'` and typed `{ one: In }`),
-// but conflicting kinds (`one` vs `each`) across states are refused at definition time.
+// Sibling states may share a call name with the same kind (e.g. bare `'single'` and typed `{ single: In }`),
+// but conflicting kinds (`single` vs `each`) across states are refused at definition time.
 type SameKindCallsShape = {
   states: {
-    a: { calls: { save: 'one' } }
-    b: { calls: { save: { one: { message: string } } } }
+    a: { calls: { save: 'single' } }
+    b: { calls: { save: { single: { message: string } } } }
   }
 }
 typed<SameKindCallsShape, never>()({
   initial: 'a',
   states: {
-    a: { calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }) },
-    b: { calls: ({ one }) => ({ save: one('svc', 'COMMIT', { done: () => {} }) }) },
+    a: { calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }) },
+    b: { calls: ({ single }) => ({ save: single('svc', 'COMMIT', { done: () => {} }) }) },
   },
 })
 declare const sameKindCallsValue: Value<SameKindCallsShape>
@@ -183,7 +183,7 @@ void _sameKindPending
 
 type ConflictingCallsShape = {
   states: {
-    a: { calls: { save: 'one' } }
+    a: { calls: { save: 'single' } }
     b: { calls: { save: 'each' } }
   }
 }
@@ -192,7 +192,7 @@ typed<ConflictingCallsShape, never>()({
   states: {
     a: {
       // @ts-expect-error a call name cannot be declared with conflicting kinds across states of one machine
-      calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+      calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }),
     },
     b: {
       // @ts-expect-error a call name cannot be declared with conflicting kinds across states of one machine
@@ -202,42 +202,42 @@ typed<ConflictingCallsShape, never>()({
 })
 
 // A nested state cannot redeclare a call name already declared by an enclosing state (direct child or grandchild),
-// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a wait of the same
-// name lives in `waiting` (a separate namespace from `pending`), so a child wait may share the parent's call name.
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a timer of the same
+// name lives in `armed` (a separate namespace from `pending`), so a child timer may share the parent's call name.
 type DirectShadowCallsShape = {
-  calls: { save: 'one' }
+  calls: { save: 'single' }
   states: {
-    a: { calls: { save: 'one' } }
+    a: { calls: { save: 'single' } }
     b: { calls: { save: 'each' } }
-    c: { calls: { other: 'one' }; waits: { save: 'one' } }
+    c: { calls: { other: 'single' }; arms: { save: 'single' } }
   }
 }
 typed<DirectShadowCallsShape, never>()({
   initial: 'a',
-  calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+  calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }),
   states: {
     a: {
       // @ts-expect-error a child state cannot shadow a call name declared by its parent
-      calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+      calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }),
     },
     b: {
       // @ts-expect-error shadowing an enclosing call name is reported on the redeclaring child even with a different kind
       calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),
     },
     c: {
-      calls: ({ one }) => ({ other: one('svc', 'PING', { done: () => {} }) }),
-      waits: ({ one }) => ({ save: one(100) }),
+      calls: ({ single }) => ({ other: single('svc', 'PING', { done: () => {} }) }),
+      arms: ({ single }) => ({ save: single({ after: 100 }) }),
     },
   },
 })
 
 type DeepShadowCallsShape = {
-  calls: { save: 'one' }
-  states: { mid: { states: { idle: {}; leaf: { calls: { save: 'one' } } } } }
+  calls: { save: 'single' }
+  states: { mid: { states: { idle: {}; leaf: { calls: { save: 'single' } } } } }
 }
 typed<DeepShadowCallsShape, never>()({
   initial: 'mid',
-  calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+  calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }),
   states: {
     mid: {
       initial: 'idle',
@@ -245,7 +245,7 @@ typed<DeepShadowCallsShape, never>()({
         idle: {},
         leaf: {
           // @ts-expect-error a deeply nested state cannot shadow a call name declared by an ancestor
-          calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+          calls: ({ single }) => ({ save: single('svc', 'PING', { done: () => {} }) }),
         },
       },
     },

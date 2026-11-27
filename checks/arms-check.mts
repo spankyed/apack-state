@@ -1,7 +1,7 @@
-// Imperative timers declared under `waits`: armed and disarmed on demand, owned by their state,
-// tracked on `waiting` beside `at` and `data`, and never blocking `idle()`.
+// Imperative timers declared under `arms`: armed and disarmed on demand, owned by their state,
+// tracked on `armed` beside `at` and `data`, and never blocking `idle()`.
 //
-//   npx vitest run waits
+//   npx vitest run arms
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { effect } from '@vue/reactivity'
 import { createRenderer, defineComponent, h, nextTick } from '@vue/runtime-core'
@@ -69,7 +69,7 @@ type SvcNet = {
 const netState = forNet<SvcNet>()
 
 const checks: Array<[string, () => Promise<void>]> = [
-  ['one and each waits arm, expose frozen waiting, fire done (transitions, data, send, tell, call), and keep idle() true', async () => {
+  ['single and each timers arm, expose frozen armed, fire expired (transitions, data, raise, tell, call), and keep idle() true', async () => {
     const manual = manualClock()
     const svcEvents: string[] = []
     const svcCalls: string[] = []
@@ -81,9 +81,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     type Shape = {
       data: { fired: string[]; saved: string[]; internalHits: number }
       internal: { type: 'BUMP' }
-      calls: { save: { one: { tag: string } } }
-      waits: {
-        debounce: 'one'
+      calls: { save: { single: { tag: string } } }
+      arms: {
+        debounce: 'single'
         t: 'each' // 1-char name exercises slash index boundary in valueOf
       }
       states: { editing: {}; submitted: {} }
@@ -93,19 +93,19 @@ const checks: Array<[string, () => Promise<void>]> = [
     const form = netState<Shape, Ev>()({
       data: { fired: [], saved: [], internalHits: 0 },
       initial: 'editing',
-      calls: ({ one }) => ({
-        save: one('svc', 'SAVE', {
+      calls: ({ single }) => ({
+        save: single('svc', 'SAVE', {
           done: (outcome) => (outcome.ok ? { data: (d) => { d.saved.push(outcome.value) } } : undefined),
         }),
       }),
-      waits: ({ one, each }) => ({
-        debounce: one(200, ({ send, tell, call }) => {
-          send({ type: 'BUMP' })
+      arms: ({ single, each }) => ({
+        debounce: single({ after: 200, expired: ({ raise, tell, call }) => {
+          raise({ type: 'BUMP' })
           tell('svc', { type: 'NOTIFIED', tag: 'debounced' })
           call('save', { tag: 'doc' })
           return { at: 'submitted', data: (d) => { d.fired.push('debounce') } }
-        }),
-        t: each(100, ({ key }) => ({ data: (d) => { d.fired.push(`each:${key}`) } })),
+        } }),
+        t: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`each:${key}`) } }) }),
       }),
       internal: {
         BUMP: (_, { data }) => ({ data: { internalHits: data.internalHits + 1 } }),
@@ -124,24 +124,24 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('form', form)
 
     const initial = sys.read(h)
-    deepStrictEqual(initial.waiting, { debounce: false, t: {} })
-    strictEqual(Object.isFrozen(initial.waiting), true)
-    strictEqual(Object.isFrozen(initial.waiting.t), true)
+    deepStrictEqual(initial.armed, { debounce: false, t: {} })
+    strictEqual(Object.isFrozen(initial.armed), true)
+    strictEqual(Object.isFrozen(initial.armed.t), true)
     strictEqual(sys.idle(), true)
 
     sys.send(h, { type: 'TYPE' })
     sys.send(h, { type: 'MARK', key: 'a' })
     sys.send(h, { type: 'MARK', key: 'dir/file.ts' })
-    // sys.idle() MUST remain true while waits are armed!
+    // sys.idle() MUST remain true while timers are armed!
     strictEqual(sys.idle(), true)
-    deepStrictEqual(sys.read(h).waiting, { debounce: true, t: { a: true, 'dir/file.ts': true } })
-    strictEqual(Object.isFrozen(sys.read(h).waiting), true)
-    strictEqual(Object.isFrozen(sys.read(h).waiting.t), true)
+    deepStrictEqual(sys.read(h).armed, { debounce: true, t: { a: true, 'dir/file.ts': true } })
+    strictEqual(Object.isFrozen(sys.read(h).armed), true)
+    strictEqual(Object.isFrozen(sys.read(h).armed.t), true)
 
     // Advance 100ms: `t` fires for both keys, `debounce` still armed.
     manual.advance(100)
     await rest()
-    deepStrictEqual(sys.read(h).waiting, { debounce: true, t: {} })
+    deepStrictEqual(sys.read(h).armed, { debounce: true, t: {} })
     deepStrictEqual(sys.read(h).data.fired, ['each:a', 'each:dir/file.ts'])
     strictEqual(sys.read(h).at, 'editing')
     strictEqual(sys.idle(), true)
@@ -150,33 +150,33 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(100)
     await rest()
     strictEqual(sys.read(h).at, 'submitted')
-    deepStrictEqual(sys.read(h).waiting, { debounce: false, t: {} })
+    deepStrictEqual(sys.read(h).armed, { debounce: false, t: {} })
     deepStrictEqual(sys.read(h).data, { fired: ['each:a', 'each:dir/file.ts', 'debounce'], saved: ['saved:doc'], internalHits: 1 })
     deepStrictEqual(svcEvents, ['debounced'])
     deepStrictEqual(svcCalls, ['doc'])
 
-    // StepLog records arm and wait with key for each and without key for one, never ms payload.
+    // StepLog records arm and expired with key for each and without key for single, never ms payload.
     const allHandled = logs.flatMap((l) => l.handled)
     ok(allHandled.some((x) => x.kind === 'arm' && x.ref === 'form' && x.name === 'debounce' && !('key' in x)))
     ok(allHandled.some((x) => x.kind === 'arm' && x.ref === 'form' && x.name === 't' && x.key === 'a'))
-    ok(allHandled.some((x) => x.kind === 'wait' && x.ref === 'form' && x.name === 't' && x.key === 'dir/file.ts'))
-    ok(allHandled.some((x) => x.kind === 'wait' && x.ref === 'form' && x.name === 'debounce' && !('key' in x)))
-    ok(logs.some((l) => l.changed.form?.waiting === true))
+    ok(allHandled.some((x) => x.kind === 'expired' && x.ref === 'form' && x.name === 't' && x.key === 'dir/file.ts'))
+    ok(allHandled.some((x) => x.kind === 'expired' && x.ref === 'form' && x.name === 'debounce' && !('key' in x)))
+    ok(logs.some((l) => l.changed.form?.armed === true))
     strictEqual(JSON.stringify(allHandled).includes('200'), false)
   }],
 
-  ['omitted done (pure-TTL flags) updates snapshot.waiting, notifies subscribers, and drives Vue mirror and useState reactivity', async () => {
+  ['omitted expired (pure-TTL flags) updates snapshot.armed, notifies subscribers, and drives Vue mirror and useState reactivity', async () => {
     const manual = manualClock()
     type FlagShape = {
       data: { label: string }
-      waits: { pulse: 'one'; highlight: 'each' }
+      arms: { pulse: 'single'; highlight: 'each' }
     }
     type FlagEv = { type: 'PULSE' } | { type: 'FLASH'; id: string } | { type: 'RENAME'; label: string }
     const flags = state<FlagShape, FlagEv>()({
       data: { label: 'init' },
-      waits: ({ one, each }) => ({
-        pulse: one(150),
-        highlight: each(300),
+      arms: ({ single, each }) => ({
+        pulse: single({ after: 150 }),
+        highlight: each({ after: 300 }),
       }),
       on: {
         PULSE: (_, { arm }) => { arm('pulse') },
@@ -189,18 +189,18 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'window', clock: manual.clock, onDefect: (d) => defects.push(d) })
     const handle = sys.start('flags', flags)
 
-    const notices: Array<{ waiting: boolean; data: boolean }> = []
+    const notices: Array<{ armed: boolean; data: boolean }> = []
     sys.subscribe((_, f, c) => {
       const mine = c.flags
-      if (mine) notices.push({ waiting: mine.waiting, data: (f.flags ?? []).length > 0 })
+      if (mine) notices.push({ armed: mine.armed, data: (f.flags ?? []).length > 0 })
     })
 
     // Fine-grained mirror reactivity check.
     const held = mirror(sys, handle)
     const runs = { pulse: 0, a: 0, b: 0, label: 0 }
-    effect(() => { runs.pulse++; void held.value.waiting.pulse })
-    effect(() => { runs.a++; void held.value.waiting.highlight.a })
-    effect(() => { runs.b++; void held.value.waiting.highlight.b })
+    effect(() => { runs.pulse++; void held.value.armed.pulse })
+    effect(() => { runs.a++; void held.value.armed.highlight.a })
+    effect(() => { runs.b++; void held.value.armed.highlight.b })
     effect(() => { runs.label++; void held.value.data.label })
     const since = { ...runs }
     const ran = (): string[] => {
@@ -209,7 +209,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       return hit
     }
 
-    // Vue component using vueBinding / useState reads waiting reactively in both Node and browser.
+    // Vue component using vueBinding / useState reads armed reactively in both Node and browser.
     interface VNodeHost { text: string; children: VNodeHost[] }
     const mkNode = (text = ''): VNodeHost => ({ text, children: [] })
     const { createApp } = createRenderer<VNodeHost, VNodeHost>({
@@ -229,7 +229,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const Comp = defineComponent(() => {
       const { state: s } = useState('flags')
       return () => {
-        const line = `${s.value.data.label}|p=${String(s.value.waiting.pulse)}|a=${String(Boolean(s.value.waiting.highlight.a))}`
+        const line = `${s.value.data.label}|p=${String(s.value.armed.pulse)}|a=${String(Boolean(s.value.armed.highlight.a))}`
         rendered.push(line)
         return h('div', line)
       }
@@ -240,12 +240,12 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     sys.send(handle, { type: 'PULSE' })
     deepStrictEqual(ran(), ['pulse'])
-    strictEqual(held.value.waiting.pulse, true)
-    deepStrictEqual(notices.at(-1), { waiting: true, data: false })
+    strictEqual(held.value.armed.pulse, true)
+    deepStrictEqual(notices.at(-1), { armed: true, data: false })
 
     sys.send(handle, { type: 'FLASH', id: 'a' })
     deepStrictEqual(ran(), ['a'])
-    strictEqual(held.value.waiting.highlight.a, true)
+    strictEqual(held.value.armed.highlight.a, true)
 
     sys.send(handle, { type: 'FLASH', id: 'b' })
     deepStrictEqual(ran(), ['b'])
@@ -255,17 +255,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     await nextTick()
     strictEqual(rendered.at(-1), 'next|p=true|a=true')
 
-    // Expire pulse at 150ms (pure TTL, no done): waiting.pulse flips to false and triggers pulse reader only.
+    // Expire pulse at 150ms (pure TTL, no expired): armed.pulse flips to false and triggers pulse reader only.
     manual.advance(150)
     deepStrictEqual(ran(), ['pulse'])
-    strictEqual(held.value.waiting.pulse, false)
-    strictEqual(sys.read(handle).waiting.pulse, false)
+    strictEqual(held.value.armed.pulse, false)
+    strictEqual(sys.read(handle).armed.pulse, false)
 
     // Expire highlights at 300ms.
     manual.advance(150)
     deepStrictEqual(ran(), ['a', 'b'])
-    strictEqual(held.value.waiting.highlight.a, undefined)
-    strictEqual(held.value.waiting.highlight.b, undefined)
+    strictEqual(held.value.armed.highlight.a, undefined)
+    strictEqual(held.value.armed.highlight.b, undefined)
     await nextTick()
     strictEqual(rendered.at(-1), 'next|p=false|a=false')
     deepStrictEqual(defects, [])
@@ -273,21 +273,22 @@ const checks: Array<[string, () => Promise<void>]> = [
     held.stop()
   }],
 
-  ['reset: true (default) resets deadline on re-arm without spurious subscriber notice; reset: false throttles and re-arms after expiry or inside done', async () => {
+  ["whenArmed: 'restart' (default) restarts the timer on re-arm without spurious subscriber notice; whenArmed: 'ignore' throttles and re-arms after expiry or inside expired", async () => {
     const manual = manualClock()
     type Shape = {
       data: { debounced: number; throttled: number; selfRearms: number }
-      waits: { deb: 'one'; thr: 'one'; loop: 'one' }
+      arms: { deb: 'single'; thr: 'single'; loop: 'single' }
     }
     type Ev = { type: 'DEB' } | { type: 'THR' } | { type: 'LOOP' }
     const machine = state<Shape, Ev>()({
       data: { debounced: 0, throttled: 0, selfRearms: 0 },
-      waits: ({ one }) => ({
-        deb: one(100, ({ data }) => ({ data: { debounced: data.debounced + 1 } })),
-        thr: one(100, { reset: false, done: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
-        loop: one(50, {
-          reset: false,
-          done: ({ data, arm }) => {
+      arms: ({ single }) => ({
+        deb: single({ after: 100, expired: ({ data }) => ({ data: { debounced: data.debounced + 1 } }) }),
+        thr: single({ after: 100, whenArmed: 'ignore', expired: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
+        loop: single({
+          after: 50,
+          whenArmed: 'ignore',
+          expired: ({ data, arm }) => {
             if (data.selfRearms < 1) arm('loop')
             return { data: { selfRearms: data.selfRearms + 1 } }
           },
@@ -305,22 +306,22 @@ const checks: Array<[string, () => Promise<void>]> = [
     let subCalls = 0
     sys.subscribe(() => { subCalls++ })
 
-    // Debounce (`reset: true` default): arm at t=0, re-arm at t=60 -> original cancelled, fires at t=160.
+    // Debounce (`whenArmed: 'restart'` default): arm at t=0, re-arm at t=60 -> original cancelled, fires at t=160.
     sys.send(h, { type: 'DEB' })
     strictEqual(subCalls, 1)
     manual.advance(60)
     sys.send(h, { type: 'DEB' })
-    // Re-arming an already-armed timer does not change snapshot.waiting (true -> true), so no spurious subscriber call!
+    // Re-arming an already-armed timer does not change snapshot.armed (true -> true), so no spurious subscriber call!
     strictEqual(subCalls, 1)
     strictEqual(manual.cancelCalls(), 1)
     manual.advance(50) // t=110: old 100ms deadline passed, must NOT have fired.
     strictEqual(sys.read(h).data.debounced, 0)
-    strictEqual(sys.read(h).waiting.deb, true)
+    strictEqual(sys.read(h).armed.deb, true)
     manual.advance(50) // t=160: new deadline reached.
     strictEqual(sys.read(h).data.debounced, 1)
-    strictEqual(sys.read(h).waiting.deb, false)
+    strictEqual(sys.read(h).armed.deb, false)
 
-    // Throttle (`reset: false`): arm at t=160, re-arm at t=210 -> ignored (no extra clock.after, no cancel), fires at t=260.
+    // Throttle (`whenArmed: 'ignore'`): arm at t=160, re-arm at t=210 -> ignored (no extra clock.after, no cancel), fires at t=260.
     const afterBefore = manual.afterCalls()
     const cancelBefore = manual.cancelCalls()
     sys.send(h, { type: 'THR' })
@@ -331,40 +332,40 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(manual.cancelCalls(), cancelBefore)
     manual.advance(50) // t=260: original deadline fires.
     strictEqual(sys.read(h).data.throttled, 1)
-    strictEqual(sys.read(h).waiting.thr, false)
+    strictEqual(sys.read(h).armed.thr, false)
 
     // Can re-arm throttle cleanly after expiry.
     sys.send(h, { type: 'THR' })
-    strictEqual(sys.read(h).waiting.thr, true)
+    strictEqual(sys.read(h).armed.thr, true)
     manual.advance(100)
     strictEqual(sys.read(h).data.throttled, 2)
 
-    // Self-re-arming a `reset: false` timer inside `done` succeeds because the kernel cleared it before invoking `done`.
+    // Self-re-arming a `whenArmed: 'ignore'` timer inside `expired` succeeds because the kernel cleared it before invoking `expired`.
     sys.send(h, { type: 'LOOP' })
     manual.advance(50)
     strictEqual(sys.read(h).data.selfRearms, 1)
-    strictEqual(sys.read(h).waiting.loop, true)
+    strictEqual(sys.read(h).armed.loop, true)
     manual.advance(50)
     strictEqual(sys.read(h).data.selfRearms, 2)
-    strictEqual(sys.read(h).waiting.loop, false)
+    strictEqual(sys.read(h).armed.loop, false)
   }],
 
-  ['runtime ms ({ one: "ms" } / { each: "ms" }) and optional ms override on fixed-ms waits work for all builder forms', async () => {
+  ['a duration given at arm ({ single: "at arm" } / { each: "at arm" }) and an optional ms override on a timer with `after` work with and without expired and whenArmed', async () => {
     const manual = manualClock()
-    let builtOneKind: string | undefined
+    let builtSingleKind: string | undefined
     let builtEachKind: string | undefined
     type Shape = {
       data: { log: string[] }
-      waits: {
-        fixedOne: 'one'
+      arms: {
+        fixedSingle: 'single'
         fixedEach: 'each'
-        twoArgUndefinedMs: 'one'
-        dynOneBare: { one: 'ms' }
-        dynOneFn: { one: 'ms' }
-        dynOneOpts: { one: 'ms' }
-        dynEachBare: { each: 'ms' }
-        dynEachFn: { each: 'ms' }
-        dynEachOpts: { each: 'ms' }
+        undefinedAfter: 'single'
+        dynSingleBare: { single: 'at arm' }
+        dynSingleExpired: { single: 'at arm' }
+        dynSingleOpts: { single: 'at arm' }
+        dynEachBare: { each: 'at arm' }
+        dynEachExpired: { each: 'at arm' }
+        dynEachOpts: { each: 'at arm' }
       }
     }
     type Ev =
@@ -373,35 +374,35 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { log: [] },
-      waits: ({ one, each }) => {
-        const fixedOne = one(500, { reset: true, done: () => ({ data: (d) => { d.log.push('fixedOne') } }) })
-        const fixedEach = each(500, { reset: true, done: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
-        builtOneKind = fixedOne.kind
+      arms: ({ single, each }) => {
+        const fixedSingle = single({ after: 500, whenArmed: 'restart', expired: () => ({ data: (d) => { d.log.push('fixedSingle') } }) })
+        const fixedEach = each({ after: 500, whenArmed: 'restart', expired: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
+        builtSingleKind = fixedSingle.kind
         builtEachKind = fixedEach.kind
         return {
-          fixedOne,
+          fixedSingle,
           fixedEach,
-          twoArgUndefinedMs: one(undefined as unknown as number, () => ({ data: (d) => { d.log.push('twoArgOverride') } })),
-          dynOneBare: one(),
-          dynOneFn: one(() => ({ data: (d) => { d.log.push('dynOneFn') } })),
-          dynOneOpts: one({ reset: false, done: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
+          undefinedAfter: single({ after: undefined as unknown as number, expired: () => ({ data: (d) => { d.log.push('undefinedAfterOverride') } }) }),
+          dynSingleBare: single(),
+          dynSingleExpired: single({ expired: () => ({ data: (d) => { d.log.push('dynSingleExpired') } }) }),
+          dynSingleOpts: single({ whenArmed: 'ignore', expired: () => ({ data: (d) => { d.log.push('dynSingleOpts') } }) }),
           dynEachBare: each(),
-          dynEachFn: each(({ key }) => ({ data: (d) => { d.log.push(`dynEachFn:${key}`) } })),
-          dynEachOpts: each({ reset: false, done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
+          dynEachExpired: each({ expired: ({ key }) => ({ data: (d) => { d.log.push(`dynEachExpired:${key}`) } }) }),
+          dynEachOpts: each({ whenArmed: 'ignore', expired: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
         }
       },
       on: {
         FIXED_OVERRIDE: (_, { arm }) => {
-          arm('fixedOne', 25)
+          arm('fixedSingle', 25)
           arm('fixedEach', 'k', 40)
-          arm('twoArgUndefinedMs', 30)
+          arm('undefinedAfter', 30)
         },
         DYN_ALL: (_, { arm }) => {
-          arm('dynOneBare', 10)
-          arm('dynOneFn', 20)
-          arm('dynOneOpts', 30)
+          arm('dynSingleBare', 10)
+          arm('dynSingleExpired', 20)
+          arm('dynSingleOpts', 30)
           arm('dynEachBare', 'a', 15)
-          arm('dynEachFn', 'b', 25)
+          arm('dynEachExpired', 'b', 25)
           arm('dynEachOpts', 'c', 35)
         },
       },
@@ -409,24 +410,24 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const sys = system({ side: 'backend', clock: manual.clock })
     const h = sys.start('m', m)
-    strictEqual(builtOneKind, 'one')
+    strictEqual(builtSingleKind, 'single')
     strictEqual(builtEachKind, 'each')
 
     sys.send(h, { type: 'FIXED_OVERRIDE' })
     manual.advance(25)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle'])
     manual.advance(15)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'twoArgOverride', 'fixedEach:k'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle', 'undefinedAfterOverride', 'fixedEach:k'])
 
     sys.send(h, { type: 'DYN_ALL' })
-    strictEqual(sys.read(h).waiting.dynOneBare, true)
-    strictEqual(sys.read(h).waiting.dynEachBare.a, true)
+    strictEqual(sys.read(h).armed.dynSingleBare, true)
+    strictEqual(sys.read(h).armed.dynEachBare.a, true)
     manual.advance(10)
-    strictEqual(sys.read(h).waiting.dynOneBare, false)
+    strictEqual(sys.read(h).armed.dynSingleBare, false)
     manual.advance(5)
-    strictEqual(sys.read(h).waiting.dynEachBare.a, undefined)
+    strictEqual(sys.read(h).armed.dynEachBare.a, undefined)
     manual.advance(20)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'twoArgOverride', 'fixedEach:k', 'dynOneFn', 'dynEachFn:b', 'dynOneOpts', 'dynEachOpts:c'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedSingle', 'undefinedAfterOverride', 'fixedEach:k', 'dynSingleExpired', 'dynEachExpired:b', 'dynSingleOpts', 'dynEachOpts:c'])
   }],
 
   ['ms === 0 schedules on a subsequent step (never synchronously), and invalid ms or missing clock report exact defects without arming', async () => {
@@ -435,7 +436,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const order: string[] = []
     type Shape = {
       data: { ran: number }
-      waits: { zero: 'one'; dyn: { one: 'ms' }; keyed: { each: 'ms' }; fixedKeyed: 'each' }
+      arms: { zero: 'single'; dyn: { single: 'at arm' }; keyed: { each: 'at arm' }; fixedKeyed: 'each' }
     }
     type Ev =
       | { type: 'ZERO' }
@@ -446,11 +447,11 @@ const checks: Array<[string, () => Promise<void>]> = [
       | { type: 'NON_STRING_KEY' }
     const m = state<Shape, Ev>()({
       data: { ran: 0 },
-      waits: ({ one, each }) => ({
-        zero: one(0, ({ data }) => { order.push('done'); return { data: { ran: data.ran + 1 } } }),
-        dyn: one(() => { order.push('dyn') }),
-        keyed: each(() => { order.push('keyed') }),
-        fixedKeyed: each(100),
+      arms: ({ single, each }) => ({
+        zero: single({ after: 0, expired: ({ data }) => { order.push('expired'); return { data: { ran: data.ran + 1 } } } }),
+        dyn: single({ expired: () => { order.push('dyn') } }),
+        keyed: each({ expired: () => { order.push('keyed') } }),
+        fixedKeyed: each({ after: 100 }),
       }),
       on: {
         ZERO: (_, { arm }) => {
@@ -469,24 +470,24 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'backend', clock: manual.clock, onDefect: (d) => defects.push(d) })
     const h = sys.start('m', m)
 
-    // Even if a clock fires ms===0 synchronously inside clock.after, wait runs in a subsequent step (after handler ends).
+    // Even if a clock fires ms===0 synchronously inside clock.after, the expiry runs in a subsequent step (after handler ends).
     manual.fireNextSync()
     sys.send(h, { type: 'ZERO' })
-    deepStrictEqual(order, ['before-arm', 'after-arm', 'done'])
+    deepStrictEqual(order, ['before-arm', 'after-arm', 'expired'])
     strictEqual(sys.read(h).data.ran, 1)
-    strictEqual(sys.read(h).waiting.zero, false)
+    strictEqual(sys.read(h).armed.zero, false)
 
     // Standard async ms===0 via manual clock: not fired until advance(0).
     order.length = 0
     sys.send(h, { type: 'ZERO' })
     deepStrictEqual(order, ['before-arm', 'after-arm'])
-    strictEqual(sys.read(h).waiting.zero, true)
+    strictEqual(sys.read(h).armed.zero, true)
     manual.advance(0)
-    deepStrictEqual(order, ['before-arm', 'after-arm', 'done'])
+    deepStrictEqual(order, ['before-arm', 'after-arm', 'expired'])
     strictEqual(sys.read(h).data.ran, 2)
     strictEqual(defects.length, 0)
 
-    // Invalid durations and missing/non-string keys for `each` waits report exact defects without corrupting `waiting`.
+    // Invalid durations and missing/non-string keys for `each` timers report exact defects without corrupting `armed`.
     sys.send(h, { type: 'BAD', ms: Number.NaN })
     sys.send(h, { type: 'BAD', ms: -1 })
     sys.send(h, { type: 'BAD', ms: Number.POSITIVE_INFINITY })
@@ -503,7 +504,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'm cannot arm fixedKeyed without a string key', ref: 'm' },
       { message: 'm cannot arm keyed without a string key', ref: 'm' },
     ])
-    deepStrictEqual(sys.read(h).waiting, { zero: false, dyn: false, keyed: {}, fixedKeyed: {} })
+    deepStrictEqual(sys.read(h).armed, { zero: false, dyn: false, keyed: {}, fixedKeyed: {} })
 
     // Missing clock reports exact defect without arming.
     const noClockDefects: Defect[] = []
@@ -513,20 +514,20 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(noClockDefects.map((d) => ({ message: d.message, ref: d.ref })), [
       { message: 'm cannot arm zero: headless was given no clock; pass clock to system()', ref: 'm' },
     ])
-    strictEqual(noClockSys.read(nh).waiting.zero, false)
+    strictEqual(noClockSys.read(nh).armed.zero, false)
   }],
 
   ['clock.after throwing on fresh arm or re-arm and cancel throwing on disarm/exit are isolated with exact defects', async () => {
     const manual = manualClock()
     const defects: Defect[] = []
-    type Shape = { data: { fired: number; bump: number }; states: { on: { waits: { w: 'one' } }; off: {} } }
+    type Shape = { data: { fired: number; bump: number }; states: { on: { arms: { w: 'single' } }; off: {} } }
     type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'LEAVE' } | { type: 'BUMP' }
     const m = state<Shape, Ev>()({
       data: { fired: 0, bump: 0 },
       initial: 'on',
       states: {
         on: {
-          waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { fired: data.fired + 1 } })) }),
+          arms: ({ single }) => ({ w: single({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           on: {
             ARM: (_, { arm }) => { arm('w') },
             DISARM: (_, { disarm }) => { disarm('w') },
@@ -541,12 +542,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'backend', clock: manual.clock, onDefect: (d) => defects.push(d) })
     const h = sys.start('m', m)
 
-    // Fresh arm throws in clock.after -> defect reported, waiting stays false even after subsequent snapshot recompute.
+    // Fresh arm throws in clock.after -> defect reported, armed stays false even after subsequent snapshot recompute.
     const afterErr1 = new Error('clock broken 1')
     manual.failNextAfter(afterErr1)
     sys.send(h, { type: 'ARM' })
     sys.send(h, { type: 'BUMP' })
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(defects.length, 1)
     strictEqual(defects[0]!.message, 'm could not arm w: clock broken 1')
     strictEqual(defects[0]!.ref, 'm')
@@ -555,46 +556,46 @@ const checks: Array<[string, () => Promise<void>]> = [
     // Re-arm throws in clock.after -> defect reported, PREVIOUS armed timer remains intact and still fires!
     defects.length = 0
     sys.send(h, { type: 'ARM' })
-    strictEqual(sys.read(h).waiting.w, true)
+    strictEqual(sys.read(h).armed.w, true)
     const afterErr2 = new Error('clock broken 2')
     manual.failNextAfter(afterErr2)
     sys.send(h, { type: 'ARM' })
     strictEqual(defects.length, 1)
     strictEqual(defects[0]!.message, 'm could not arm w: clock broken 2')
-    strictEqual(sys.read(h).waiting.w, true)
+    strictEqual(sys.read(h).armed.w, true)
     manual.advance(100)
     strictEqual(sys.read(h).data.fired, 1)
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
 
-    // Cancel throws on disarm -> defect isolated, waiting still cleared.
+    // Cancel throws on disarm -> defect isolated, armed still cleared.
     defects.length = 0
     sys.send(h, { type: 'ARM' })
     const cancelErr1 = new Error('cancel boom 1')
     manual.failNextCancel(cancelErr1)
     sys.send(h, { type: 'DISARM' })
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(defects.length, 1)
-    strictEqual(defects[0]!.message, "disarming m's wait w threw: cancel boom 1")
+    strictEqual(defects[0]!.message, "disarming m's timer w threw: cancel boom 1")
     strictEqual(defects[0]!.ref, 'm')
     strictEqual(defects[0]!.error, cancelErr1)
 
-    // Cancel throws on state exit -> defect isolated, state still transitions and waiting clears.
+    // Cancel throws on state exit -> defect isolated, state still transitions and armed clears.
     defects.length = 0
     sys.send(h, { type: 'ARM' })
     const cancelErr2 = new Error('cancel boom 2')
     manual.failNextCancel(cancelErr2)
     sys.send(h, { type: 'LEAVE' })
     strictEqual(sys.read(h).at, 'off')
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(defects.length, 1)
-    strictEqual(defects[0]!.message, "disarming m's wait w threw: cancel boom 2")
+    strictEqual(defects[0]!.message, "disarming m's timer w threw: cancel boom 2")
   }],
 
-  ['bulk disarm clears all active keys of an each wait without touching other waits, and single-key disarm clears only that key', async () => {
+  ['bulk disarm clears all active keys of an each timer without touching other timers, and single-key disarm clears only that key', async () => {
     const manual = manualClock()
     type Shape = {
       data: { fired: string[] }
-      waits: { a: 'each'; b: 'each'; c: 'one' }
+      arms: { a: 'each'; b: 'each'; c: 'single' }
     }
     type Ev =
       | { type: 'ARM_ALL' }
@@ -603,10 +604,10 @@ const checks: Array<[string, () => Promise<void>]> = [
       | { type: 'DISARM_C' }
     const m = state<Shape, Ev>()({
       data: { fired: [] },
-      waits: ({ one, each }) => ({
-        a: each(100, ({ key }) => ({ data: (d) => { d.fired.push(`a:${key}`) } })),
-        b: each(100, ({ key }) => ({ data: (d) => { d.fired.push(`b:${key}`) } })),
-        c: one(100, () => ({ data: (d) => { d.fired.push('c') } })),
+      arms: ({ single, each }) => ({
+        a: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`a:${key}`) } }) }),
+        b: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`b:${key}`) } }) }),
+        c: single({ after: 100, expired: () => ({ data: (d) => { d.fired.push('c') } }) }),
       }),
       on: {
         ARM_ALL: (_, { arm }) => {
@@ -634,17 +635,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(subCalls, 0)
 
     sys.send(h, { type: 'ARM_ALL' })
-    deepStrictEqual(sys.read(h).waiting, { a: { k1: true, k2: true }, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: { k1: true, k2: true }, b: { k1: true }, c: true })
 
     // Single-key disarm removes only k1 of `a`.
     sys.send(h, { type: 'DISARM_ONE', key: 'k1' })
-    deepStrictEqual(sys.read(h).waiting, { a: { k2: true }, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: { k2: true }, b: { k1: true }, c: true })
 
     // Bulk disarm removes all remaining keys of `a` while leaving `b` and `c` untouched.
     const cancelsBefore = manual.cancelCalls()
     sys.send(h, { type: 'DISARM_BULK' })
     strictEqual(manual.cancelCalls(), cancelsBefore + 1)
-    deepStrictEqual(sys.read(h).waiting, { a: {}, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: {}, b: { k1: true }, c: true })
 
     // Second bulk disarm when `a` is already empty does not notify subscribers.
     const subBefore = subCalls
@@ -662,14 +663,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     type Shape = {
       data: { fired: number }
-      waits: { thr: 'one' }
+      arms: { thr: 'single' }
     }
     type Ev = { type: 'ARM' } | { type: 'DISARM_THEN_ARM' } | { type: 'ARM_THEN_DISARM' }
     const m = state<Shape, Ev>()({
       data: { fired: 0 },
-      waits: ({ one }) => ({
-        // reset: false proves `disarm; arm` truly disarmed before arming (resetting deadline to t+100).
-        thr: one(100, { reset: false, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
+      arms: ({ single }) => ({
+        // whenArmed: 'ignore' proves `disarm; arm` truly disarmed before arming (restarting it to expire at t+100).
+        thr: single({ after: 100, whenArmed: 'ignore', expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
       }),
       on: {
         ARM: (_, { arm }) => { arm('thr') },
@@ -683,14 +684,14 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     // `arm; disarm` in one step leaves it disarmed and cancels the timer.
     sys.send(h, { type: 'ARM_THEN_DISARM' })
-    strictEqual(sys.read(h).waiting.thr, false)
+    strictEqual(sys.read(h).armed.thr, false)
     strictEqual(manual.activeCount(), 0)
 
     // Arm at t=0, advance to t=60, then `disarm; arm` in one step -> cancels old timer and arms new 100ms timer (t=160).
     sys.send(h, { type: 'ARM' })
     manual.advance(60)
     sys.send(h, { type: 'DISARM_THEN_ARM' })
-    strictEqual(sys.read(h).waiting.thr, true)
+    strictEqual(sys.read(h).armed.thr, true)
     manual.advance(50) // t=110: old deadline did not fire.
     strictEqual(sys.read(h).data.fired, 0)
     manual.advance(50) // t=160: new deadline fires.
@@ -703,7 +704,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const defects: Defect[] = []
     type Shape = {
       data: { n: number }
-      waits: { w: 'one' }
+      arms: { w: 'single' }
     }
     type Ev =
       | { type: 'ARM' }
@@ -714,7 +715,7 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { n: 0 },
-      waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { n: data.n + 1 } })) }),
+      arms: ({ single }) => ({ w: single({ after: 100, expired: ({ data }) => ({ data: { n: data.n + 1 } }) }) }),
       on: {
         ARM: (_, { arm }) => { arm('w') },
         ARM_AND_THROW: (_, { arm }) => {
@@ -741,35 +742,35 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('m', m)
 
     sys.send(h, { type: 'ARM_AND_THROW' })
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(manual.afterCalls(), 0)
     strictEqual(store.get('thread', 'a'), undefined)
 
     sys.send(h, { type: 'ARM_AND_REFUSE' })
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(manual.afterCalls(), 0)
 
     // Arm legitimately, then fail to disarm via throw and via refused edit: timer stays armed and fires!
     sys.send(h, { type: 'ARM' })
-    strictEqual(sys.read(h).waiting.w, true)
+    strictEqual(sys.read(h).armed.w, true)
     sys.send(h, { type: 'DISARM_AND_THROW' })
     sys.send(h, { type: 'DISARM_AND_REFUSE' })
-    strictEqual(sys.read(h).waiting.w, true)
+    strictEqual(sys.read(h).armed.w, true)
     strictEqual(manual.cancelCalls(), 0)
     manual.advance(100)
     strictEqual(sys.read(h).data.n, 1)
     strictEqual(defects.length, 4)
   }],
 
-  ['exit cleanup disarms on state leave, stop(handle), same-step arm+leave, late listen callbacks, and unknown wait names', async () => {
+  ['exit cleanup disarms on state leave, stop(handle), same-step arm+leave, late listen callbacks, and unknown timer names', async () => {
     const manual = manualClock()
     const lateArmParent: Array<() => void> = []
     const lateDisarmParent: Array<() => void> = []
     type Shape = {
       data: { fired: number }
-      waits: { parentWait: 'one' }
+      arms: { parentTimer: 'single' }
       states: {
-        active: { waits: { w: 'one' } }
+        active: { arms: { w: 'single' } }
         idle: {}
       }
     }
@@ -777,10 +778,10 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { fired: 0 },
       initial: 'active',
-      waits: ({ one }) => ({ parentWait: one(100) }),
+      arms: ({ single }) => ({ parentTimer: single({ after: 100 }) }),
       on: {
         ENTER: () => ({ at: 'active' }),
-        ARM_PARENT: (_, { arm }) => { arm('parentWait') },
+        ARM_PARENT: (_, { arm }) => { arm('parentTimer') },
         UNKNOWN: (_, { arm, disarm }) => {
           ;(arm as (n: string, extra?: string) => void)('missing', 'extra')
           ;(disarm as (n: string) => void)('missing')
@@ -788,10 +789,10 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
       states: {
         active: {
-          waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { fired: data.fired + 1 } })) }),
+          arms: ({ single }) => ({ w: single({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           listen: ({ arm, disarm }) => {
-            lateArmParent.push(() => { arm('parentWait') })
-            lateDisarmParent.push(() => { disarm('parentWait') })
+            lateArmParent.push(() => { arm('parentTimer') })
+            lateDisarmParent.push(() => { disarm('parentTimer') })
             return () => {}
           },
           on: {
@@ -807,39 +808,39 @@ const checks: Array<[string, () => Promise<void>]> = [
     const logs: StepLog[] = []
     const sys = system({ side: 'backend', clock: manual.clock, log: (s) => logs.push(s) })
     const h = sys.start('m', m)
-    const waitingFlags: boolean[] = []
-    sys.subscribe((_, _f, c) => { if (c.m) waitingFlags.push(c.m.waiting) })
+    const armedFlags: boolean[] = []
+    sys.subscribe((_, _f, c) => { if (c.m) armedFlags.push(c.m.armed) })
 
-    // Leaving with NO waits armed reports waiting: false.
+    // Leaving with NO timers armed reports armed: false.
     sys.send(h, { type: 'LEAVE' })
-    deepStrictEqual(waitingFlags, [false])
+    deepStrictEqual(armedFlags, [false])
 
-    // Late listen callback from exited child ignores arm & disarm even for a still-live parent wait!
+    // Late listen callback from exited child ignores arm & disarm even for a still-live parent timer!
     lateArmParent[0]!()
-    strictEqual(sys.read(h).waiting.parentWait, false)
+    strictEqual(sys.read(h).armed.parentTimer, false)
     strictEqual(manual.afterCalls(), 0)
     sys.send(h, { type: 'ARM_PARENT' })
-    strictEqual(sys.read(h).waiting.parentWait, true)
+    strictEqual(sys.read(h).armed.parentTimer, true)
     lateDisarmParent[0]!()
-    strictEqual(sys.read(h).waiting.parentWait, true)
+    strictEqual(sys.read(h).armed.parentTimer, true)
     manual.advance(100)
-    strictEqual(sys.read(h).waiting.parentWait, false)
+    strictEqual(sys.read(h).armed.parentTimer, false)
 
-    // Unknown wait name via cast is a safe no-op and does not record a bogus key in StepLog.
+    // Unknown timer name via cast is a safe no-op and does not record a bogus key in StepLog.
     const afterUnknown = manual.afterCalls()
     sys.send(h, { type: 'UNKNOWN' })
     strictEqual(manual.afterCalls(), afterUnknown)
     const unknownHandled = logs.flatMap((l) => l.handled).find((x) => x.kind === 'arm' && x.name === 'missing')
     deepStrictEqual(unknownHandled, { kind: 'arm', ref: 'm', name: 'missing' })
 
-    // Re-enter, arm, then leave: cancel called and waiting: true reported.
+    // Re-enter, arm, then leave: cancel called and armed: true reported.
     sys.send(h, { type: 'ENTER' })
-    waitingFlags.length = 0
+    armedFlags.length = 0
     sys.send(h, { type: 'ARM' })
-    strictEqual(sys.read(h).waiting.w, true)
+    strictEqual(sys.read(h).armed.w, true)
     sys.send(h, { type: 'LEAVE' })
-    strictEqual(sys.read(h).waiting.w, false)
-    deepStrictEqual(waitingFlags, [true, true])
+    strictEqual(sys.read(h).armed.w, false)
+    deepStrictEqual(armedFlags, [true, true])
     strictEqual(manual.cancelCalls(), 1)
     manual.advance(100)
     strictEqual(sys.read(h).data.fired, 0)
@@ -849,7 +850,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const afterBefore = manual.afterCalls()
     sys.send(h, { type: 'ARM_AND_LEAVE' })
     strictEqual(sys.read(h).at, 'idle')
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(manual.afterCalls(), afterBefore)
 
     // Stopping the handle (or system) disarms active timers.
@@ -861,7 +862,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(200)
   }],
 
-  ['stale expiry is impossible: late firing from buggy clock creates no step, and queued wait behind disarm is ignored', async () => {
+  ['stale expiry is impossible: late firing from buggy clock creates no step, and a queued expiry behind disarm is ignored', async () => {
     const manual = manualClock()
     type StreamNet = {
       systems: { svc: { events: never; asks: { STREAM: { args: {}; progress: string; answer: void } } } }
@@ -879,13 +880,13 @@ const checks: Array<[string, () => Promise<void>]> = [
         }),
       },
     })
-    type Shape = { data: { fired: number; batches: string[][] }; waits: { w: 'one' }; calls: { stream: 'one' } }
+    type Shape = { data: { fired: number; batches: string[][] }; arms: { w: 'single' }; calls: { stream: 'single' } }
     type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'STREAM' }
     const m = netState<Shape, Ev>()({
       data: { fired: 0, batches: [] },
-      waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { fired: data.fired + 1 } })) }),
-      calls: ({ one }) => ({
-        stream: one('svc', 'STREAM', {
+      arms: ({ single }) => ({ w: single({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+      calls: ({ single }) => ({
+        stream: single('svc', 'STREAM', {
           progress: (updates) => ({ data: (d) => { d.batches.push([...updates]) } }),
           done: () => {},
         }),
@@ -902,7 +903,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.start('svc', svc)
     const h = sys.start('m', m)
 
-    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, done never runs,
+    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, expired never runs,
     // and gathered progress waiting for its frame is NOT flushed early by `handOver()`.
     sys.send(h, { type: 'STREAM' })
     sys.send(h, { type: 'ARM' })
@@ -918,7 +919,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     await rest()
     deepStrictEqual(sys.read(h).data.batches, [['u1']])
 
-    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and dropped before starting a step!
+    // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, the queued expiry is stale and dropped before starting a step!
     sys.send(h, { type: 'ARM' })
     const secondCallback = manual.timers[1]!.run
     const trigger = sys.start('t', state<{ data: { n: number } }, { type: 'GO' }>()({
@@ -936,32 +937,32 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.send(trigger, { type: 'GO' })
     unsub()
     strictEqual(triggered, true)
-    strictEqual(sys.read(h).waiting.w, false)
+    strictEqual(sys.read(h).armed.w, false)
     strictEqual(sys.read(h).data.fired, 0)
-    // Only `trigger GO` and `m DISARM` logged steps; the stale queued `wait` emitted no StepLog entry.
+    // Only `trigger GO` and `m DISARM` logged steps; the stale queued `expired` emitted no StepLog entry.
     strictEqual(logs.length, logsBeforeCaseB + 2)
-    strictEqual(logs.slice(logsBeforeCaseB).some((s) => s.handled.some((x) => x.kind === 'wait')), false)
+    strictEqual(logs.slice(logsBeforeCaseB).some((s) => s.handled.some((x) => x.kind === 'expired')), false)
   }],
 
-  ['done throwing reports exact defect and rolls back its sayings while still clearing waiting', async () => {
+  ['expired throwing reports exact defect and rolls back its sayings while still clearing armed', async () => {
     const manual = manualClock()
     const store = memory()
     const defects: Defect[] = []
-    const boom = new Error('done exploded')
+    const boom = new Error('expired exploded')
     type Shape = {
       data: { sideEffect: number }
       internal: { type: 'AFTER' }
-      waits: { w: 'one' }
+      arms: { w: 'single' }
     }
     type Ev = { type: 'ARM' }
     const m = state<Shape, Ev>()({
       data: { sideEffect: 0 },
-      waits: ({ one }) => ({
-        w: one(50, ({ send }) => {
+      arms: ({ single }) => ({
+        w: single({ after: 50, expired: ({ raise }) => {
           store.put('thread', '1', { topic: 'ok' })
-          send({ type: 'AFTER' })
+          raise({ type: 'AFTER' })
           throw boom
-        }),
+        } }),
       }),
       internal: {
         AFTER: (_, { data }) => ({ data: { sideEffect: data.sideEffect + 1 } }),
@@ -971,31 +972,31 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const sys = system({ side: 'backend', clock: manual.clock, transact: store.transact, onDefect: (d) => defects.push(d) })
     const h = sys.start('m', m)
-    const waitingChanges: boolean[] = []
-    sys.subscribe((_, _f, c) => { if (c.m) waitingChanges.push(c.m.waiting) })
+    const armedChanges: boolean[] = []
+    sys.subscribe((_, _f, c) => { if (c.m) armedChanges.push(c.m.armed) })
 
     sys.send(h, { type: 'ARM' })
-    strictEqual(sys.read(h).waiting.w, true)
-    waitingChanges.length = 0
+    strictEqual(sys.read(h).armed.w, true)
+    armedChanges.length = 0
 
     manual.advance(50)
-    strictEqual(sys.read(h).waiting.w, false)
-    deepStrictEqual(waitingChanges, [true])
+    strictEqual(sys.read(h).armed.w, false)
+    deepStrictEqual(armedChanges, [true])
     strictEqual(sys.read(h).data.sideEffect, 0)
     strictEqual(store.get('thread', '1'), undefined)
     strictEqual(defects.length, 1)
-    strictEqual(defects[0]!.message, 'm threw in w done, and nothing changed: done exploded')
+    strictEqual(defects[0]!.message, 'm threw in w expired, and nothing changed: expired exploded')
     strictEqual(defects[0]!.ref, 'm')
     strictEqual(defects[0]!.error, boom)
   }],
 
-  ['ancestor resolution: parent waits armed from child survive sibling moves and disarm when leaving parent', async () => {
+  ['ancestor resolution: parent timers armed from child survive sibling moves and disarm when leaving parent', async () => {
     const manual = manualClock()
     type Shape = {
       data: { expired: number; tags: string[] }
       states: {
         session: {
-          waits: { keepalive: 'one'; tagged: 'each' }
+          arms: { keepalive: 'single'; tagged: 'each' }
           states: { a: {}; b: {} }
         }
         signedOut: {}
@@ -1009,9 +1010,9 @@ const checks: Array<[string, () => Promise<void>]> = [
       states: {
         session: {
           initial: 'a',
-          waits: ({ one, each }) => ({
-            keepalive: one(100, ({ data }) => ({ data: { expired: data.expired + 1 } })),
-            tagged: each(100, ({ key }) => ({ data: (d) => { d.tags.push(key) } })),
+          arms: ({ single, each }) => ({
+            keepalive: single({ after: 100, expired: ({ data }) => ({ data: { expired: data.expired + 1 } }) }),
+            tagged: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.tags.push(key) } }) }),
           }),
           answers: {
             PING: (_, { arm }) => { arm('keepalive'); return 'armed' },
@@ -1035,27 +1036,27 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('m', m)
 
     sys.send(h, { type: 'ARM_IN_CHILD' })
-    strictEqual(sys.read(h).waiting.keepalive, true)
-    deepStrictEqual(sys.read(h).waiting.tagged, { 'child-k': true })
+    strictEqual(sys.read(h).armed.keepalive, true)
+    deepStrictEqual(sys.read(h).armed.tagged, { 'child-k': true })
 
     // Moving session.a -> session.b keeps `session` alive, so `keepalive` and `tagged` stay armed and fire!
     sys.send(h, { type: 'TO_B' })
     strictEqual(sys.read(h).at, 'session.b')
-    strictEqual(sys.read(h).waiting.keepalive, true)
-    deepStrictEqual(sys.read(h).waiting.tagged, { 'child-k': true })
+    strictEqual(sys.read(h).armed.keepalive, true)
+    deepStrictEqual(sys.read(h).armed.tagged, { 'child-k': true })
     manual.advance(100)
     strictEqual(sys.read(h).data.expired, 1)
     deepStrictEqual(sys.read(h).data.tags, ['child-k'])
-    strictEqual(sys.read(h).waiting.keepalive, false)
-    deepStrictEqual(sys.read(h).waiting.tagged, {})
+    strictEqual(sys.read(h).armed.keepalive, false)
+    deepStrictEqual(sys.read(h).armed.tagged, {})
 
     // Arming from an `answers` handler (`Scope`) also works, and leaving `session` disarms it.
     const ans = await sys.ask(h, 'PING', {})
     deepStrictEqual(ans, { ok: true, value: 'armed' })
-    strictEqual(sys.read(h).waiting.keepalive, true)
+    strictEqual(sys.read(h).armed.keepalive, true)
     sys.send(h, { type: 'SIGN_OUT' })
     strictEqual(sys.read(h).at, 'signedOut')
-    strictEqual(sys.read(h).waiting.keepalive, false)
+    strictEqual(sys.read(h).armed.keepalive, false)
     manual.advance(100)
     strictEqual(sys.read(h).data.expired, 1)
   }],
@@ -1063,13 +1064,13 @@ const checks: Array<[string, () => Promise<void>]> = [
   ['virtual-clock explore determinism across orderings', async () => {
     type Shape = {
       data: { count: number; settled: boolean }
-      waits: { settle: 'one' }
+      arms: { settle: 'single' }
     }
     type Ev = { type: 'TOUCH' }
     const debouncer = state<Shape, Ev>()({
       data: { count: 0, settled: false },
-      waits: ({ one }) => ({
-        settle: one(50, () => ({ data: { settled: true } })),
+      arms: ({ single }) => ({
+        settle: single({ after: 50, expired: () => ({ data: { settled: true } }) }),
       }),
       on: {
         TOUCH: (_, { data, arm }) => {
@@ -1090,79 +1091,105 @@ const checks: Array<[string, () => Promise<void>]> = [
         strictEqual(sys.idle(), true)
         strictEqual(sys.read(h).data.count, 2)
         strictEqual(sys.read(h).data.settled, true)
-        strictEqual(sys.read(h).waiting.settle, false)
+        strictEqual(sys.read(h).armed.settle, false)
       }
     })
     ok(explored.orderings >= 1)
   }],
 
-  ['conflicting wait kinds across states fail fast on start while matching kinds across sibling states succeed', async () => {
+  ['a timer declared with something other than options, or with a whenArmed it cannot be, is refused on start, saying what it was given, and one with none or with options is not', async () => {
+    const manual = manualClock()
+    const sys = system({ side: 'backend', clock: manual.clock })
+    const given = (what: unknown) => ({ def: { arms: ({ single }: { single: Function }) => ({ retry: single(what) }) } })
+    throws(() => sys.start('number', given(100) as never), { message: 'number declares timer retry with a number where its options go: a timer takes { after, whenArmed, expired }' })
+    throws(() => sys.start('function', given(() => {}) as never), { message: 'function declares timer retry with a function where its options go: a timer takes { after, whenArmed, expired }' })
+    // One inside a state is refused as the one at the top is.
+    throws(
+      () => sys.start('inner', { def: { initial: 'a', states: { a: { arms: ({ each }: { each: Function }) => ({ flash: each('soon') }) } } } } as never),
+      { message: 'inner declares timer flash with a string where its options go: a timer takes { after, whenArmed, expired }' },
+    )
+    throws(() => sys.start('null', given(null) as never), { message: 'null declares timer retry with null where its options go: a timer takes { after, whenArmed, expired }' })
+    throws(() => sys.start('array', given([100]) as never), { message: 'array declares timer retry with an array where its options go: a timer takes { after, whenArmed, expired }' })
+    // So is a `whenArmed` that is neither of the two it can be, whatever it is.
+    throws(() => sys.start('reset', given({ after: 100, whenArmed: 'reset' }) as never), { message: "reset declares timer retry with whenArmed 'reset': it is 'restart' or 'ignore'" })
+    throws(() => sys.start('flag', given({ after: 100, whenArmed: true }) as never), { message: "flag declares timer retry with whenArmed true: it is 'restart' or 'ignore'" })
+    throws(() => sys.start('nothing', given({ after: 100, whenArmed: null }) as never), { message: "nothing declares timer retry with whenArmed null: it is 'restart' or 'ignore'" })
+    deepStrictEqual(sys.read(sys.start('none', given(undefined) as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('bare', { def: { arms: ({ single }: { single: Function }) => ({ retry: single() }) } } as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('options', given({ after: 100 }) as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('empty', given({}) as never)), { data: {}, armed: { retry: false } })
+    for (const whenArmed of ['restart', 'ignore', undefined]) {
+      deepStrictEqual(sys.read(sys.start(`when-${whenArmed}`, given({ after: 100, whenArmed }) as never)), { data: {}, armed: { retry: false } })
+    }
+  }],
+
+  ['conflicting timer kinds across states fail fast on start while matching kinds across sibling states succeed', async () => {
     const manual = manualClock()
     const sys = system({ side: 'backend', clock: manual.clock })
 
-    const sameKind = state<{ states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: { one: 'ms' } } } } }>()({
+    const sameKind = state<{ states: { a: { arms: { retry: 'single' } }; b: { arms: { retry: { single: 'at arm' } } } } }>()({
       initial: 'a',
       states: {
-        a: { waits: ({ one }) => ({ retry: one(100) }) },
-        b: { waits: ({ one }) => ({ retry: one() }) },
+        a: { arms: ({ single }) => ({ retry: single({ after: 100 }) }) },
+        b: { arms: ({ single }) => ({ retry: single() }) },
       },
     })
-    const okHandle = sys.start('same-wait', sameKind)
-    deepStrictEqual(sys.read(okHandle).waiting, { retry: false })
+    const okHandle = sys.start('same-timer', sameKind)
+    deepStrictEqual(sys.read(okHandle).armed, { retry: false })
 
     const conflicting = {
       def: {
         initial: 'a',
         states: {
-          a: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+          a: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
           outer: {
             initial: 'inner',
             states: {
-              inner: { waits: ({ each }: { each: Function }) => ({ retry: each(100) }) },
+              inner: { arms: ({ each }: { each: Function }) => ({ retry: each({ after: 100 }) }) },
             },
           },
         },
       },
     }
     throws(
-      () => sys.start('bad-waits', conflicting as never),
-      { message: 'bad-waits declares wait retry with conflicting kinds (one and each)' },
+      () => sys.start('bad-timers', conflicting as never),
+      { message: 'bad-timers declares timer retry with conflicting kinds (single and each)' },
     )
 
     const directShadow = {
       def: {
         initial: 'a',
-        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
         states: {
-          a: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+          a: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
         },
       },
     }
     throws(
-      () => sys.start('direct-wait', directShadow as never),
-      { message: 'direct-wait declares wait retry again at a, shadowing an enclosing state' },
+      () => sys.start('direct-timer', directShadow as never),
+      { message: 'direct-timer declares timer retry again at a, shadowing an enclosing state' },
     )
-    strictEqual('direct-wait' in sys.snapshot(), false)
+    strictEqual('direct-timer' in sys.snapshot(), false)
 
     const deepShadow = {
       def: {
         initial: 'mid',
-        waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+        arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
         states: {
           mid: {
             initial: 'leaf',
             states: {
-              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+              leaf: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
             },
           },
         },
       },
     }
     throws(
-      () => sys.start('deep-wait', deepShadow as never),
-      { message: 'deep-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
+      () => sys.start('deep-timer', deepShadow as never),
+      { message: 'deep-timer declares timer retry again at mid.leaf, shadowing an enclosing state' },
     )
-    strictEqual('deep-wait' in sys.snapshot(), false)
+    strictEqual('deep-timer' in sys.snapshot(), false)
 
     const midShadow = {
       def: {
@@ -1170,17 +1197,17 @@ const checks: Array<[string, () => Promise<void>]> = [
         states: {
           mid: {
             initial: 'leaf',
-            waits: ({ one }: { one: Function }) => ({ retry: one(100) }),
+            arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }),
             states: {
-              leaf: { waits: ({ one }: { one: Function }) => ({ retry: one(100) }) },
+              leaf: { arms: ({ single }: { single: Function }) => ({ retry: single({ after: 100 }) }) },
             },
           },
         },
       },
     }
     throws(
-      () => sys.start('mid-wait', midShadow as never),
-      { message: 'mid-wait declares wait retry again at mid.leaf, shadowing an enclosing state' },
+      () => sys.start('mid-timer', midShadow as never),
+      { message: 'mid-timer declares timer retry again at mid.leaf, shadowing an enclosing state' },
     )
   }],
 ]

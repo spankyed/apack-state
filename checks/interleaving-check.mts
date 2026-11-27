@@ -69,10 +69,10 @@ const panel = (held: { locks: number; unwound: number }) => state<Panel, PanelEv
   states: {
     idle: {},
     searching: {
-      async run({ data, ask, send }) {
+      async run({ data, ask, raise }) {
         held.locks++
         try {
-          const found = await ask('finder', 'FIND', { query: data.query }, (pieces) => send({ type: 'PIECES', pieces: [...pieces] }))
+          const found = await ask('finder', 'FIND', { query: data.query }, (pieces) => raise({ type: 'PIECES', pieces: [...pieces] }))
           return found.ok ? { at: 'idle' as const, data: { results: found.value } } : { at: 'idle' as const }
         } finally { held.locks--; held.unwound++ }
       },
@@ -130,8 +130,8 @@ const listener = (heard: string[]) => state<Listener, PanelEvent>()({
   states: {
     idle: {},
     listening: {
-      async run({ ask, send }) {
-        await ask('finder', 'STREAM', {}, (pieces) => send({ type: 'PIECES', pieces: [...pieces] }))
+      async run({ ask, raise }) {
+        await ask('finder', 'STREAM', {}, (pieces) => raise({ type: 'PIECES', pieces: [...pieces] }))
         heard.push('answer')
         return { at: 'idle' as const }
       },

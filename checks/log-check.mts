@@ -48,9 +48,9 @@ const panel = state<{ data: { draft: string; seen: string[] }; states: { idle: {
     idle: {},
     sending: {
       data: { text: given },
-      async run({ data, ask, send }) {
+      async run({ data, ask, raise }) {
         const done = await ask('notes', 'WRITE', { text: data.text })
-        send({ type: 'SENT', text: done.ok ? done.value.text : '' })
+        raise({ type: 'SENT', text: done.ok ? done.value.text : '' })
       },
       failed: () => ({ at: 'idle' }),
     },
@@ -96,12 +96,12 @@ const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { op
   },
 })
 /** Calls one save at a time, of the id it was told. */
-const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
+const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'single' } } } }, { type: 'SAVE'; id: string }>()({
   data: { id: '' },
   initial: 'on',
   states: {
     on: {
-      calls: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
+      calls: ({ single }) => ({ save: single('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
       on: { SAVE: ({ id }, { call }) => { call('save'); return { data: { id } } } },
     },
   },
@@ -122,7 +122,7 @@ const asker = kinds<{ states: { asking: {}; asked: {} } }, never>()({
   states: { asking: { async run({ ask }) { await ask('worker', 'RUN', { id: 'never' }) }, failed: () => ({ at: 'asked' }) }, asked: {} },
 })
 /** Sends itself the same event as it handles it, without end. */
-const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => { send({ type: 'AGAIN' }) } } })
+const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { raise }) => { raise({ type: 'AGAIN' }) } } })
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
@@ -167,7 +167,7 @@ await run([
     const { window, handle, logs } = wired()
     window.send(handle, { type: 'TYPE', text: 'hello' })
     await rest()
-    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, waiting: false, at: 'idle' } })
+    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, armed: false, at: 'idle' } })
     window.send(handle, { type: 'SEND' })
     await rest()
     const sent = logs.window.find((step) => step.handled[0]?.name === 'SEND')!
@@ -188,7 +188,7 @@ await run([
     deepStrictEqual(answered.sent.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
     deepStrictEqual(answered.sent.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
     deepStrictEqual(answered.sent.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
-    // The window's state sent itself what its work found: an event of its own.
+    // The window's state raised what its work found: an event of its own.
     ok(logs.window.some((step) => step.handled.some((one) => one.kind === 'event' && one.name === 'SENT' && one.own === true)))
   }],
   ['an answer that is a refusal is logged with its kind', async () => {
@@ -302,7 +302,7 @@ await run([
     has(handled, { kind: 'view', ref: 'watcher', name: 'count' })
     // A state that moved and changed none of its fields says so, and where it is.
     const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
-    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, waiting: false, at: 'idle' })
+    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, armed: false, at: 'idle' })
     for (const resolve of held.values()) resolve()
     await rest()
     // Every run was answered: nothing is abandoned when the system stops.
@@ -373,6 +373,21 @@ await run([
     has(sentIn(logs), { kind: 'follow', to: 'threads', name: 'count' })
     has(sentIn(logs), { kind: 'unfollow', to: 'threads', name: 'count' })
     strictEqual(stopped, 1)
+  }],
+  ['what a view delivers to a state that has stopped by its turn is in no log, and the steps are numbered without a gap', async () => {
+    const logs: StepLog[] = []
+    let deliver!: (value: number) => void
+    const window = system({ side: 'window', views: (_feature, _view, _args, heard) => { deliver = (value) => heard({ ok: true, value }); return () => {} }, log: (step) => { logs.push(step) } })
+    const handle = window.start('watcher', watcher)
+    // As the step that took the first count ends, the watcher is stopped, and behind that comes another count.
+    const stop = window.subscribe(() => { stop(); window.stop(handle); deliver(2) })
+    deliver(1)
+    deepStrictEqual(logs.map((step) => step.handled), [[], [{ kind: 'view', ref: 'watcher', name: 'count' }], []])
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3])
+    strictEqual(window.read(handle), undefined)
+    // The next step is the fourth: none was taken that the log did not say.
+    window.start('watcher', watcher)
+    deepStrictEqual(logs.map((step) => step.number), [1, 2, 3, 4])
   }],
   ['a log that throws is its own to answer for: the system goes on', async () => {
     const traced: string[] = []

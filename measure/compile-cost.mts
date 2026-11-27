@@ -26,7 +26,7 @@ type Shape${at} = {
     idle: {}
     editing: { data: { draft: string }; states: { typing: {}; saving: { data: { since: number } } } }
   }
-  calls: { save: 'one'; tag: 'each' }
+  calls: { save: 'single'; tag: 'each' }
 }
 type Event${at} =
   | { type: 'SELECT'; id: string }
@@ -49,8 +49,8 @@ export const state${at} = state<Shape${at}, Event${at}, Asks${at}>()({
   loads: (load) => ({
     detail: load('store', 'DETAIL', { from: ['selected'], args: ({ selected }) => (selected ? { id: selected } : null), done: (outcome: Outcome<{ label: string }, { kind: string; message: string }>) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
   }),
-  calls: ({ one, each }) => ({
-    save: one('store', 'SAVE', { args: () => ({ list: ${at} }), done: (outcome) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
+  calls: ({ single, each }) => ({
+    save: single('store', 'SAVE', { args: () => ({ list: ${at} }), done: (outcome) => (outcome.ok ? undefined : { data: { problem: outcome.failure.message } }) }),
     tag: each('store', 'TAG', { args: (id) => ({ id }), done: () => undefined }),
   }),
   on: {

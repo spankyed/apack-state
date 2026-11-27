@@ -72,7 +72,7 @@ export type Commit = {
     gitError: string | null
   }
   /** The writes it calls: staging/unstaging per path, unkeyed concurrent reverts, and one push at a time. */
-  calls: { stage: 'each'; unstage: 'each'; revert: { many: { paths: string[] } }; push: 'one' }
+  calls: { stage: 'each'; unstage: 'each'; revert: { many: { paths: string[] } }; push: 'single' }
 }
 
 export const commit = state<Commit, CommitEvent>()({
@@ -93,7 +93,7 @@ export const commit = state<Commit, CommitEvent>()({
     }),
   }),
 
-  calls: ({ one, each, many }) => ({
+  calls: ({ single, each, many }) => ({
     // Called for a path when a handler says so, and pending for that path until it finishes.
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
@@ -110,7 +110,7 @@ export const commit = state<Commit, CommitEvent>()({
     }),
 
     // One at a time: a second while one is pending is the same push (`args` omitted because ask takes `{}`).
-    push: one('code', 'commit.PUBLISH_BRANCH', {
+    push: single('code', 'commit.PUBLISH_BRANCH', {
       progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
       done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
     }),

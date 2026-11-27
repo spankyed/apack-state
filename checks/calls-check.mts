@@ -9,7 +9,7 @@ import { connect, rest, run, system } from './checks.mts'
 import { mirror } from '../src/mirror.ts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
-import { forNet, type StepLog } from '../src/index.ts'
+import { forNet, type PortOutcome, type StepLog } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
@@ -59,7 +59,7 @@ export type JobsEvent =
 export type Jobs = {
   data: { text: string; saved: string | null; done: string[]; heard: string[]; tries: Record<string, number>; problem: string | null }
   states: {
-    on: { calls: { run: 'each'; save: 'one' } }
+    on: { calls: { run: 'each'; save: 'single' } }
     off: {}
   }
 }
@@ -75,7 +75,7 @@ const jobs = state<Jobs, JobsEvent>()({
 
   states: {
     on: {
-      calls: ({ one, each }) => ({
+      calls: ({ single, each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
           progress: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
@@ -89,7 +89,7 @@ const jobs = state<Jobs, JobsEvent>()({
         }),
 
         // What it saves is the text as it is when the save is called.
-        save: one('worker', 'SAVE', {
+        save: single('worker', 'SAVE', {
           args: (data) => ({ text: data.text }),
           done: (outcome) => (outcome.ok ? { data: { saved: outcome.value } } : { data: { problem: outcome.failure.message } }),
         }),
@@ -240,7 +240,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(defects.length, 1)
     deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: {}, save: false } })
   }],
-  ['typed calls (one, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
+  ['typed calls (single, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
     type SvcAsks = {
       PING: { args: {}; answer: string }
       COMMIT: { args: { message: string; amend?: boolean }; progress: string; answer: string }
@@ -294,10 +294,10 @@ const checks: Array<[string, () => Promise<void>]> = [
       states: {
         on: {
           calls: {
-            ping: 'one'
+            ping: 'single'
             pingMany: 'many'
             bareEach: 'each'
-            commit: { one: { message: string; amend?: boolean } }
+            commit: { single: { message: string; amend?: boolean } }
             hunk: { each: { hunk: number } }
             upload: { many: { file: string } }
             uploadMapped: { many: { name: string } }
@@ -322,9 +322,9 @@ const checks: Array<[string, () => Promise<void>]> = [
       initial: 'on',
       states: {
         on: {
-          calls: ({ one, each, many }) => ({
+          calls: ({ single, each, many }) => ({
             // Omitted args for asks accepting `{}`
-            ping: one('svc', 'PING', {
+            ping: single('svc', 'PING', {
               done: (o) => (o.ok ? { data: (d) => { d.log.push(`ping:${o.value}`) } } : undefined),
             }),
             pingMany: many('svc', 'PING', {
@@ -336,7 +336,7 @@ const checks: Array<[string, () => Promise<void>]> = [
               done: (o, { key }) => (o.ok ? { data: (d) => { d.log.push(`bare:${key}:${o.value}`) } } : undefined),
             }),
             // Direct input pass-through (args omitted) + frozen scope.input in progress & done
-            commit: one('svc', 'COMMIT', {
+            commit: single('svc', 'COMMIT', {
               progress: (u, { input }) => ({
                 data: (d) => {
                   d.log.push(`commit-p:${input.message}:${u.join(',')}`)
@@ -403,7 +403,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('panel', panel)
     const held = mirror(sys, h)
 
-    // Initial pending values: boolean for one, {} for each, 0 for many.
+    // Initial pending values: boolean for single, {} for each, 0 for many.
     deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: {}, commit: false, hunk: {}, upload: 0, uploadMapped: 0 })
 
     // Reactive mirror tracks `pending.upload` (number) independently of `pending.commit` (boolean).
@@ -412,7 +412,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     effect(() => { seen.commit++; void held.value.pending.commit })
     const baseline = { ...seen }
 
-    // 1. Omitted args (`one` and `many` for `{}` asks) and bare `each` with `(key, data)`
+    // 1. Omitted args (`single` and `many` for `{}` asks) and bare `each` with `(key, data)`
     sys.send(h, { type: 'PING' })
     sys.send(h, { type: 'PING_MANY' })
     sys.send(h, { type: 'PING_MANY' })
@@ -429,7 +429,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(sys.read(h).data.log.filter((l) => l.startsWith('ping')).sort(), ['ping:pong', 'pingMany:pong', 'pingMany:pong'])
     ok(sys.read(h).data.log.includes('bare:k.txt:uploaded:v1/k.txt'))
 
-    // 2. Typed `one` with direct pass-through + dedup + frozen input
+    // 2. Typed `single` with direct pass-through + dedup + frozen input
     const SECRET = 'SECRET_PAYLOAD_NEVER_IN_LOG'
     sys.send(h, { type: 'COMMIT', message: SECRET, amend: true })
     sys.send(h, { type: 'COMMIT', message: 'second-deduped' })
@@ -500,9 +500,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(sys.read(h).data.log.includes('mapped-d:keep.md:uploaded:v1/keep.md'))
 
     // 6. Throwing in call `progress` and `done` reports descriptive defects.
-    const badCall = svcState<{ calls: { boom: { one: { file: string } } } }, { type: 'GO' }>()({
-      calls: ({ one }) => ({
-        boom: one('svc', 'UPLOAD', {
+    const badCall = svcState<{ calls: { boom: { single: { file: string } } } }, { type: 'GO' }>()({
+      calls: ({ single }) => ({
+        boom: single('svc', 'UPLOAD', {
           progress: () => { throw new Error('bad-progress') },
           done: () => { throw new Error('bad-done') },
         }),
@@ -539,11 +539,11 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'backend' })
 
     // Same kind across sibling states is allowed and runs normally.
-    const sameKind = state<{ states: { a: { calls: { save: 'one' } }; b: { calls: { save: 'one' } } } }>()({
+    const sameKind = state<{ states: { a: { calls: { save: 'single' } }; b: { calls: { save: 'single' } } } }>()({
       initial: 'a',
       states: {
-        a: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'a' }), done: () => {} }) }) },
-        b: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'b' }), done: () => {} }) }) },
+        a: { calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: 'a' }), done: () => {} }) }) },
+        b: { calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: 'b' }), done: () => {} }) }) },
       },
     })
     const okHandle = sys.start('same-kind', sameKind)
@@ -554,7 +554,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       def: {
         initial: 'a',
         states: {
-          a: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+          a: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
           outer: {
             initial: 'inner',
             states: {
@@ -566,15 +566,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     }
     throws(
       () => sys.start('bad-calls', conflicting as never),
-      { message: 'bad-calls declares call save with conflicting kinds (one and each)' },
+      { message: 'bad-calls declares call save with conflicting kinds (single and each)' },
     )
 
     const directShadow = {
       def: {
         initial: 'a',
-        calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+        calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
         states: {
-          a: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+          a: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
         },
       },
     }
@@ -587,12 +587,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     const deepShadow = {
       def: {
         initial: 'mid',
-        calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+        calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
         states: {
           mid: {
             initial: 'leaf',
             states: {
-              leaf: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+              leaf: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
             },
           },
         },
@@ -610,9 +610,9 @@ const checks: Array<[string, () => Promise<void>]> = [
         states: {
           mid: {
             initial: 'leaf',
-            calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+            calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
             states: {
-              leaf: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+              leaf: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
             },
           },
         },
@@ -623,15 +623,15 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'mid-call declares call save again at mid.leaf, shadowing an enclosing state' },
     )
 
-    // `calls` (`pending`) and `waits` (`waiting`) are separate namespaces, so a child wait may share an enclosing call's name.
-    const crossNamespace = state<{ calls: { save: 'one' }; states: { a: { waits: { save: 'one' } } } }>()({
-      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+    // `calls` (`pending`) and `arms` (`armed`) are separate namespaces, so a child timer may share an enclosing call's name.
+    const crossNamespace = state<{ calls: { save: 'single' }; states: { a: { arms: { save: 'single' } } } }>()({
+      calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
       initial: 'a',
-      states: { a: { waits: ({ one }) => ({ save: one(100) }) } },
+      states: { a: { arms: ({ single }) => ({ save: single({ after: 100 }) }) } },
     })
     const crossHandle = sys.start('cross', crossNamespace)
     deepStrictEqual(sys.read(crossHandle).pending, { save: false })
-    deepStrictEqual(sys.read(crossHandle).waiting, { save: false })
+    deepStrictEqual(sys.read(crossHandle).armed, { save: false })
 
     // Untyped call on an `each` entry without a string key reports a defect and does not corrupt `pending`.
     const defects: Array<{ message: string; ref?: string }> = []
@@ -656,6 +656,164 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(did, [])
     guarded.stop()
     sys.stop()
+  }],
+]
+
+// ── what a call delivers once it is no longer the one pending ───────────────────────────────────────────────────────
+
+type CrewEvent = { type: 'ADD'; id: string } | { type: 'DROP'; id: string } | { type: 'NOTE'; note: string } | { type: 'TURN'; on: boolean }
+type Crew = { data: { note: string; done: string[]; heard: string[] }; states: { on: { calls: { run: 'each' } }; off: {} } }
+/** Runs a job for each id it is told. A job that says it runs instead of another has that one cancelled. */
+const crew = state<Crew, CrewEvent>()({
+  data: { note: '', done: [], heard: [] },
+  initial: 'on',
+  on: {
+    NOTE: ({ note }) => ({ data: { note } }),
+    TURN: ({ on }) => ({ at: on ? 'on' : 'off' }),
+  },
+  states: {
+    on: {
+      calls: ({ each }) => ({
+        run: each('worker', 'RUN', {
+          args: (id) => ({ id }),
+          progress: (updates, { cancel }) => {
+            for (const update of updates) if (update.startsWith('instead of ')) cancel('run', update.slice('instead of '.length))
+            return { data: (d) => { d.heard.push(...updates) } }
+          },
+          done: (outcome, { key }) => ({ data: (d) => { d.done.push(`${key}: ${outcome.ok ? outcome.value : outcome.failure.kind}`) } }),
+        }),
+      }),
+      on: {
+        ADD: ({ id }, { call }) => { call('run', id) },
+        DROP: ({ id }, { cancel }) => { cancel('run', id) },
+      },
+    },
+    off: {},
+  },
+})
+/**
+ * A window whose backend is this check's: each ask across is kept, to be heard from when the check says, and is
+ * heard from whether or not it was given up. Its frames are the check's to run too.
+ */
+const atCrew = (host: { limit?: number } = {}) => {
+  const asked: Array<{ says(update: string): void; ends(value: string): void }> = []
+  const logs: StepLog[] = []
+  const defects: string[] = []
+  const frames: Array<() => void> = []
+  const sys = system({ side: 'window', ...host, frame: (run) => { frames.push(run) }, log: (step) => { logs.push(step) }, onDefect: (defect) => { defects.push(defect.message) } })
+  sys.attach({
+    tell: () => {},
+    follow: () => ({ stop: () => {} }),
+    ask: (_to, _name, _args, says, ends: (outcome: PortOutcome) => void) => { asked.push({ says, ends: (value) => ends({ ok: true, value }) }); return () => {} },
+  })
+  const it = sys.start('crew', crew)
+  return {
+    sys, asked, defects,
+    send: (event: CrewEvent): void => sys.send(it, event),
+    now: () => sys.read(it).data,
+    pending: () => sys.read(it).pending,
+    frame: (): void => { for (const run of frames.splice(0)) run() },
+    steps: (): string[] => logs.map((step) => step.handled.map((one) => `${one.kind} ${one.name}${one.key === undefined ? '' : `/${one.key}`}`).join(', ')),
+    numbers: (): number[] => logs.map((step) => step.number),
+    changed: (): boolean[] => logs.map((step) => step.changed.crew?.pending ?? false),
+  }
+}
+/**
+ * A call heard from while it is pending, after it was cancelled, after it was cancelled and called again, behind the
+ * step that cancels it, and behind the step that leaves its state.
+ */
+const called = async (it: ReturnType<typeof atCrew>): Promise<void> => {
+  const { send, asked } = it
+  send({ type: 'ADD', id: 'a' })
+  asked[0]!.says('a: half')
+  it.frame()
+  asked[0]!.ends('a')
+  await turns(1)
+  // Cancelled, and then heard from.
+  send({ type: 'ADD', id: 'b' })
+  send({ type: 'DROP', id: 'b' })
+  asked[1]!.says('b: half')
+  it.frame()
+  asked[1]!.ends('b')
+  await turns(1)
+  // Cancelled and called again: the first is heard from while the second is pending under its name.
+  send({ type: 'ADD', id: 'c' })
+  send({ type: 'DROP', id: 'c' })
+  send({ type: 'ADD', id: 'c' })
+  asked[2]!.says('the first c: half')
+  it.frame()
+  asked[2]!.ends('the first c')
+  await turns(1)
+  deepStrictEqual(it.pending(), { run: { c: true } })
+  asked[3]!.ends('c')
+  await turns(1)
+  // In one read from the backend: d ends, and e says it runs instead of d. What e said is handed over first, and
+  // cancels d, so how d ended has its turn once d is no longer pending.
+  send({ type: 'ADD', id: 'd' })
+  send({ type: 'ADD', id: 'e' })
+  asked[4]!.ends('d')
+  asked[5]!.says('instead of d')
+  await turns(1)
+  it.frame()
+  deepStrictEqual(it.pending(), { run: { e: true } })
+  // The state is left, and behind that in one read comes what e said, and how it ended.
+  let once = true
+  const stop = it.sys.subscribe(() => {
+    if (!once) return
+    once = false
+    send({ type: 'TURN', on: false })
+    asked[5]!.says('e: half')
+    asked[5]!.ends('e')
+  })
+  send({ type: 'NOTE', note: 'leaving' })
+  stop()
+  await turns(1)
+  it.frame()
+  // Back, a call is pending again, and is heard from.
+  send({ type: 'TURN', on: true })
+  send({ type: 'ADD', id: 'f' })
+  asked[6]!.says('f: half')
+  it.frame()
+  asked[6]!.ends('f')
+  await turns(1)
+  it.frame()
+}
+/** Every step `called` takes: one for each event, each answer from the backend, and each delivery of a call pending. */
+const CALLED_STEPS = [
+  '',
+  'event ADD, call run/a', 'progress run/a', 'answer RUN', 'done run/a',
+  'event ADD, call run/b', 'event DROP, cancel run/b', 'answer RUN',
+  'event ADD, call run/c', 'event DROP, cancel run/c', 'event ADD, call run/c', 'answer RUN', 'answer RUN', 'done run/c',
+  'event ADD, call run/d', 'event ADD, call run/e', 'answer RUN', 'progress run/e, cancel run/d',
+  'event NOTE', 'event TURN', 'answer RUN',
+  'event TURN', 'event ADD, call run/f', 'progress run/f', 'answer RUN', 'done run/f',
+]
+
+const staleChecks: Array<[string, () => Promise<void>]> = [
+  ['what a call delivers once it is no longer pending takes no step, and what one pending delivers takes one', async () => {
+    const it = atCrew()
+    await called(it)
+    strictEqual(it.asked.length, 7)
+    deepStrictEqual(it.steps(), CALLED_STEPS)
+    deepStrictEqual(it.numbers(), CALLED_STEPS.map((_, at) => at + 1))
+    deepStrictEqual(it.now(), { note: 'leaving', done: ['a: a', 'c: c', 'f: f'], heard: ['a: half', 'instead of d', 'f: half'] })
+    deepStrictEqual(it.pending(), { run: {} })
+    // What is pending changed in each step that called, cancelled or took how one ended, and in the one that left
+    // the state while e was pending: in no other.
+    deepStrictEqual(it.changed(), CALLED_STEPS.map((step, at) => /call |cancel |done /.test(step) || at === CALLED_STEPS.indexOf('event TURN')))
+    deepStrictEqual(it.defects, [])
+    strictEqual(it.sys.idle(), true)
+  }],
+  ['what a call delivers once it is no longer pending counts for nothing against the limit', async () => {
+    // Exactly as many steps as it takes: one more, and the last delivery would be turned away.
+    const it = atCrew({ limit: CALLED_STEPS.length })
+    await called(it)
+    deepStrictEqual(it.steps(), CALLED_STEPS)
+    deepStrictEqual({ done: it.now().done, pending: it.pending(), defects: it.defects }, { done: ['a: a', 'c: c', 'f: f'], pending: { run: {} }, defects: [] })
+    // And it was the limit: the next thing is not taken.
+    it.send({ type: 'NOTE', note: 'one too many' })
+    strictEqual(it.now().note, 'leaving')
+    strictEqual(it.defects.length, 1)
   }],
 ]
 
@@ -689,7 +847,7 @@ const pushing = (schedule: Schedule): (() => void) => {
   }
 }
 
-await run(checks, async (tally) => {
+await run([...checks, ...staleChecks], async (tally) => {
   await tally.every('two files staged at once are both staged, nothing is left under way, and the status shown is the last', () => sample(staging, { seed: 1, runs: 3_000 }), 'sampled')
   await tally.every('a push stopped at any moment leaves no push under way and reports no failure', () => sample(pushing, { seed: 1, runs: 3_000 }), 'sampled')
   void explore
