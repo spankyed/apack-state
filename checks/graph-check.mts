@@ -491,21 +491,43 @@ export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO
     idle: {},
   },
 })
+
+type QuotedWaitsShape = {
+  waits: {
+    'live-first': 'one'
+    'live-next': 'one'
+    'dead-first': 'one'
+    'dead-next': 'one'
+  }
+}
+export const quotedWaits = state<QuotedWaitsShape, { type: 'GO' }>()({
+  waits: ({ one }) => ({
+    'live-first': one(100, ({ arm }) => { arm('live-next') }),
+    'live-next': one(100),
+    'dead-first': one(100, ({ arm }) => { arm('dead-next') }),
+    'dead-next': one(100),
+  }),
+  on: { GO: (_, { arm }) => { arm('live-first') } },
+})
 `)
       const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
       const graphs = all.get(file) ?? []
-      strictEqual(graphs.length, 5, formatGraphs(graphs))
+      strictEqual(graphs.length, 6, formatGraphs(graphs))
 
       deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
       deepStrictEqual(graphs[1]!.findings, [
         'nothing arms first',
-        'nothing arms second except unreachable waits',
-        'nothing arms ping except unreachable waits',
-        'nothing arms pong except unreachable waits',
+        'nothing arms second except the done of second, first, which nothing arms',
+        'nothing arms ping except the done of pong, which nothing arms',
+        'nothing arms pong except the done of ping, which nothing arms',
       ])
       deepStrictEqual(graphs[2]!.findings, [])
       deepStrictEqual(graphs[3]!.findings, ['nothing arms t in b'])
       deepStrictEqual(graphs[4]!.findings, [])
+      deepStrictEqual(graphs[5]!.findings, [
+        'nothing arms dead-first',
+        'nothing arms dead-next except the done of dead-first, which nothing arms',
+      ])
     } finally {
       rmSync(work, { recursive: true, force: true })
     }

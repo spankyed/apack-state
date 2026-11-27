@@ -329,6 +329,15 @@ points at.
     for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
     never blocks `sys.idle()`.
 
+    **A name under `calls` or `waits` stands for one thing.** `pending` and `waiting` have one entry for a name,
+    whichever state declares it. So a name has one kind across a definition, and a state does not declare again a
+    name a state around it declares: the two could be under way at once, and the entry would say one while `cancel`
+    or `disarm` ended the other. Both are refused where the definition is written and where it is started. States
+    beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
+    reaches the wait its own state or the nearest state around it declares, and a wait counts as armed only if
+    something that can run without it arms it, so one armed only from its own `done`, or from the `done` of waits
+    nothing arms, is reported with which.
+
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
 

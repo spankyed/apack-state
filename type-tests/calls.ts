@@ -202,10 +202,15 @@ typed<ConflictingCallsShape, never>()({
 })
 
 // A nested state cannot redeclare a call name already declared by an enclosing state (direct child or grandchild),
-// and the error lands on the redeclaring inner declaration even when the inner kind also differs.
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a wait of the same
+// name lives in `waiting` (a separate namespace from `pending`), so a child wait may share the parent's call name.
 type DirectShadowCallsShape = {
   calls: { save: 'one' }
-  states: { a: { calls: { save: 'one' } }; b: { calls: { save: 'each' } } }
+  states: {
+    a: { calls: { save: 'one' } }
+    b: { calls: { save: 'each' } }
+    c: { calls: { other: 'one' }; waits: { save: 'one' } }
+  }
 }
 typed<DirectShadowCallsShape, never>()({
   initial: 'a',
@@ -218,6 +223,10 @@ typed<DirectShadowCallsShape, never>()({
     b: {
       // @ts-expect-error shadowing an enclosing call name is reported on the redeclaring child even with a different kind
       calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),
+    },
+    c: {
+      calls: ({ one }) => ({ other: one('svc', 'PING', { done: () => {} }) }),
+      waits: ({ one }) => ({ save: one(100) }),
     },
   },
 })

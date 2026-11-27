@@ -623,6 +623,16 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'mid-call declares call save again at mid.leaf, shadowing an enclosing state' },
     )
 
+    // `calls` (`pending`) and `waits` (`waiting`) are separate namespaces, so a child wait may share an enclosing call's name.
+    const crossNamespace = state<{ calls: { save: 'one' }; states: { a: { waits: { save: 'one' } } } }>()({
+      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+      initial: 'a',
+      states: { a: { waits: ({ one }) => ({ save: one(100) }) } },
+    })
+    const crossHandle = sys.start('cross', crossNamespace)
+    deepStrictEqual(sys.read(crossHandle).pending, { save: false })
+    deepStrictEqual(sys.read(crossHandle).waiting, { save: false })
+
     // Untyped call on an `each` entry without a string key reports a defect and does not corrupt `pending`.
     const defects: Array<{ message: string; ref?: string }> = []
     const guarded = system({ side: 'backend', onDefect: (d) => defects.push({ message: d.message, ref: d.ref }) })

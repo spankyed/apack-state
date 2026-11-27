@@ -139,21 +139,21 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const reachesSet = new Set<string>()
     const uncertain = new Set<string>()
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
-    const waitKey = (within: string, name: string): string => `${within}#${name}`
+    const waitKey = (within: string, name: string): string => `${within}\n${name}`
 
     const declared: string[] = []
     const startsStates: string[] = []
     const declaredWaits: Array<{ key: string; name: string; within: string }> = []
-    const declaredWaitKeys = new Set<string>()
+    const byWaitKey = new Map<string, { key: string; name: string; within: string }>()
     const survey = (of: Type, within: string): void => {
       const started = of.getProperty('starts')
       if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
       const waited = of.getProperty('waits')
       if (waited) {
         for (const each of typeOf(waited).getProperties()) {
-          const key = waitKey(within, each.name)
-          declaredWaits.push({ key, name: each.name, within })
-          declaredWaitKeys.add(key)
+          const entry = { key: waitKey(within, each.name), name: each.name, within }
+          declaredWaits.push(entry)
+          byWaitKey.set(entry.key, entry)
         }
       }
       const states = of.getProperty('states')
@@ -165,7 +165,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const resolveWait = (fromPath: string, name: string): string | undefined => {
       for (let at = fromPath; ; ) {
         const key = waitKey(at, name)
-        if (declaredWaitKeys.has(key)) return key
+        if (byWaitKey.has(key)) return key
         if (!at) return undefined
         const cut = at.lastIndexOf('.')
         at = cut >= 0 ? at.slice(0, cut) : ''
@@ -452,11 +452,17 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !hasOpaqueHandler && !uncertain.size) {
       for (const w of declaredWaits) {
         if (liveWaits.has(w.key)) continue
-        const incoming = armedByWait.get(w.key)
+        const sources = [...(armedByWait.get(w.key) ?? [])]
+        const others = sources
+          .filter((source) => source !== w.key)
+          .map((source) => {
+            const from = byWaitKey.get(source)
+            return from ? where(from.within, from.name) : source.slice(source.indexOf('\n') + 1)
+          })
         const label = where(w.within, w.name)
-        if (!incoming || incoming.size === 0) findings.push(`nothing arms ${label}`)
-        else if (incoming.size === 1 && incoming.has(w.key)) findings.push(`nothing arms ${label} except its own done`)
-        else findings.push(`nothing arms ${label} except unreachable waits`)
+        if (!sources.length) findings.push(`nothing arms ${label}`)
+        else if (!others.length) findings.push(`nothing arms ${label} except its own done`)
+        else findings.push(`nothing arms ${label} except the done of ${[...(sources.includes(w.key) ? [label] : []), ...others].join(', ')}, which nothing arms`)
       }
     }
     for (const note of uncertain) findings.push(note)
