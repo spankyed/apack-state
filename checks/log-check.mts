@@ -167,7 +167,7 @@ await run([
     const { window, handle, logs } = wired()
     window.send(handle, { type: 'TYPE', text: 'hello' })
     await rest()
-    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, waiting: false, at: 'idle' } })
+    deepStrictEqual(logs.window.at(-1)!.changed, { panel: { fields: ['draft'], moved: false, pending: false, armed: false, at: 'idle' } })
     window.send(handle, { type: 'SEND' })
     await rest()
     const sent = logs.window.find((step) => step.handled[0]?.name === 'SEND')!
@@ -302,7 +302,7 @@ await run([
     has(handled, { kind: 'view', ref: 'watcher', name: 'count' })
     // A state that moved and changed none of its fields says so, and where it is.
     const broke = logs.find((step) => step.handled.some((one) => one.kind === 'failure'))!
-    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, waiting: false, at: 'idle' })
+    deepStrictEqual(broke.changed.breaks, { fields: [], moved: true, pending: false, armed: false, at: 'idle' })
     for (const resolve of held.values()) resolve()
     await rest()
     // Every run was answered: nothing is abandoned when the system stops.

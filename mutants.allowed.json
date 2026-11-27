@@ -90,19 +90,19 @@
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
-    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | changes[ref]?.waiting && into.waiting || latest.waiting",
-    "original": "changes[ref]?.waiting && into.waiting && latest.waiting",
-    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | changes[ref]?.armed && into.armed || latest.armed",
+    "original": "changes[ref]?.armed && into.armed && latest.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
   },
   {
-    "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | true",
-    "original": "changes[ref]?.waiting && into.waiting",
-    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+    "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | true",
+    "original": "changes[ref]?.armed && into.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
   },
   {
-    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.waiting && into.waiting && latest.waiting) follow(into.waiting, latest.waiting) | changes[ref]?.waiting || into.waiting",
-    "original": "changes[ref]?.waiting && into.waiting",
-    "why": "follow writes only what differs, so running it on a step where armed waits did not change writes nothing; and a state either has waiting on every value or on none, so into.waiting and latest.waiting are there together or not at all"
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | changes[ref]?.armed || into.armed",
+    "original": "changes[ref]?.armed && into.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
   },
   {
     "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",

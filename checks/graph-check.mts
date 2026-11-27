@@ -284,19 +284,19 @@ export const watcher = state<WatcherShape, { type: 'PAUSE' } | { type: 'RESUME' 
       rmSync(work, { recursive: true, force: true })
     }
   }],
-  ['inspects waits (direct done, options object, pure TTL, reset: false, transitions) and flags unused waits', () => {
-    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-'))
+  ["inspects timers (with and without done, pure TTL, whenArmed: 'ignore', transitions) and flags unused timers", () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-'))
     try {
       const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
-      const file = join(work, 'waits.ts')
+      const file = join(work, 'arms.ts')
       writeFileSync(file, `
 import { state } from '${stateIndex}'
 type Shape = {
   data: { count: number }
-  waits: {
+  arms: {
     pulse: 'one'
     timeout: 'one'
-    backoff: { one: 'ms' }
+    backoff: { one: 'at arm' }
     flash: 'each'
     unused: 'one'
   }
@@ -305,12 +305,12 @@ type Shape = {
 export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
   data: { count: 0 },
   initial: 'active',
-  waits: ({ one, each }) => ({
-    pulse: one(300),
-    timeout: one(5000, () => ({ at: 'timedOut' })),
-    backoff: one({ reset: false, done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
-    flash: each(200, ({ data }) => ({ data: { count: data.count + 1 } })),
-    unused: one(100),
+  arms: ({ one, each }) => ({
+    pulse: one({ after: 300 }),
+    timeout: one({ after: 5000, done: () => ({ at: 'timedOut' }) }),
+    backoff: one({ whenArmed: 'ignore', done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+    flash: each({ after: 200, done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+    unused: one({ after: 100 }),
   }),
   on: {
     GO: (_, { arm }) => {
@@ -334,10 +334,10 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
       const graphs = all.get(file) ?? []
       strictEqual(graphs.length, 1, formatGraphs(graphs))
       const g = graphs[0]!
-      deepStrictEqual(g.waits, [
+      deepStrictEqual(g.arms, [
         'pulse: 300ms, one at a time',
         'timeout: 5000ms, one at a time',
-        'backoff: ms at arm, one at a time, no reset',
+        'backoff: ms at arm, one at a time, ignored while armed',
         'flash: 200ms, for each key it is told',
         'unused: 100ms, one at a time',
       ])
@@ -354,13 +354,13 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
       ])
       // `timedOut` is entered by `timeout (done)`, so only `unused` is flagged as never armed.
       deepStrictEqual(g.findings, ['nothing arms unused'])
-      ok(g.text.includes('  waits   pulse: 300ms, one at a time'), g.text)
+      ok(g.text.includes('  arms    pulse: 300ms, one at a time'), g.text)
     } finally {
       rmSync(work, { recursive: true, force: true })
     }
   }],
-  ['handles destructured arm aliases and suppresses unused-wait findings when arm or scope leaves the literal', () => {
-    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-helpers-'))
+  ['handles destructured arm aliases and suppresses unused-timer findings when arm or scope leaves the literal', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-helpers-'))
     try {
       const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
       const file = join(work, 'helpers.ts')
@@ -368,39 +368,39 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
 import { state, type EventScope, type Net } from '${stateIndex}'
 
 type AliasShape = {
-  waits: { viaAlias: 'one'; dead: 'one' }
+  arms: { viaAlias: 'one'; dead: 'one' }
 }
 export const withAlias = state<AliasShape, { type: 'GO' }>()({
-  waits: ({ one }) => ({ viaAlias: one(100), dead: one(200) }),
+  arms: ({ one }) => ({ viaAlias: one({ after: 100 }), dead: one({ after: 200 }) }),
   on: {
     GO: (_, { arm: startTimer }) => { startTimer('viaAlias') },
   },
 })
 
 function armViaHelper(schedule: (name: 'viaArm') => void) { schedule('viaArm') }
-export const withArmEscape = state<{ waits: { viaArm: 'one' } }, { type: 'GO' }>()({
-  waits: ({ one }) => ({ viaArm: one(50) }),
+export const withArmEscape = state<{ arms: { viaArm: 'one' } }, { type: 'GO' }>()({
+  arms: ({ one }) => ({ viaArm: one({ after: 50 }) }),
   on: { GO: (_, { arm }) => { armViaHelper(arm) } },
 })
 
-type ScopeShape = { waits: { viaScope: 'one' } }
+type ScopeShape = { arms: { viaScope: 'one' } }
 type ScopeEv = { type: 'GO' }
 const armViaScope = (s: Pick<EventScope<ScopeShape, '', ScopeEv, Net>, 'arm'>) => { s.arm('viaScope') }
 export const withScopeEscape = state<ScopeShape, ScopeEv>()({
-  waits: ({ one }) => ({ viaScope: one(50) }),
+  arms: ({ one }) => ({ viaScope: one({ after: 50 }) }),
   on: { GO: (_, scope) => { armViaScope(scope) } },
 })
 
-type HandlerShape = { waits: { t: 'one' } }
+type HandlerShape = { arms: { t: 'one' } }
 const onGo = (_: { type: 'GO' }, { arm }: EventScope<HandlerShape, '', { type: 'GO' }, Net>) => { arm('t') }
 export const withExternalHandler = state<HandlerShape, { type: 'GO' }>()({
-  waits: ({ one }) => ({ t: one(50) }),
+  arms: ({ one }) => ({ t: one({ after: 50 }) }),
   on: { GO: onGo },
 })
 
 const onTable = { GO: onGo }
 export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
-  waits: ({ one }) => ({ t: one(50) }),
+  arms: ({ one }) => ({ t: one({ after: 50 }) }),
   on: onTable,
 })
 `)
@@ -418,71 +418,71 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       rmSync(work, { recursive: true, force: true })
     }
   }],
-  ['tracks wait reachability from non-done sources and resolves arm by declaring path', () => {
-    const work = mkdtempSync(join(tmpdir(), 'apack-graph-waits-reachability-'))
+  ['tracks timer reachability from non-done sources and resolves arm by declaring path', () => {
+    const work = mkdtempSync(join(tmpdir(), 'apack-graph-arms-reachability-'))
     try {
       const stateIndex = join(root, 'src', 'index.ts').replaceAll('\\', '/')
       const file = join(work, 'reachability.ts')
       writeFileSync(file, `
 import { state } from '${stateIndex}'
 
-type SelfLoopShape = { waits: { loop: 'one' } }
+type SelfLoopShape = { arms: { loop: 'one' } }
 export const selfLoop = state<SelfLoopShape, never>()({
-  waits: ({ one }) => ({
-    loop: one(100, ({ arm }) => { arm('loop') }),
+  arms: ({ one }) => ({
+    loop: one({ after: 100, done: ({ arm }) => { arm('loop') } }),
   }),
 })
 
-type DeadChainShape = { waits: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
+type DeadChainShape = { arms: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
 export const deadChain = state<DeadChainShape, never>()({
-  waits: ({ one }) => ({
-    first: one(100, ({ arm }) => { arm('second') }),
-    second: one(100, ({ arm }) => { arm('second') }),
-    ping: one(100, ({ arm }) => { arm('pong') }),
-    pong: one(100, ({ arm }) => { arm('ping') }),
+  arms: ({ one }) => ({
+    first: one({ after: 100, done: ({ arm }) => { arm('second') } }),
+    second: one({ after: 100, done: ({ arm }) => { arm('second') } }),
+    ping: one({ after: 100, done: ({ arm }) => { arm('pong') } }),
+    pong: one({ after: 100, done: ({ arm }) => { arm('ping') } }),
   }),
 })
 
-type LiveChainShape = { waits: { step2: 'one'; step1: 'one'; step3: 'one' } }
+type LiveChainShape = { arms: { step2: 'one'; step1: 'one'; step3: 'one' } }
 export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
-  waits: ({ one }) => ({
+  arms: ({ one }) => ({
     // Declared out of topological order so reachability must propagate across multiple hops (step1 -> step2 -> step3).
-    step2: one(100, ({ arm }) => { arm('step3') }),
-    step1: one(100, ({ arm }) => { arm('step2') }),
-    step3: one(100, ({ arm }) => { arm('step3') }),
+    step2: one({ after: 100, done: ({ arm }) => { arm('step3') } }),
+    step1: one({ after: 100, done: ({ arm }) => { arm('step2') } }),
+    step3: one({ after: 100, done: ({ arm }) => { arm('step3') } }),
   }),
   on: { GO: (_, { arm }) => { arm('step1') } },
 })
 
 type SiblingsShape = {
   states: {
-    a: { waits: { t: 'one' } }
-    b: { waits: { t: 'one' } }
+    a: { arms: { t: 'one' } }
+    b: { arms: { t: 'one' } }
   }
 }
-export const siblingWaits = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
+export const siblingTimers = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'a',
   states: {
     a: {
-      waits: ({ one }) => ({ t: one(100) }),
+      arms: ({ one }) => ({ t: one({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm('t') },
         NEXT: () => ({ at: 'b' }),
       },
     },
     b: {
-      waits: ({ one }) => ({ t: one(100) }),
+      arms: ({ one }) => ({ t: one({ after: 100 }) }),
     },
   },
 })
 
 type ParentArmedFromChildShape = {
-  waits: { keepalive: 'one' }
+  arms: { keepalive: 'one' }
   states: { active: {}; idle: {} }
 }
 export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO' } | { type: 'STOP' }>()({
   initial: 'active',
-  waits: ({ one }) => ({ keepalive: one(100) }),
+  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
   states: {
     active: {
       on: {
@@ -494,20 +494,20 @@ export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO
   },
 })
 
-type QuotedWaitsShape = {
-  waits: {
+type QuotedTimersShape = {
+  arms: {
     'live-first': 'one'
     'live-next': 'one'
     'dead-first': 'one'
     'dead-next': 'one'
   }
 }
-export const quotedWaits = state<QuotedWaitsShape, { type: 'GO' }>()({
-  waits: ({ one }) => ({
-    'live-first': one(100, ({ arm }) => { arm('live-next') }),
-    'live-next': one(100),
-    'dead-first': one(100, ({ arm }) => { arm('dead-next') }),
-    'dead-next': one(100),
+export const quotedTimers = state<QuotedTimersShape, { type: 'GO' }>()({
+  arms: ({ one }) => ({
+    'live-first': one({ after: 100, done: ({ arm }) => { arm('live-next') } }),
+    'live-next': one({ after: 100 }),
+    'dead-first': one({ after: 100, done: ({ arm }) => { arm('dead-next') } }),
+    'dead-next': one({ after: 100 }),
   }),
   on: { GO: (_, { arm }) => { arm('live-first') } },
 })
@@ -516,7 +516,7 @@ const SUB = 'active' as const
 const W = 'pulse' as const
 type ComputedNamesShape = {
   states: {
-    [SUB]: { waits: { [W]: 'one' } }
+    [SUB]: { arms: { [W]: 'one' } }
     idle: {}
   }
 }
@@ -524,7 +524,7 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
   initial: SUB,
   states: {
     [SUB]: {
-      waits: ({ one }) => ({ [W]: one(100) }),
+      arms: ({ one }) => ({ [W]: one({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm(W) },
         STOP: () => ({ at: 'idle' }),
@@ -535,16 +535,16 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
 })
 
 type UnenteredArmShape = {
-  waits: { keepalive: 'one' }
-  states: { live: {}; dead: { waits: { inner: 'one' } } }
+  arms: { keepalive: 'one' }
+  states: { live: {}; dead: { arms: { inner: 'one' } } }
 }
 export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
   initial: 'live',
-  waits: ({ one }) => ({ keepalive: one(100) }),
+  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
   states: {
     live: ({ on: { GO: () => {} } }),
     dead: ({
-      waits: ({ one }) => ({ inner: one(50) }),
+      arms: ({ one }) => ({ inner: one({ after: 50 }) }),
       on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
     }),
   },
@@ -552,19 +552,19 @@ export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
 
 type LocalArmVarShape = {
   data: { arm: number }
-  waits: { dead: 'one' }
+  arms: { dead: 'one' }
 }
 export const localArmVar = state<LocalArmVarShape, { type: 'SET'; arm: number }>()({
   data: { arm: 0 },
-  waits: ({ one }) => ({ dead: one(100) }),
+  arms: ({ one }) => ({ dead: one({ after: 100 }) }),
   on: {
     SET: ({ arm }) => ({ data: { arm } }),
   },
 })
 
 function armFromBox(box: { arm: (name: 'viaBox') => void }) { box.arm('viaBox') }
-export const shorthandScopeArmEscape = state<{ waits: { viaBox: 'one' } }, { type: 'GO' }>()({
-  waits: ({ one }) => ({ viaBox: one(100) }),
+export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type: 'GO' }>()({
+  arms: ({ one }) => ({ viaBox: one({ after: 100 }) }),
   on: {
     GO: (_, { arm }) => { armFromBox({ arm }) },
   },
@@ -588,10 +588,10 @@ export const shorthandScopeArmEscape = state<{ waits: { viaBox: 'one' } }, { typ
         'nothing arms dead-first',
         'nothing arms dead-next except the done of dead-first, which cannot fire',
       ])
-      deepStrictEqual(graphs[6]!.waits, ['pulse in active: 100ms, one at a time'])
+      deepStrictEqual(graphs[6]!.arms, ['pulse in active: 100ms, one at a time'])
       deepStrictEqual(graphs[6]!.findings, [])
       deepStrictEqual(graphs[7]!.findings, ['dead is never entered', 'nothing arms keepalive'])
-      // An unrelated event/data field named `arm` does not suppress unused-wait findings,
+      // An unrelated event/data field named `arm` does not suppress unused-timer findings,
       // while escaping `scope.arm` via `{ arm }` shorthand still suppresses them.
       deepStrictEqual(graphs[8]!.findings, ['nothing arms dead'])
       deepStrictEqual(graphs[9]!.findings, [])

@@ -18,6 +18,48 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `const _wrongEvent: EventsOf<typeof listMachine> = { type: 'NOPE' }` | TS2322: Type '"NOPE"' is not assignable to type '"RESET"'. | `EventsOf` extracts only the declared event union, not arbitrary event types |
 | `const _wrongAsks: AsksOf<typeof listMachine> = { FINISH: { args: {}, answer: 42 } }` | TS2322: Type 'number' is not assignable to type '"done"'. | `AsksOf` preserves the exact ask answer type |
 
+## The timers a state arms: where one may be armed or disarmed, its duration, and its armed record.
+
+`type-tests/arms.ts`
+
+| What was written | What TypeScript says | Why |
+|---|---|---|
+| `BAD_1: (_, { arm }) => { arm('inner') },` | TS2345: Argument of type '"inner"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | an inner timer is declared by a state inside, so only a handler there can arm it |
+| `BAD_2: (_, { arm }) => { arm('backoff') },` | TS2554: Expected 2 arguments, but got 1. | a `one` timer whose duration is given at arm requires `ms` when armed |
+| `BAD_3: (_, { arm }) => { arm('pulse', 100, { payload: true }) },` | TS2554: Expected 1-2 arguments, but got 3. | a `one` timer with `after` takes no extra payload argument beyond optional `ms` |
+| `BAD_4: (_, { arm }) => { arm('flash') },` | TS2554: Expected 2-3 arguments, but got 1. | an `each` timer requires its key |
+| `BAD_5: (_, { arm }) => { arm('retry', 'k1') },` | TS2554: Expected 3 arguments, but got 2. | an `each` timer whose duration is given at arm requires both key and `ms` |
+| `BAD_6: (_, { arm }) => { arm('flash', 'k1', 100, { payload: true }) },` | TS2554: Expected 2-3 arguments, but got 4. | an `each` timer takes no extra payload argument beyond key and `ms` |
+| `BAD_7: (_, { disarm }) => { disarm('pulse', 'k1') },` | TS2554: Expected 1 arguments, but got 2. | a `one` timer takes no key when disarmed |
+| `BAD_8: (_, { arm }) => { arm('unknown') },` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | it declares no such timer |
+| `BAD_9: (_, { arm }) => { arm('backoff', 250, 'extra') },` | TS2554: Expected 2 arguments, but got 3. | a `one` timer whose duration is given at arm takes no extra payload argument |
+| `state<{ arms: { pulse: 'one' } }>()({})` | TS2345: Argument of type '{}' is not assignable to parameter of type 'Def&lt;{ arms: { pulse: "one"; }; }, { arms: { pulse: "one"; }; }, "", never, {}, Nothing>'. | a state whose shape declares arms has to define them |
+| `fixed: one(),` | TS2322: Type 'ArmedOne&lt;{ data: { n: number; }; arms: { fixed: "one"; dynamic: { one: "at arm"; }; keyed: "each"; dynKeyed: { each: "at arm"; }; }; }, "", never, Nothing, true>' is not a… | a `'one'` timer requires `after` |
+| `dynamic: one({ after: 100 }),` | TS2322: Type 'ArmedOne&lt;{ data: { n: number; }; arms: { fixed: "one"; dynamic: { one: "at arm"; }; keyed: "each"; dynKeyed: { each: "at arm"; }; }; }, "", never, Nothing, false>' is not … | a `{ one: 'at arm' }` timer does not accept `after` |
+| `keyed: one({ after: 100 }),` | TS2322: Type 'ArmedOne&lt;{ data: { n: number; }; arms: { fixed: "one"; dynamic: { one: "at arm"; }; keyed: "each"; dynKeyed: { each: "at arm"; }; }; }, "", never, Nothing, false>' is not … | an `'each'` timer must be built with `each`, not `one` |
+| `dynKeyed: one(),` | TS2322: Type 'ArmedOne&lt;{ data: { n: number; }; arms: { fixed: "one"; dynamic: { one: "at arm"; }; keyed: "each"; dynKeyed: { each: "at arm"; }; }; }, "", never, Nothing, true>' is not a… | a `{ each: 'at arm' }` timer must be built with `each`, not `one` |
+| `badOptUnion: one({ after: 100, whenArmd: 'ignore', done: flag ? () => {} : undefined }),` | TS2322: Type 'string' is not assignable to type 'never'. | unknown option keys are still rejected when `done` may be `undefined` |
+| `badDone: one({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),` | TS2719: Type 'import("/Users/spankyed/Develop/Projects/apack/apack-state-worktrees.noindex/timer-vocabulary/src/types").ArmedOne&lt;{ data: { n: number; }; arms: { badDone: "one"; badEachD… | a `one` timer's `done` return value is checked against the state's data |
+| `badEachDone: each({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),` | TS2719: Type 'import("/Users/spankyed/Develop/Projects/apack/apack-state-worktrees.noindex/timer-vocabulary/src/types").ArmedEach&lt;{ data: { n: number; }; arms: { badDone: "one"; badEach… | an `each` timer's `done` return value is checked against the state's data |
+| `badAfter: one({ afer: 100, done: () => {} }),` | TS2322: Type 'number' is not assignable to type 'never'. | a misspelled `after` on a `one` timer is rejected even when `done` is present |
+| `badWhenArmed: one({ after: 100, whenArmd: 'ignore', done: () => {} }),` | TS2322: Type 'string' is not assignable to type 'never'. | a misspelled `whenArmed` on a `one` timer is rejected even when `done` is present |
+| `badAfterEach: each({ afer: 100, done: () => {} }),` | TS2322: Type 'number' is not assignable to type 'never'. | a misspelled `after` on an `each` timer is rejected even when `done` is present |
+| `badWhenArmedEach: each({ whenArmd: 'ignore', done: () => {} }),` | TS2322: Type 'string' is not assignable to type 'never'. | a misspelled `whenArmed` on an `each` timer is rejected even when `done` is present |
+| `badAfterAlone: one({ afer: 100 }),` | TS2561: Object literal may only specify known properties, but 'afer' does not exist in type 'ArmOptions&lt;ArmDone&lt;{ data: { n: number; }; arms: { badDone: "one"; badEachDone: "each"; badA… | a misspelled `after` is rejected when it is the only option |
+| `badWhenArmedValue: one({ whenArmed: 'reset' }),` | TS2322: Type '"reset"' is not assignable to type '"restart" \| "ignore" \| undefined'. | `whenArmed` is `'restart'` or `'ignore'` |
+| `badPositional: one(100),` | TS2559: Type '100' has no properties in common with type 'ArmOptions&lt;ArmDone&lt;{ data: { n: number; }; arms: { badDone: "one"; badEachDone: "each"; badAfter: { one: "at arm"; }; badWhenAr… | a duration is given as `after`, not as a bare number |
+| `badPositionalDone: one(() => {}),` | TS2559: Type '() => void' has no properties in common with type 'ArmOptions&lt;ArmDone&lt;{ data: { n: number; }; arms: { badDone: "one"; badEachDone: "each"; badAfter: { one: "at arm"; }; ba… | what expiring does is given as `done`, not as a bare function |
+| `arms: () => ({}),` | TS2322: Type '() => {}' is not assignable to type 'undefined'. | a state whose shape declares no arms cannot define `arms` |
+| `const _badOne: Readonly<Record<string, true>> = timersValue.armed.pulse` | TS2322: Type 'boolean' is not assignable to type 'Readonly&lt;Record&lt;string, true>>'. | a `one` timer exposes `boolean` on `armed`, not a record |
+| `const _badEach: boolean = timersValue.armed.flash` | TS2322: Type 'Readonly&lt;Record&lt;string, true>>' is not assignable to type 'boolean'. | an `each` timer exposes `Readonly<Record<string, true>>` on `armed`, not a `boolean` |
+| `timersValue.armed.pulse = true` | TS2540: Cannot assign to 'pulse' because it is a read-only property. | `armed` is read-only and cannot be mutated |
+| `void plainValue.armed` | TS2339: Property 'armed' does not exist on type '{ readonly data: { readonly n: number; }; }'. | a state with no declared arms has no `armed` property on its value |
+| `arms: ({ one }) => ({ retry: one({ after: 100 }) }),` | TS2322: Type '({ one }: { one: ArmOne&lt;ConflictingArmsShape, "a", never, Nothing>; each: ArmEach&lt;ConflictingArmsShape, "a", never, Nothing>; }) => { ...; }' is not assignable to type '((… | a timer name cannot be declared with conflicting kinds across states of one machine |
+| `arms: ({ each }) => ({ retry: each({ after: 100 }) }),` | TS2322: Type '({ each }: { one: ArmOne&lt;ConflictingArmsShape, "b", never, Nothing>; each: ArmEach&lt;ConflictingArmsShape, "b", never, Nothing>; }) => { ...; }' is not assignable to type '(… | a timer name cannot be declared with conflicting kinds across states of one machine |
+| `arms: ({ one }) => ({ retry: one({ after: 100 }) }),` | TS2322: Type '({ one }: { one: ArmOne&lt;DirectShadowArmsShape, "a", never, ArmCallCrossNet>; each: ArmEach&lt;DirectShadowArmsShape, "a", never, ArmCallCrossNet>; }) => { ...; }' is not assi… | a child state cannot shadow a timer name declared by its parent |
+| `arms: ({ each }) => ({ retry: each({ after: 100 }) }),` | TS2322: Type '({ each }: { one: ArmOne&lt;DirectShadowArmsShape, "b", never, ArmCallCrossNet>; each: ArmEach&lt;DirectShadowArmsShape, "b", never, ArmCallCrossNet>; }) => { ...; }' is not ass… | shadowing an enclosing timer name is reported on the redeclaring child even with a different kind |
+| `arms: ({ one }) => ({ retry: one({ after: 100 }) }),` | TS2322: Type '({ one }: { one: ArmOne&lt;DeepShadowArmsShape, "mid.leaf", never, Nothing>; each: ArmEach&lt;DeepShadowArmsShape, "mid.leaf", never, Nothing>; }) => { ...; }' is not assignable… | a deeply nested state cannot shadow a timer name declared by an ancestor |
+
 ## The writes a state calls: where one may be called, and with which key.
 
 `type-tests/calls.ts`
@@ -214,44 +256,6 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `it.child('card')` | TS2554: Expected 2 arguments, but got 1. | a card is one of many, so reaching one takes its key |
 | `void one.state.value.data.bumps` | TS18048: 'one.state.value' is possibly 'undefined'. | a card may not be running, so what it holds cannot be read without saying what if it is not |
 | `void it.ask` | TS2339: Property 'ask' does not exist on type 'Bound&lt;Value&lt;Board>, BoardEvent, { card: Each&lt;State&lt;Card, { type: "BUMP"; }, {}, "id" \| "label">>; }>'. | a component sends; it does not ask |
-
-## The timers a state waits on: where one may be armed or disarmed, its duration, and its waiting record.
-
-`type-tests/waits.ts`
-
-| What was written | What TypeScript says | Why |
-|---|---|---|
-| `BAD_1: (_, { arm }) => { arm('inner') },` | TS2345: Argument of type '"inner"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | an inner wait is declared by a state inside, so only a handler there can arm it |
-| `BAD_2: (_, { arm }) => { arm('backoff') },` | TS2554: Expected 2 arguments, but got 1. | a runtime-ms `one` wait requires `ms` when armed |
-| `BAD_3: (_, { arm }) => { arm('pulse', 100, { payload: true }) },` | TS2554: Expected 1-2 arguments, but got 3. | a fixed-ms `one` wait takes no extra payload argument beyond optional `ms` |
-| `BAD_4: (_, { arm }) => { arm('flash') },` | TS2554: Expected 2-3 arguments, but got 1. | an `each` wait requires its key |
-| `BAD_5: (_, { arm }) => { arm('retry', 'k1') },` | TS2554: Expected 3 arguments, but got 2. | a runtime-ms `each` wait requires both key and `ms` |
-| `BAD_6: (_, { arm }) => { arm('flash', 'k1', 100, { payload: true }) },` | TS2554: Expected 2-3 arguments, but got 4. | an `each` wait takes no extra payload argument beyond key and `ms` |
-| `BAD_7: (_, { disarm }) => { disarm('pulse', 'k1') },` | TS2554: Expected 1 arguments, but got 2. | a `one` wait takes no key when disarmed |
-| `BAD_8: (_, { arm }) => { arm('unknown') },` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"retry" \| "pulse" \| "backoff" \| "fixedReadonly" \| "flash" \| "retryReadonly"'. | it declares no such wait |
-| `BAD_9: (_, { arm }) => { arm('backoff', 250, 'extra') },` | TS2554: Expected 2 arguments, but got 3. | a runtime-ms `one` wait takes no extra payload argument |
-| `state<{ waits: { pulse: 'one' } }>()({})` | TS2345: Argument of type '{}' is not assignable to parameter of type 'Def&lt;{ waits: { pulse: "one"; }; }, { waits: { pulse: "one"; }; }, "", never, {}, Nothing>'. | a state whose shape declares waits has to define them |
-| `fixed: one(),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, true>' is not assigna… | a fixed-ms `'one'` wait requires a default `ms` |
-| `dynamic: one(100),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, false>' is not assign… | a runtime-ms `{ one: 'ms' }` wait does not accept a default `ms` |
-| `keyed: one(100),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, false>' is not assign… | an `'each'` wait must be built with `each`, not `one` |
-| `dynKeyed: one(),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { fixed: "one"; dynamic: { one: "ms"; }; keyed: "each"; dynKeyed: { each: "ms"; }; }; }, "", never, Nothing, true>' is not assigna… | a `{ each: 'ms' }` wait must be built with `each`, not `one` |
-| `badOptUnion: one(100, flag ? { rest: false, done: () => {} } : undefined),` | TS2345: Argument of type '[100, { rest: boolean; done: () => void; } \| undefined]' is not assignable to parameter of type '[100, { rest: boolean; done: () => void; } \| undefined] &amp; [num… | unknown option keys are still rejected when unioned with `undefined` |
-| `badDone: one(100, () => ({ data: { n: 'wrong' } })),` | TS2322: Type 'WaitedOne&lt;{ data: { n: number; }; waits: { badDone: "one"; badEachDone: "each"; badOptFixed: "one"; badOptDyn: { one: "ms"; }; badEachOptFixed: "each"; badEachOptDyn: { ea… | a `one` wait's `done` return value is checked against the state's data |
-| `badEachDone: each(100, { done: () => ({ data: { n: 'wrong' } }) }),` | TS2322: Type 'WaitedEach&lt;{ data: { n: number; }; waits: { badDone: "one"; badEachDone: "each"; badOptFixed: "one"; badOptDyn: { one: "ms"; }; badEachOptFixed: "each"; badEachOptDyn: { e… | an `each` wait's `done` return value is checked against the state's data |
-| `badOptFixed: one(100, { rest: false, done: () => {} }),` | TS2345: Argument of type '[100, { rest: boolean; done: () => void; }]' is not assignable to parameter of type '[100, { rest: boolean; done: () => void; }] &amp; [number, { readonly reset?: … | unknown option keys on a fixed-ms `one` wait are rejected even when `done` is present |
-| `badOptDyn: one({ rest: false, done: () => {} }),` | TS2345: Argument of type '[{ rest: boolean; done: () => void; }]' is not assignable to parameter of type '[{ rest: boolean; done: () => void; }] &amp; [{ readonly reset?: boolean \| undefine… | unknown option keys on a runtime-ms `one` wait are rejected even when `done` is present |
-| `badEachOptFixed: each(100, { rest: false, done: () => {} }),` | TS2345: Argument of type '[100, { rest: boolean; done: () => void; }]' is not assignable to parameter of type '[100, { rest: boolean; done: () => void; }] &amp; [number, { readonly reset?: … | unknown option keys on a fixed-ms `each` wait are rejected even when `done` is present |
-| `badEachOptDyn: each({ rest: false, done: () => {} }),` | TS2345: Argument of type '[{ rest: boolean; done: () => void; }]' is not assignable to parameter of type '[{ rest: boolean; done: () => void; }] &amp; [{ readonly reset?: boolean \| undefine… | unknown option keys on a runtime-ms `each` wait are rejected even when `done` is present |
-| `waits: () => ({}),` | TS2322: Type '() => {}' is not assignable to type 'undefined'. | a state whose shape declares no waits cannot define `waits` |
-| `const _badOne: Readonly<Record<string, true>> = timersValue.waiting.pulse` | TS2322: Type 'boolean' is not assignable to type 'Readonly&lt;Record&lt;string, true>>'. | a `one` wait exposes `boolean` on `waiting`, not a record |
-| `const _badEach: boolean = timersValue.waiting.flash` | TS2322: Type 'Readonly&lt;Record&lt;string, true>>' is not assignable to type 'boolean'. | an `each` wait exposes `Readonly<Record<string, true>>` on `waiting`, not a `boolean` |
-| `timersValue.waiting.pulse = true` | TS2540: Cannot assign to 'pulse' because it is a read-only property. | `waiting` is read-only and cannot be mutated |
-| `void plainValue.waiting` | TS2339: Property 'waiting' does not exist on type '{ readonly data: { readonly n: number; }; }'. | a state with no declared waits has no `waiting` property on its value |
-| `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;ConflictingWaitsShape, "a", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "a", never, Nothing>; }) => { ...; }' is not assignable to type… | a wait name cannot be declared with conflicting kinds across states of one machine |
-| `waits: ({ each }) => ({ retry: each(100) }),` | TS2322: Type '({ each }: { one: WaitOne&lt;ConflictingWaitsShape, "b", never, Nothing>; each: WaitEach&lt;ConflictingWaitsShape, "b", never, Nothing>; }) => { ...; }' is not assignable to typ… | a wait name cannot be declared with conflicting kinds across states of one machine |
-| `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;DirectShadowWaitsShape, "a", never, WaitCallCrossNet>; each: WaitEach&lt;DirectShadowWaitsShape, "a", never, WaitCallCrossNet>; }) => { ...; }' is no… | a child state cannot shadow a wait name declared by its parent |
-| `waits: ({ each }) => ({ retry: each(100) }),` | TS2322: Type '({ each }: { one: WaitOne&lt;DirectShadowWaitsShape, "b", never, WaitCallCrossNet>; each: WaitEach&lt;DirectShadowWaitsShape, "b", never, WaitCallCrossNet>; }) => { ...; }' is n… | shadowing an enclosing wait name is reported on the redeclaring child even with a different kind |
-| `waits: ({ one }) => ({ retry: one(100) }),` | TS2322: Type '({ one }: { one: WaitOne&lt;DeepShadowWaitsShape, "mid.leaf", never, Nothing>; each: WaitEach&lt;DeepShadowWaitsShape, "mid.leaf", never, Nothing>; }) => { ...; }' is not assign… | a deeply nested state cannot shadow a wait name declared by an ancestor |
 
 ## `within`: narrowing a state read from outside by where it is.
 

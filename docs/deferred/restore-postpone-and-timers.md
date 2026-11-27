@@ -114,7 +114,7 @@ Either:
 
 Porting retry/backoff flows or brain step timeouts where pure timer states proliferate enough that dummy `failed`
 handlers become recurring noise or graph visibility of timeout edges matters. (Imperative debounces, throttles, TTL
-flags, and keyed timers are now handled by `Def.waits` without adding timer-only states.)
+flags, and keyed timers are now handled by `Def.arms` without adding timer-only states.)
 
 ---
 
@@ -128,7 +128,7 @@ waits for rapid data changes (such as typing a search query) to settle before re
 ### Why not yet
 
 - **Zero current `apack` call sites.** None of the ported or surveyed `apack` surfaces currently need debounced
-  `loads` or `follows` (debounced writes/flushes/pulses are imperative and covered by `Def.waits`).
+  `loads` or `follows` (debounced writes/flushes/pulses are imperative and covered by `Def.arms`).
 - Adding debounce timers to `settle()` before real call sites exist adds kernel complexity without deleting existing
   boilerplate.
 
@@ -145,7 +145,7 @@ If `loads`/`follows` `{ debounce?: number }` is implemented later, preserve thes
 
 ### What would make it worth starting
 
-Two or three real `apack` surfaces hand-rolling a `debouncedQuery` shadow field + `Def.waits` timer purely to feed a
+Two or three real `apack` surfaces hand-rolling a `debouncedQuery` shadow field + `Def.arms` timer purely to feed a
 standing `loads` or `follows` entry.
 
 ---

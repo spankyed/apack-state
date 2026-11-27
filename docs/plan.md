@@ -84,7 +84,7 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `follows` | The views it follows while it is the case, each with an `updated` handler for what it delivers |
 | `loads` | The reads it is loading while it is the case, each with a `done` handler for how it finished |
 | `calls` | The writes it calls when a handler says `call`, each with a `done` handler for how it finished |
-| `waits` | The timers it arms when a handler says `arm`, each with an optional `done` handler for when it expires |
+| `arms` | The timers it arms when a handler says `arm`, each with an optional `done` handler for when it expires |
 | `failed` | Where it goes when `run` throws, given what was thrown. Synchronous. Required when `run` is async |
 
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
@@ -320,22 +320,25 @@ points at.
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
     by hand, and no event for how one finished.
 
-    **Imperative timers follow the same split under `waits`.** A state declares them in `Shape.waits` (`'one'`,
-    `'each'`, `{ one: 'ms' }`, `{ each: 'ms' }`), builds them in `waits: ({ one, each }) => ({ ... })` with a fixed
-    default `ms` (overridable per `arm`) or runtime `ms`, `reset: true` (debounce, the default) or `reset: false`
-    (throttle), and an optional `done` handler (omitted for pure-TTL flags). Handlers arm and disarm them transactionally
+    **Imperative timers follow the same split under `arms`.** The words are one family: a timer is declared under
+    `arms`, armed with `arm`, cleared with `disarm`, read on `armed`, and logged as `arm`, `disarm` and `expired`. A
+    state declares them in `Shape.arms` (`'one'`, `'each'`, `{ one: 'at arm' }`, `{ each: 'at arm' }`) and builds them
+    in `arms: ({ one, each }) => ({ ... })`, each from one labelled object: `one({ after: 100, done, whenArmed })`.
+    `after` is how long it runs (overridable per `arm`), and is left out of a timer declared `'at arm'`, whose every
+    `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `done` is the
+    handler for its expiring (omitted for pure-TTL flags). A misspelled option does not compile. Handlers arm and disarm them transactionally
     with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
-    clears every active key). Which timers are armed lives on `waiting` beside `at`, `data`, and `pending` (`boolean`
+    clears every active key). Which timers are armed lives on `armed` beside `at`, `data`, and `pending` (`boolean`
     for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
     never blocks `sys.idle()`.
 
-    **A name under `calls` or `waits` stands for one thing.** `pending` and `waiting` have one entry for a name,
+    **A name under `calls` or `arms` stands for one thing.** `pending` and `armed` have one entry for a name,
     whichever state declares it. So a name has one kind across a definition, and a state does not declare again a
     name a state around it declares: the two could be under way at once, and the entry would say one while `cancel`
     or `disarm` ended the other. Both are refused where the definition is written and where it is started. States
     beside each other may share a name, since they are never active together. The graph reads the same rule: an `arm`
-    reaches the wait its own state or the nearest state around it declares, and a wait counts as armed only if
-    something that can run without it arms it, so one armed only from its own `done`, or from the `done` of waits
+    reaches the timer its own state or the nearest state around it declares, and a timer counts as armed only if
+    something that can run without it arms it, so one armed only from its own `done`, or from the `done` of timers
     nothing arms, is reported with which.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is

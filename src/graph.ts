@@ -21,7 +21,7 @@ export interface StateGraph {
   readonly follows: readonly string[]
   readonly loads: readonly string[]
   readonly calls: readonly string[]
-  readonly waits: readonly string[]
+  readonly arms: readonly string[]
   readonly reaches: readonly string[]
   readonly findings: readonly string[]
   readonly text: string
@@ -146,25 +146,25 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     const follows: string[] = []
     const loads: string[] = []
     const calls: string[] = []
-    const waits: string[] = []
+    const arms: string[] = []
     const reachesSet = new Set<string>()
     const uncertain = new Set<string>()
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
-    const waitKey = (within: string, name: string): string => `${within}\n${name}`
+    const timerKey = (within: string, name: string): string => `${within}\n${name}`
 
     const declared: string[] = []
     const startsStates: string[] = []
-    const declaredWaits: Array<{ key: string; name: string; within: string }> = []
-    const byWaitKey = new Map<string, { key: string; name: string; within: string }>()
+    const declaredTimers: Array<{ key: string; name: string; within: string }> = []
+    const byTimerKey = new Map<string, { key: string; name: string; within: string }>()
     const survey = (of: Type, within: string): void => {
       const started = of.getProperty('starts')
       if (started) for (const each of typeOf(started).getProperties()) startsStates.push(`${each.name}${typeOf(each).getProperty('_each') ? ' (one for each key)' : ''}${within ? ` in ${within}` : ''}`)
-      const waited = of.getProperty('waits')
-      if (waited) {
-        for (const each of typeOf(waited).getProperties()) {
-          const entry = { key: waitKey(within, each.name), name: each.name, within }
-          declaredWaits.push(entry)
-          byWaitKey.set(entry.key, entry)
+      const armed = of.getProperty('arms')
+      if (armed) {
+        for (const each of typeOf(armed).getProperties()) {
+          const entry = { key: timerKey(within, each.name), name: each.name, within }
+          declaredTimers.push(entry)
+          byTimerKey.set(entry.key, entry)
         }
       }
       const states = of.getProperty('states')
@@ -173,19 +173,19 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
     survey(shape, '')
 
-    const resolveWait = (fromPath: string, name: string): string | undefined => {
+    const resolveTimer = (fromPath: string, name: string): string | undefined => {
       for (let at = fromPath; ; ) {
-        const key = waitKey(at, name)
-        if (byWaitKey.has(key)) return key
+        const key = timerKey(at, name)
+        if (byTimerKey.has(key)) return key
         if (!at) return undefined
         const cut = at.lastIndexOf('.')
         at = cut >= 0 ? at.slice(0, cut) : ''
       }
     }
 
-    const rawArms: Array<{ statePath: string; targetKey: string; fromWaitKey?: string }> = []
+    const rawArms: Array<{ statePath: string; targetKey: string; fromTimerKey?: string }> = []
     let hasDynamicArm = false
-    const scan = (inner: any, statePath: string, fromWaitKey?: string): void => {
+    const scan = (inner: any, statePath: string, fromTimerKey?: string): void => {
       if (!isDeclName(inner)) {
         const p = inner.parent
         if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
@@ -210,13 +210,13 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             if (ts.isStringLiteralLike(resolvedTarget)) names.push(resolvedTarget.text)
             else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) names.push(m.value as string)
             for (const armedName of names) {
-              const targetKey = resolveWait(statePath, armedName)
-              if (targetKey) rawArms.push({ statePath, targetKey, fromWaitKey })
+              const targetKey = resolveTimer(statePath, armedName)
+              if (targetKey) rawArms.push({ statePath, targetKey, fromTimerKey })
             }
           }
         }
       }
-      ts.forEachChild(inner, (child: any) => scan(child, statePath, fromWaitKey))
+      ts.forEachChild(inner, (child: any) => scan(child, statePath, fromTimerKey))
     }
 
     const read = (returned: Type[], path: string, on: string): void => {
@@ -351,7 +351,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           }
           continue
         }
-        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'waits') {
+        if (name !== 'follows' && name !== 'loads' && name !== 'calls' && name !== 'arms') {
           scan(property, path)
           continue
         }
@@ -384,39 +384,37 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             scan(entry, path)
             continue
           }
-          if (name === 'waits') {
-            scan(entry.initializer, path, waitKey(path, entryName))
-            const [first, second] = entry.initializer.arguments
+          if (name === 'arms') {
+            scan(entry.initializer, path, timerKey(path, entryName))
+            const [options] = entry.initializer.arguments
             const helper = entry.initializer.expression.getText()
-            const hasMs = Boolean(first && (checker.getTypeAtLocation(first).flags & ts.TypeFlags.NumberLike))
-            const rest = hasMs ? second : first
-            let noReset = false
-            if (rest && ts.isObjectLiteralExpression(rest)) {
-              if (rest.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
-                uncertain.add(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
+            let msLabel = 'ms at arm'
+            let ignoredWhileArmed = false
+            if (options && ts.isObjectLiteralExpression(options)) {
+              if (options.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
+                uncertain.add(`spread in ${where(path, `arms.${entryName}`)} could not be statically read`)
               }
-              const resetProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'reset')
-              const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
-              if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
-              const doneProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'done')
+              const named = (key: string): any => options.properties.find((each: any) => each.name && propName(each.name) === key)
+              const afterProp = named('after')
+              const after = afterProp && (ts.isPropertyAssignment(afterProp) ? afterProp.initializer : afterProp.name)
+              if (after) msLabel = ts.isNumericLiteral(after) ? `${after.text}ms` : text(after)
+              const whenArmedProp = named('whenArmed')
+              const whenArmed = whenArmedProp && ts.isPropertyAssignment(whenArmedProp) ? whenArmedProp.initializer : undefined
+              if (whenArmed && ts.isStringLiteralLike(whenArmed) && whenArmed.text === 'ignore') ignoredWhileArmed = true
+              const doneProp = named('done')
               if (doneProp && !isInlineHandlerProp(doneProp)) hasOpaqueHandler = true
               const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
               if (signature) read(unwrap(signature.getReturnType()), path, `${entryName} (done)`)
-            } else if (rest) {
-              if (!isInlineFn(rest)) hasOpaqueHandler = true
-              const restType = checker.getTypeAtLocation(rest)
-              const sigs = restType.getCallSignatures()
-              if (sigs.length) {
-                read(unwrap(sigs[0].getReturnType()), path, `${entryName} (done)`)
-              } else {
-                const doneProp = restType.getProperty?.('done')
-                const sig = doneProp && real(typeOf(doneProp))[0]?.getCallSignatures()[0]
-                if (sig) read(unwrap(sig.getReturnType()), path, `${entryName} (done)`)
-                else if (restType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `waits.${entryName}`)}`)
-              }
+            } else if (options) {
+              hasOpaqueHandler = true
+              const optionsType = checker.getTypeAtLocation(options)
+              if (optionsType.getProperty?.('after')) msLabel = `${text(options)}.after`
+              const doneProp = optionsType.getProperty?.('done')
+              const sig = doneProp && real(typeOf(doneProp))[0]?.getCallSignatures()[0]
+              if (sig) read(unwrap(sig.getReturnType()), path, `${entryName} (done)`)
+              else if (optionsType.flags & ts.TypeFlags.Any) uncertain.add(`could not statically read ${where(path, `arms.${entryName}`)}`)
             }
-            const msLabel = hasMs ? (ts.isNumericLiteral(first) ? `${first.text}ms` : text(first)) : 'ms at arm'
-            waits.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${noReset ? ', no reset' : ''}`)
+            arms.push(`${entryName}${path ? ` in ${path}` : ''}: ${msLabel}, ${helper === 'each' ? 'for each key it is told' : 'one at a time'}${ignoredWhileArmed ? ', ignored while armed' : ''}`)
             continue
           }
           scan(entry.initializer, path)
@@ -447,7 +445,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     if (literal && ts.isObjectLiteralExpression(literal)) {
       declarations(literal, '')
     } else {
-      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned')
+      uncertain.add('definition is not an inline object literal; reaches, follows, loads, calls, and arms could not be scanned')
     }
 
     const gone = new Set<string>()
@@ -465,32 +463,32 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const move of moves) for (const target of move.to) enter(target)
 
     const rootArmed = new Set<string>()
-    const waitEdges = new Map<string, Set<string>>()
-    const armedByWait = new Map<string, Set<string>>()
-    for (const { statePath, targetKey, fromWaitKey } of rawArms) {
-      const targetWait = byWaitKey.get(targetKey)
-      if (statePath && !entered.has(statePath) && targetWait && targetWait.within !== statePath && !targetWait.within.startsWith(`${statePath}.`)) {
+    const timerEdges = new Map<string, Set<string>>()
+    const armedByTimer = new Map<string, Set<string>>()
+    for (const { statePath, targetKey, fromTimerKey } of rawArms) {
+      const targetTimer = byTimerKey.get(targetKey)
+      if (statePath && !entered.has(statePath) && targetTimer && targetTimer.within !== statePath && !targetTimer.within.startsWith(`${statePath}.`)) {
         continue
       }
-      if (fromWaitKey === undefined) {
+      if (fromTimerKey === undefined) {
         rootArmed.add(targetKey)
       } else {
-        let out = waitEdges.get(fromWaitKey)
-        if (!out) { out = new Set(); waitEdges.set(fromWaitKey, out) }
+        let out = timerEdges.get(fromTimerKey)
+        if (!out) { out = new Set(); timerEdges.set(fromTimerKey, out) }
         out.add(targetKey)
-        let inc = armedByWait.get(targetKey)
-        if (!inc) { inc = new Set(); armedByWait.set(targetKey, inc) }
-        inc.add(fromWaitKey)
+        let inc = armedByTimer.get(targetKey)
+        if (!inc) { inc = new Set(); armedByTimer.set(targetKey, inc) }
+        inc.add(fromTimerKey)
       }
     }
 
-    const liveWaits = new Set<string>(rootArmed)
+    const liveTimers = new Set<string>(rootArmed)
     const queue = [...rootArmed]
     while (queue.length) {
       const cur = queue.shift()!
-      for (const next of waitEdges.get(cur) ?? []) {
-        if (!liveWaits.has(next)) {
-          liveWaits.add(next)
+      for (const next of timerEdges.get(cur) ?? []) {
+        if (!liveTimers.has(next)) {
+          liveTimers.add(next)
           queue.push(next)
         }
       }
@@ -501,13 +499,13 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const taken of [...events, ...asks]) if (!takes.has(taken)) findings.push(`nothing takes ${taken}`)
     for (const name of declared) if (!entered.has(name)) findings.push(`${name} is never entered`)
     if (literal && ts.isObjectLiteralExpression(literal) && !hasDynamicArm && !hasOpaqueHandler && !uncertain.size) {
-      for (const w of declaredWaits) {
-        if (liveWaits.has(w.key)) continue
-        const sources = [...(armedByWait.get(w.key) ?? [])]
+      for (const w of declaredTimers) {
+        if (liveTimers.has(w.key)) continue
+        const sources = [...(armedByTimer.get(w.key) ?? [])]
         const others = sources
           .filter((source) => source !== w.key)
           .map((source) => {
-            const from = byWaitKey.get(source)
+            const from = byTimerKey.get(source)
             return from ? where(from.within, from.name) : source.slice(source.indexOf('\n') + 1)
           })
         const label = where(w.within, w.name)
@@ -527,12 +525,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     for (const followed of follows) lines.push(`  follows ${followed}`)
     for (const loaded of loads) lines.push(`  loads   ${loaded}`)
     for (const called of calls) lines.push(`  calls   ${called}`)
-    for (const waited of waits) lines.push(`  waits   ${waited}`)
+    for (const armed of arms) lines.push(`  arms    ${armed}`)
     if (reaches.length) lines.push(`  reaches: ${reaches.join(', ')}`)
     lines.push(`  findings: ${findings.length ? findings.join('; ') : 'none'}`)
 
     return {
-      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, waits, reaches, findings,
+      title, states: declared, moves, stays, answers, starts: startsStates, follows, loads, calls, arms, reaches, findings,
       text: lines.join('\n').replaceAll('\r\n', '\n'),
     }
   }
