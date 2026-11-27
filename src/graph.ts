@@ -295,14 +295,18 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
   }
 
-  const resolveSymbol = (expr: any): any => {
-    const sym = checker.getSymbolAtLocation(expr)
-    if (!sym) return undefined
-    return (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym
-  }
   const isScopeReceiver = (expr: any): boolean => {
     const t = checker.getTypeAtLocation(expr)
     return Boolean(t?.getProperty?.('tell') && t?.getProperty?.('broadcast') && t?.getProperty?.('onExit'))
+  }
+  const verbOf = (expr: any): string | undefined => {
+    if (ts.isIdentifier(expr)) {
+      if (VERBS.has(expr.text)) return expr.text
+      const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration
+      if (decl && ts.isBindingElement(decl) && decl.propertyName && VERBS.has(decl.propertyName.getText())) return decl.propertyName.getText()
+    }
+    if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeReceiver(expr.expression)) return expr.name.text
+    return undefined
   }
   const unwrapConst = (expr: any): any => {
     const seen = new Set<any>()
@@ -311,25 +315,30 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       seen.add(current)
       while (ts.isParenthesizedExpression(current)) current = current.expression
       if (!ts.isIdentifier(current)) break
-      const decl = resolveSymbol(current)?.valueDeclaration
+      const decl = checker.getSymbolAtLocation(current)?.valueDeclaration
       if (!decl || !ts.isVariableDeclaration(decl) || !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) || !decl.initializer) break
       current = decl.initializer
     }
     return current
   }
-  const callableOf = (expr: any): { parameters: readonly any[]; body: any } | undefined => {
-    const unwrapped = unwrapConst(expr)
-    if ((ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) && unwrapped.body) return unwrapped
-    const sym = resolveSymbol(unwrapped)
-    const decl = sym?.valueDeclaration ?? sym?.declarations?.[0]
-    if (!decl) return undefined
-    if ((ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl) || ts.isFunctionExpression(decl) || ts.isArrowFunction(decl)) && decl.body) return decl
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
-      let init = decl.initializer
-      while (ts.isParenthesizedExpression(init)) init = init.expression
-      if ((ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && init.body) return init
+  const isChildCall = (expr: any): boolean =>
+    ts.isCallExpression(expr) && expr.arguments.length > 0 && (
+      (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
+      || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeReceiver(expr.expression.expression))
+    )
+  const hasStaticTarget = (target: any): boolean => {
+    const resolvedTarget = unwrapConst(target)
+    if (ts.isStringLiteralLike(resolvedTarget)) return true
+    if (isChildCall(resolvedTarget)) return hasStaticTarget(resolvedTarget.arguments[0])
+    if (ts.isObjectLiteralExpression(resolvedTarget)) {
+      const prop = resolvedTarget.properties.find((p: any) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
+        && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
+      if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
     }
-    return undefined
+    const targetType = checker.getTypeAtLocation(target)
+    const nonEmpty = real(targetType)
+    return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
   }
   const isDeclName = (node: any): boolean => {
     const p = node.parent
@@ -358,80 +367,17 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const scanUncertain: string[] = []
             const armedWaits = new Set<string>()
             let hasDynamicArm = false
-            const verbParamSymbols = new Map<any, string>()
-            const scopeSymbols = new Set<any>()
-            const visitedBodies = new Set<any>()
-            const isScopeLike = (expr: any): boolean => isScopeReceiver(expr) || Boolean(ts.isIdentifier(expr) && scopeSymbols.has(resolveSymbol(expr)))
-            const verbOf = (expr: any): string | undefined => {
-              if (ts.isIdentifier(expr)) {
-                if (VERBS.has(expr.text)) return expr.text
-                const sym = resolveSymbol(expr)
-                const mapped = sym && verbParamSymbols.get(sym)
-                if (mapped) return mapped
-                const decl = sym?.valueDeclaration
-                if (decl && ts.isBindingElement(decl) && decl.propertyName && VERBS.has(decl.propertyName.getText())) return decl.propertyName.getText()
-              }
-              if (ts.isPropertyAccessExpression(expr) && VERBS.has(expr.name.text) && isScopeLike(expr.expression)) return expr.name.text
-              return undefined
-            }
-            const isChildCall = (expr: any): boolean =>
-              ts.isCallExpression(expr) && expr.arguments.length > 0 && (
-                (ts.isIdentifier(expr.expression) && expr.expression.text === 'child')
-                || (ts.isPropertyAccessExpression(expr.expression) && expr.expression.name.text === 'child' && isScopeLike(expr.expression.expression))
-              )
-            const hasStaticTarget = (target: any): boolean => {
-              const resolvedTarget = unwrapConst(target)
-              if (ts.isStringLiteralLike(resolvedTarget)) return true
-              if (isChildCall(resolvedTarget)) return hasStaticTarget(resolvedTarget.arguments[0])
-              if (ts.isObjectLiteralExpression(resolvedTarget)) {
-                const prop = resolvedTarget.properties.find((p: any) =>
-                  (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p))
-                  && (p.name.getText() === 'peer' || p.name.getText() === 'surface'))
-                if (prop) return hasStaticTarget(ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer)
-              }
-              const targetType = checker.getTypeAtLocation(target)
-              const nonEmpty = real(targetType)
-              return nonEmpty.length > 0 && nonEmpty.every((m: Type) => m.isStringLiteral())
-            }
             const arg = node.arguments[0]
             if (ts.isObjectLiteralExpression(arg)) {
               const scan = (inner: any): void => {
                 if (!isDeclName(inner)) {
-                  const asVerb = verbOf(inner)
-                  if (asVerb === 'arm' && !(inner.parent && ts.isCallExpression(inner.parent) && inner.parent.expression === inner)) {
-                    const callParent = inner.parent && ts.isCallExpression(inner.parent) && inner.parent.arguments.includes(inner) ? inner.parent : undefined
-                    const fn = callParent && callableOf(callParent.expression)
-                    const idx = callParent ? callParent.arguments.indexOf(inner) : -1
-                    const param = fn && idx >= 0 && !callParent.arguments.slice(0, idx + 1).some((a: any) => ts.isSpreadElement(a)) ? fn.parameters[idx] : undefined
-                    if (fn && param && !param.dotDotDotToken && ts.isIdentifier(param.name)) {
-                      const paramSym = resolveSymbol(param.name)
-                      if (paramSym) verbParamSymbols.set(paramSym, 'arm')
-                      if (!visitedBodies.has(fn.body)) { visitedBodies.add(fn.body); scan(fn.body) }
-                    } else {
-                      hasDynamicArm = true
-                    }
-                  } else if (ts.isIdentifier(inner) && isScopeLike(inner)) {
-                    const p = inner.parent
-                    if (p && ts.isPropertyAccessExpression(p) && p.expression === inner) {
-                      // `scope.<prop>` — handled when visiting `p`
-                    } else if (p && ts.isVariableDeclaration(p) && p.initializer === inner && ts.isObjectBindingPattern(p.name)) {
-                      // `const { arm, ... } = scope` — binding elements handled by `verbOf`
-                    } else if (p && ts.isCallExpression(p) && p.arguments.includes(inner)) {
-                      const fn = callableOf(p.expression)
-                      const idx = p.arguments.indexOf(inner)
-                      const param = fn && idx >= 0 && !p.arguments.slice(0, idx + 1).some((a: any) => ts.isSpreadElement(a)) ? fn.parameters[idx] : undefined
-                      if (fn && param && !param.dotDotDotToken && (ts.isIdentifier(param.name) || ts.isObjectBindingPattern(param.name))) {
-                        if (ts.isIdentifier(param.name)) {
-                          const paramSym = resolveSymbol(param.name)
-                          if (paramSym) scopeSymbols.add(paramSym)
-                        }
-                        if (!visitedBodies.has(fn.body)) { visitedBodies.add(fn.body); scan(fn.body) }
-                      } else {
-                        hasDynamicArm = true
-                      }
-                    } else {
-                      hasDynamicArm = true
-                    }
+                  const p = inner.parent
+                  if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
+                    hasDynamicArm = true
+                  } else if (ts.isIdentifier(inner) && isScopeReceiver(inner)
+                    && !(p && ts.isPropertyAccessExpression(p) && p.expression === inner)
+                    && !(p && ts.isVariableDeclaration(p) && p.initializer === inner && ts.isObjectBindingPattern(p.name))) {
+                    hasDynamicArm = true
                   }
                 }
                 if (ts.isCallExpression(inner) && inner.arguments[0]) {
