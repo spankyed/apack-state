@@ -78,7 +78,7 @@ network) that already ran.
   declared with anything but an options object where its options go (a bare number, a function, `null`, an array),
   or with a `whenArmed` that is neither `'restart'` nor `'ignore'`, is refused on `start()`, saying what it was given;
   no options at all, `undefined`, and an object of them are taken as they are; a throwing
-  `done` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
+  `expired` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
   `armed`.
 
 ## Handle semantics

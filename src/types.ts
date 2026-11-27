@@ -612,14 +612,14 @@ export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <
   progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void
 }) => CalledMany<R, H, E, N, I>
 
-type ArmDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N>) => Next<R, H> | void
-type ArmEachDone<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
+type ArmExpired<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N>) => Next<R, H> | void
+type ArmEachExpired<R, H extends string, E extends AnyEvent, N extends Net> = (scope: EventScope<R, H, E, N> & { readonly key: string }) => Next<R, H> | void
 /** What a timer is declared with: how long it runs, what its expiring does, and what arming it while armed does. */
 type ArmOptions<D> = {
   /** How long it runs, in milliseconds. Left out, each `arm` gives the duration. */
   readonly after?: number
   /** What happens when it expires. Left out, it only shows on `armed` until then. */
-  readonly done?: D
+  readonly expired?: D
   /** What arming it while it is armed does: `'restart'` (the default) runs it again from now, `'ignore'` leaves it as it is. */
   readonly whenArmed?: 'restart' | 'ignore'
 }
@@ -659,23 +659,23 @@ type ArmGivesNoDurationIn<O> =
     : true
 /** An imperative timer armed one at a time, as `one` builds it. */
 export interface ArmedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
-  readonly kind: 'one'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
+  readonly kind: 'one'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly expired?: Function
   readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
 }
 /** An imperative timer armed per key, as `each` builds it. */
 export interface ArmedEach<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
-  readonly kind: 'each'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
+  readonly kind: 'each'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly expired?: Function
   readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
 }
 /** Declares an imperative timer (`one`). Give `after` for `'one'`, or leave it out for `{ one: 'at arm' }`. */
 export type ArmOne<R, H extends string, E extends AnyEvent, N extends Net> = {
   (): ArmedOne<R, H, E, N, true>
-  <O extends ArmRead<ArmDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmDone<R, H, E, N>>): ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>
+  <O extends ArmRead<ArmExpired<R, H, E, N>>>(options: StrictArmOptions<O, ArmExpired<R, H, E, N>>): ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>
 }
 /** Declares an imperative keyed timer (`each`). Give `after` for `'each'`, or leave it out for `{ each: 'at arm' }`. */
 export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = {
   (): ArmedEach<R, H, E, N, true>
-  <O extends ArmRead<ArmEachDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmEachDone<R, H, E, N>>): ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>
+  <O extends ArmRead<ArmEachExpired<R, H, E, N>>>(options: StrictArmOptions<O, ArmEachExpired<R, H, E, N>>): ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>
 }
 
 /** A standing ask a state loads, as `load` makes it. */

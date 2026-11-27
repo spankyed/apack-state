@@ -77,9 +77,9 @@ is in flight, and restoring a state reads again but does not write again.
 
 The same split holds for imperative timers under **`arms`**: armed on demand with `arm(name, ...)` and cleared with
 `disarm(name, key?)`. A timer is `one` or keyed `each`, and is built from one labelled object,
-`one({ after: 100, done, whenArmed })`: `after` is how long it runs, which an `arm` may override, and a timer declared
+`one({ after: 100, expired, whenArmed })`: `after` is how long it runs, which an `arm` may override, and a timer declared
 `{ one: 'at arm' }` / `{ each: 'at arm' }` leaves it out and is given its duration by each `arm`; `whenArmed` says what
-arming it while it is armed does, `'restart'` (a debounce, the default) or `'ignore'` (a throttle); `done` is what its
+arming it while it is armed does, `'restart'` (a debounce, the default) or `'ignore'` (a throttle); `expired` is what its
 expiring does, left out for a pure-TTL flag.
 Which timers are armed lives on `armed` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
 never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that declared it (so exiting or

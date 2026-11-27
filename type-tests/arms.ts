@@ -35,16 +35,16 @@ type TimersEvent =
   | { type: 'BAD_8' }
   | { type: 'BAD_9' }
 
-// Positive check: a declared duration, one given at arm (mutable and readonly), pure-TTL (no done), `done`, `whenArmed`, and nested timers.
+// Positive check: a declared duration, one given at arm (mutable and readonly), pure-TTL (no expired), `expired`, `whenArmed`, and nested timers.
 state<TimersShape, TimersEvent>()({
   data: { count: 0, lastKey: null },
   initial: 'idle',
   arms: ({ one, each }) => ({
     pulse: one({ after: 300 }),
-    backoff: one({ done: ({ data }) => ({ data: { count: data.count + 1 } }) }),
-    fixedReadonly: one({ whenArmed: 'ignore', done: () => ({ at: 'idle' }) }),
-    flash: each({ after: 500, done: ({ key, data }) => ({ data: { lastKey: key, count: data.count + 1 } }) }),
-    retry: each({ whenArmed: 'ignore', done: ({ key }) => ({ data: { lastKey: key } }) }),
+    backoff: one({ expired: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+    fixedReadonly: one({ whenArmed: 'ignore', expired: () => ({ at: 'idle' }) }),
+    flash: each({ after: 500, expired: ({ key, data }) => ({ data: { lastKey: key, count: data.count + 1 } }) }),
+    retry: each({ whenArmed: 'ignore', expired: ({ key }) => ({ data: { lastKey: key } }) }),
     retryReadonly: each(),
   }),
   on: {
@@ -89,7 +89,7 @@ state<TimersShape, TimersEvent>()({
     idle: {},
     active: {
       arms: ({ one }) => ({
-        inner: one({ after: 100, whenArmed: 'restart', done: () => ({ at: 'idle' }) }),
+        inner: one({ after: 100, whenArmed: 'restart', expired: () => ({ at: 'idle' }) }),
       }),
       on: {
         ARM_ALL: (_, { arm }) => {
@@ -120,51 +120,51 @@ state<{ data: { n: number }; arms: { fixed: 'one'; dynamic: { one: 'at arm' }; k
 })
 
 declare const flag: boolean
-// A conditional `done` or `whenArmed` that may be `undefined` compiles cleanly while misspelled option keys are still rejected.
-state<{ data: { n: number }; arms: { optDone: 'one'; optWhen: 'one'; optDyn: { one: 'at arm' }; optEach: 'each'; optNone: { one: 'at arm' }; badOptUnion: 'one' } }>()({
+// A conditional `expired` or `whenArmed` that may be `undefined` compiles cleanly while misspelled option keys are still rejected.
+state<{ data: { n: number }; arms: { optExpired: 'one'; optWhen: 'one'; optDyn: { one: 'at arm' }; optEach: 'each'; optNone: { one: 'at arm' }; badOptUnion: 'one' } }>()({
   data: { n: 0 },
   arms: ({ one, each }) => ({
-    optDone: one({ after: 100, done: flag ? ({ data }) => ({ data: { n: data.n + 1 } }) : undefined }),
+    optExpired: one({ after: 100, expired: flag ? ({ data }) => ({ data: { n: data.n + 1 } }) : undefined }),
     optWhen: one({ after: 100, whenArmed: flag ? 'ignore' : undefined }),
     optDyn: one({ whenArmed: flag ? 'ignore' : 'restart' }),
-    optEach: each({ after: 100, done: flag ? ({ key }) => { void key } : undefined }),
+    optEach: each({ after: 100, expired: flag ? ({ key }) => { void key } : undefined }),
     optNone: one(undefined),
-    // @ts-expect-error unknown option keys are still rejected when `done` may be `undefined`
-    badOptUnion: one({ after: 100, whenArmd: 'ignore', done: flag ? () => {} : undefined }),
+    // @ts-expect-error unknown option keys are still rejected when `expired` may be `undefined`
+    badOptUnion: one({ after: 100, whenArmd: 'ignore', expired: flag ? () => {} : undefined }),
   }),
 })
 
-state<{ data: { n: number }; arms: { badDone: 'one'; badEachDone: 'each' } }>()({
+state<{ data: { n: number }; arms: { badExpired: 'one'; badEachExpired: 'each' } }>()({
   data: { n: 0 },
   arms: ({ one, each }) => ({
-    // @ts-expect-error a `one` timer's `done` return value is checked against the state's data
-    badDone: one({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),
-    // @ts-expect-error an `each` timer's `done` return value is checked against the state's data
-    badEachDone: each({ after: 100, done: () => ({ data: { n: 'wrong' } }) }),
+    // @ts-expect-error a `one` timer's `expired` return value is checked against the state's data
+    badExpired: one({ after: 100, expired: () => ({ data: { n: 'wrong' } }) }),
+    // @ts-expect-error an `each` timer's `expired` return value is checked against the state's data
+    badEachExpired: each({ after: 100, expired: () => ({ data: { n: 'wrong' } }) }),
   }),
 })
 
 // Each timer here is declared as the kind its options, as written, make: `'at arm'` where they hold no `after`. So the
 // one error on each of those lines is the option's own, and not the kind of timer that came of it.
-state<{ data: { n: number }; arms: { badAfter: { one: 'at arm' }; badWhenArmed: 'one'; badAfterEach: { each: 'at arm' }; badWhenArmedEach: { each: 'at arm' }; badAfterAlone: { one: 'at arm' }; badWhenArmedValue: { one: 'at arm' }; badPositional: { one: 'at arm' }; badPositionalDone: { one: 'at arm' } } }>()({
+state<{ data: { n: number }; arms: { badAfter: { one: 'at arm' }; badWhenArmed: 'one'; badAfterEach: { each: 'at arm' }; badWhenArmedEach: { each: 'at arm' }; badAfterAlone: { one: 'at arm' }; badWhenArmedValue: { one: 'at arm' }; badPositional: { one: 'at arm' }; badPositionalExpired: { one: 'at arm' } } }>()({
   data: { n: 0 },
   arms: ({ one, each }) => ({
-    // @ts-expect-error a misspelled `after` on a `one` timer is rejected even when `done` is present
-    badAfter: one({ afer: 100, done: () => {} }),
-    // @ts-expect-error a misspelled `whenArmed` on a `one` timer is rejected even when `done` is present
-    badWhenArmed: one({ after: 100, whenArmd: 'ignore', done: () => {} }),
-    // @ts-expect-error a misspelled `after` on an `each` timer is rejected even when `done` is present
-    badAfterEach: each({ afer: 100, done: () => {} }),
-    // @ts-expect-error a misspelled `whenArmed` on an `each` timer is rejected even when `done` is present
-    badWhenArmedEach: each({ whenArmd: 'ignore', done: () => {} }),
+    // @ts-expect-error a misspelled `after` on a `one` timer is rejected even when `expired` is present
+    badAfter: one({ afer: 100, expired: () => {} }),
+    // @ts-expect-error a misspelled `whenArmed` on a `one` timer is rejected even when `expired` is present
+    badWhenArmed: one({ after: 100, whenArmd: 'ignore', expired: () => {} }),
+    // @ts-expect-error a misspelled `after` on an `each` timer is rejected even when `expired` is present
+    badAfterEach: each({ afer: 100, expired: () => {} }),
+    // @ts-expect-error a misspelled `whenArmed` on an `each` timer is rejected even when `expired` is present
+    badWhenArmedEach: each({ whenArmd: 'ignore', expired: () => {} }),
     // @ts-expect-error a misspelled `after` is rejected when it is the only option
     badAfterAlone: one({ afer: 100 }),
     // @ts-expect-error `whenArmed` is `'restart'` or `'ignore'`
     badWhenArmedValue: one({ whenArmed: 'reset' }),
     // @ts-expect-error a duration is given as `after`, not as a bare number
     badPositional: one(100),
-    // @ts-expect-error what expiring does is given as `done`, not as a bare function
-    badPositionalDone: one(() => {}),
+    // @ts-expect-error what expiring does is given as `expired`, not as a bare function
+    badPositionalExpired: one(() => {}),
   }),
 })
 
@@ -178,8 +178,8 @@ declare const maybeOptions: { readonly after: number } | undefined
 declare const optionalAfter: { readonly after?: number }
 declare const untypedOptions: any
 state<{ data: { n: number }; arms: {
-  literal: 'one'; fromNumber: 'one'; held: 'one'; heldEach: 'each'; typedDone: 'one'; ignoring: 'one'
-  bare: { one: 'at arm' }; doneOnly: { one: 'at arm' }; heldAtArm: { one: 'at arm' }; noAfter: { one: 'at arm' }; maybeNothing: { one: 'at arm' }
+  literal: 'one'; fromNumber: 'one'; held: 'one'; heldEach: 'each'; typedExpired: 'one'; ignoring: 'one'
+  bare: { one: 'at arm' }; expiredOnly: { one: 'at arm' }; heldAtArm: { one: 'at arm' }; noAfter: { one: 'at arm' }; maybeNothing: { one: 'at arm' }
   maybeNone: 'one'; maybeNoneEach: 'each'; maybeHeld: 'one'; maybeAfter: 'one'; maybeAfterEach: 'each'; optional: 'one'
   maybeAfterAtArm: { one: 'at arm' }; maybeAfterAtArmEach: { each: 'at arm' }; optionalAtArm: { one: 'at arm' }; untyped: 'one'; untypedAtArm: { one: 'at arm' }
 } }>()({
@@ -189,13 +189,13 @@ state<{ data: { n: number }; arms: {
     fromNumber: one({ after: duration }),
     held: one(heldOptions),
     heldEach: each(heldOptions),
-    typedDone: one({ after: 100, done: ({ data, arm }) => { arm('literal'); return { data: { n: data.n + 1 } } } }),
+    typedExpired: one({ after: 100, expired: ({ data, arm }) => { arm('literal'); return { data: { n: data.n + 1 } } } }),
     ignoring: one({ after: 100, whenArmed: 'ignore' }),
     bare: one(),
-    doneOnly: one({ done: ({ data }) => ({ data: { n: data.n + 1 } }) }),
+    expiredOnly: one({ expired: ({ data }) => ({ data: { n: data.n + 1 } }) }),
     heldAtArm: one(heldBare),
     noAfter: one({ after: undefined }),
-    maybeNothing: one(flag ? { done: () => {} } : undefined),
+    maybeNothing: one(flag ? { expired: () => {} } : undefined),
     // @ts-expect-error options that may be `undefined` declare no duration for a `'one'` timer
     maybeNone: one(flag ? { after: 100 } : undefined),
     // @ts-expect-error options that may be `undefined` declare no duration for an `'each'` timer

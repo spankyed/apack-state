@@ -93,7 +93,7 @@ type LooseDef = { data?: Plain; initial?: string; on?: Record<string, Function>;
   follows?: (follow: Function) => Record<string, { feature: string; view: string; each?: string; from?: readonly string[]; args?: Function; updated: Function }>
   loads?: (load: Function) => Record<string, { of: string; ask: string; each?: string; from?: readonly string[]; args?: Function; done: Function; progress?: Function }>
   calls?: (calls: { one: Function; each: Function; many: Function }) => Record<string, { kind: 'one' | 'each' | 'many'; of: string; ask: string; args?: Function; done: Function; progress?: Function }>
-  arms?: (arms: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string }>
+  arms?: (arms: { one: Function; each: Function }) => Record<string, { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; expired?: Function; not?: string }>
 }
 
 interface Armed { stop?: () => void }
@@ -884,14 +884,14 @@ export function system<N extends Net = Net>(host: {
    * A timer as its builder was called. What cannot be a timer's options is kept, in words, to be refused: anything
    * passed where they go that is not an object of them, and a `whenArmed` that is neither of the two it can be.
    */
-  const armEntry = (kind: 'one' | 'each', options?: unknown): { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string } => {
+  const armEntry = (kind: 'one' | 'each', options?: unknown): { kind: 'one' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; expired?: Function; not?: string } => {
     const given = options === null ? 'null' : Array.isArray(options) ? 'an array' : typeof options === 'object' || options === undefined ? undefined : `a ${typeof options}`
-    if (given) return { kind, not: `${given} where its options go: a timer takes { after, whenArmed, done }` }
-    const { after, whenArmed, done } = (options ?? {}) as { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }
+    if (given) return { kind, not: `${given} where its options go: a timer takes { after, whenArmed, expired }` }
+    const { after, whenArmed, expired } = (options ?? {}) as { after?: number; whenArmed?: 'restart' | 'ignore'; expired?: Function }
     if (whenArmed !== undefined && whenArmed !== 'restart' && whenArmed !== 'ignore') {
       return { kind, not: `whenArmed ${typeof whenArmed === 'string' ? `'${whenArmed as string}'` : String(whenArmed)}: it is 'restart' or 'ignore'` }
     }
-    return { kind, after, whenArmed, done }
+    return { kind, after, whenArmed, expired }
   }
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
   const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>>; arms: ReturnType<NonNullable<LooseDef['arms']>> }>()
@@ -1511,9 +1511,9 @@ export function system<N extends Net = Net>(host: {
       const top = item.of.top
       item.of.armed.delete(item.id)
       armedChanged(top)
-      if (!declared.done) return MADE
-      try { return apply(item.of, declared.done(eventScopeOf(item.of, item.key))) } catch (error) {
-        defect(`${top.ref} threw in ${item.id} done, and nothing changed: ${said(error)}`, top.ref, error)
+      if (!declared.expired) return MADE
+      try { return apply(item.of, declared.expired(eventScopeOf(item.of, item.key))) } catch (error) {
+        defect(`${top.ref} threw in ${item.id} expired, and nothing changed: ${said(error)}`, top.ref, error)
         return NOT_MADE
       }
     }

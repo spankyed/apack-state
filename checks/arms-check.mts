@@ -69,7 +69,7 @@ type SvcNet = {
 const netState = forNet<SvcNet>()
 
 const checks: Array<[string, () => Promise<void>]> = [
-  ['one and each timers arm, expose frozen armed, fire done (transitions, data, send, tell, call), and keep idle() true', async () => {
+  ['one and each timers arm, expose frozen armed, fire expired (transitions, data, send, tell, call), and keep idle() true', async () => {
     const manual = manualClock()
     const svcEvents: string[] = []
     const svcCalls: string[] = []
@@ -99,13 +99,13 @@ const checks: Array<[string, () => Promise<void>]> = [
         }),
       }),
       arms: ({ one, each }) => ({
-        debounce: one({ after: 200, done: ({ send, tell, call }) => {
+        debounce: one({ after: 200, expired: ({ send, tell, call }) => {
           send({ type: 'BUMP' })
           tell('svc', { type: 'NOTIFIED', tag: 'debounced' })
           call('save', { tag: 'doc' })
           return { at: 'submitted', data: (d) => { d.fired.push('debounce') } }
         } }),
-        t: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.fired.push(`each:${key}`) } }) }),
+        t: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`each:${key}`) } }) }),
       }),
       internal: {
         BUMP: (_, { data }) => ({ data: { internalHits: data.internalHits + 1 } }),
@@ -165,7 +165,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(JSON.stringify(allHandled).includes('200'), false)
   }],
 
-  ['omitted done (pure-TTL flags) updates snapshot.armed, notifies subscribers, and drives Vue mirror and useState reactivity', async () => {
+  ['omitted expired (pure-TTL flags) updates snapshot.armed, notifies subscribers, and drives Vue mirror and useState reactivity', async () => {
     const manual = manualClock()
     type FlagShape = {
       data: { label: string }
@@ -255,7 +255,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     await nextTick()
     strictEqual(rendered.at(-1), 'next|p=true|a=true')
 
-    // Expire pulse at 150ms (pure TTL, no done): armed.pulse flips to false and triggers pulse reader only.
+    // Expire pulse at 150ms (pure TTL, no expired): armed.pulse flips to false and triggers pulse reader only.
     manual.advance(150)
     deepStrictEqual(ran(), ['pulse'])
     strictEqual(held.value.armed.pulse, false)
@@ -273,7 +273,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     held.stop()
   }],
 
-  ["whenArmed: 'restart' (default) restarts the timer on re-arm without spurious subscriber notice; whenArmed: 'ignore' throttles and re-arms after expiry or inside done", async () => {
+  ["whenArmed: 'restart' (default) restarts the timer on re-arm without spurious subscriber notice; whenArmed: 'ignore' throttles and re-arms after expiry or inside expired", async () => {
     const manual = manualClock()
     type Shape = {
       data: { debounced: number; throttled: number; selfRearms: number }
@@ -283,12 +283,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     const machine = state<Shape, Ev>()({
       data: { debounced: 0, throttled: 0, selfRearms: 0 },
       arms: ({ one }) => ({
-        deb: one({ after: 100, done: ({ data }) => ({ data: { debounced: data.debounced + 1 } }) }),
-        thr: one({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
+        deb: one({ after: 100, expired: ({ data }) => ({ data: { debounced: data.debounced + 1 } }) }),
+        thr: one({ after: 100, whenArmed: 'ignore', expired: ({ data }) => ({ data: { throttled: data.throttled + 1 } }) }),
         loop: one({
           after: 50,
           whenArmed: 'ignore',
-          done: ({ data, arm }) => {
+          expired: ({ data, arm }) => {
             if (data.selfRearms < 1) arm('loop')
             return { data: { selfRearms: data.selfRearms + 1 } }
           },
@@ -340,7 +340,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(100)
     strictEqual(sys.read(h).data.throttled, 2)
 
-    // Self-re-arming a `whenArmed: 'ignore'` timer inside `done` succeeds because the kernel cleared it before invoking `done`.
+    // Self-re-arming a `whenArmed: 'ignore'` timer inside `expired` succeeds because the kernel cleared it before invoking `expired`.
     sys.send(h, { type: 'LOOP' })
     manual.advance(50)
     strictEqual(sys.read(h).data.selfRearms, 1)
@@ -350,7 +350,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(h).armed.loop, false)
   }],
 
-  ['a duration given at arm ({ one: "at arm" } / { each: "at arm" }) and an optional ms override on a timer with `after` work with and without done and whenArmed', async () => {
+  ['a duration given at arm ({ one: "at arm" } / { each: "at arm" }) and an optional ms override on a timer with `after` work with and without expired and whenArmed', async () => {
     const manual = manualClock()
     let builtOneKind: string | undefined
     let builtEachKind: string | undefined
@@ -361,10 +361,10 @@ const checks: Array<[string, () => Promise<void>]> = [
         fixedEach: 'each'
         undefinedAfter: 'one'
         dynOneBare: { one: 'at arm' }
-        dynOneDone: { one: 'at arm' }
+        dynOneExpired: { one: 'at arm' }
         dynOneOpts: { one: 'at arm' }
         dynEachBare: { each: 'at arm' }
-        dynEachDone: { each: 'at arm' }
+        dynEachExpired: { each: 'at arm' }
         dynEachOpts: { each: 'at arm' }
       }
     }
@@ -375,20 +375,20 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { log: [] },
       arms: ({ one, each }) => {
-        const fixedOne = one({ after: 500, whenArmed: 'restart', done: () => ({ data: (d) => { d.log.push('fixedOne') } }) })
-        const fixedEach = each({ after: 500, whenArmed: 'restart', done: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
+        const fixedOne = one({ after: 500, whenArmed: 'restart', expired: () => ({ data: (d) => { d.log.push('fixedOne') } }) })
+        const fixedEach = each({ after: 500, whenArmed: 'restart', expired: ({ key }) => ({ data: (d) => { d.log.push(`fixedEach:${key}`) } }) })
         builtOneKind = fixedOne.kind
         builtEachKind = fixedEach.kind
         return {
           fixedOne,
           fixedEach,
-          undefinedAfter: one({ after: undefined as unknown as number, done: () => ({ data: (d) => { d.log.push('undefinedAfterOverride') } }) }),
+          undefinedAfter: one({ after: undefined as unknown as number, expired: () => ({ data: (d) => { d.log.push('undefinedAfterOverride') } }) }),
           dynOneBare: one(),
-          dynOneDone: one({ done: () => ({ data: (d) => { d.log.push('dynOneDone') } }) }),
-          dynOneOpts: one({ whenArmed: 'ignore', done: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
+          dynOneExpired: one({ expired: () => ({ data: (d) => { d.log.push('dynOneExpired') } }) }),
+          dynOneOpts: one({ whenArmed: 'ignore', expired: () => ({ data: (d) => { d.log.push('dynOneOpts') } }) }),
           dynEachBare: each(),
-          dynEachDone: each({ done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachDone:${key}`) } }) }),
-          dynEachOpts: each({ whenArmed: 'ignore', done: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
+          dynEachExpired: each({ expired: ({ key }) => ({ data: (d) => { d.log.push(`dynEachExpired:${key}`) } }) }),
+          dynEachOpts: each({ whenArmed: 'ignore', expired: ({ key }) => ({ data: (d) => { d.log.push(`dynEachOpts:${key}`) } }) }),
         }
       },
       on: {
@@ -399,10 +399,10 @@ const checks: Array<[string, () => Promise<void>]> = [
         },
         DYN_ALL: (_, { arm }) => {
           arm('dynOneBare', 10)
-          arm('dynOneDone', 20)
+          arm('dynOneExpired', 20)
           arm('dynOneOpts', 30)
           arm('dynEachBare', 'a', 15)
-          arm('dynEachDone', 'b', 25)
+          arm('dynEachExpired', 'b', 25)
           arm('dynEachOpts', 'c', 35)
         },
       },
@@ -427,7 +427,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(5)
     strictEqual(sys.read(h).armed.dynEachBare.a, undefined)
     manual.advance(20)
-    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'undefinedAfterOverride', 'fixedEach:k', 'dynOneDone', 'dynEachDone:b', 'dynOneOpts', 'dynEachOpts:c'])
+    deepStrictEqual(sys.read(h).data.log, ['fixedOne', 'undefinedAfterOverride', 'fixedEach:k', 'dynOneExpired', 'dynEachExpired:b', 'dynOneOpts', 'dynEachOpts:c'])
   }],
 
   ['ms === 0 schedules on a subsequent step (never synchronously), and invalid ms or missing clock report exact defects without arming', async () => {
@@ -448,9 +448,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { ran: 0 },
       arms: ({ one, each }) => ({
-        zero: one({ after: 0, done: ({ data }) => { order.push('done'); return { data: { ran: data.ran + 1 } } } }),
-        dyn: one({ done: () => { order.push('dyn') } }),
-        keyed: each({ done: () => { order.push('keyed') } }),
+        zero: one({ after: 0, expired: ({ data }) => { order.push('expired'); return { data: { ran: data.ran + 1 } } } }),
+        dyn: one({ expired: () => { order.push('dyn') } }),
+        keyed: each({ expired: () => { order.push('keyed') } }),
         fixedKeyed: each({ after: 100 }),
       }),
       on: {
@@ -473,7 +473,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     // Even if a clock fires ms===0 synchronously inside clock.after, the expiry runs in a subsequent step (after handler ends).
     manual.fireNextSync()
     sys.send(h, { type: 'ZERO' })
-    deepStrictEqual(order, ['before-arm', 'after-arm', 'done'])
+    deepStrictEqual(order, ['before-arm', 'after-arm', 'expired'])
     strictEqual(sys.read(h).data.ran, 1)
     strictEqual(sys.read(h).armed.zero, false)
 
@@ -483,7 +483,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(order, ['before-arm', 'after-arm'])
     strictEqual(sys.read(h).armed.zero, true)
     manual.advance(0)
-    deepStrictEqual(order, ['before-arm', 'after-arm', 'done'])
+    deepStrictEqual(order, ['before-arm', 'after-arm', 'expired'])
     strictEqual(sys.read(h).data.ran, 2)
     strictEqual(defects.length, 0)
 
@@ -527,7 +527,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       initial: 'on',
       states: {
         on: {
-          arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+          arms: ({ one }) => ({ w: one({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           on: {
             ARM: (_, { arm }) => { arm('w') },
             DISARM: (_, { disarm }) => { disarm('w') },
@@ -605,9 +605,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { fired: [] },
       arms: ({ one, each }) => ({
-        a: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.fired.push(`a:${key}`) } }) }),
-        b: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.fired.push(`b:${key}`) } }) }),
-        c: one({ after: 100, done: () => ({ data: (d) => { d.fired.push('c') } }) }),
+        a: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`a:${key}`) } }) }),
+        b: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.fired.push(`b:${key}`) } }) }),
+        c: one({ after: 100, expired: () => ({ data: (d) => { d.fired.push('c') } }) }),
       }),
       on: {
         ARM_ALL: (_, { arm }) => {
@@ -670,7 +670,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       data: { fired: 0 },
       arms: ({ one }) => ({
         // whenArmed: 'ignore' proves `disarm; arm` truly disarmed before arming (restarting it to expire at t+100).
-        thr: one({ after: 100, whenArmed: 'ignore', done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
+        thr: one({ after: 100, whenArmed: 'ignore', expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }),
       }),
       on: {
         ARM: (_, { arm }) => { arm('thr') },
@@ -715,7 +715,7 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     const m = state<Shape, Ev>()({
       data: { n: 0 },
-      arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { n: data.n + 1 } }) }) }),
+      arms: ({ one }) => ({ w: one({ after: 100, expired: ({ data }) => ({ data: { n: data.n + 1 } }) }) }),
       on: {
         ARM: (_, { arm }) => { arm('w') },
         ARM_AND_THROW: (_, { arm }) => {
@@ -789,7 +789,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       },
       states: {
         active: {
-          arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+          arms: ({ one }) => ({ w: one({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
           listen: ({ arm, disarm }) => {
             lateArmParent.push(() => { arm('parentTimer') })
             lateDisarmParent.push(() => { disarm('parentTimer') })
@@ -884,7 +884,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'STREAM' }
     const m = netState<Shape, Ev>()({
       data: { fired: 0, batches: [] },
-      arms: ({ one }) => ({ w: one({ after: 100, done: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
+      arms: ({ one }) => ({ w: one({ after: 100, expired: ({ data }) => ({ data: { fired: data.fired + 1 } }) }) }),
       calls: ({ one }) => ({
         stream: one('svc', 'STREAM', {
           progress: (updates) => ({ data: (d) => { d.batches.push([...updates]) } }),
@@ -903,7 +903,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.start('svc', svc)
     const h = sys.start('m', m)
 
-    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, done never runs,
+    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, expired never runs,
     // and gathered progress waiting for its frame is NOT flushed early by `handOver()`.
     sys.send(h, { type: 'STREAM' })
     sys.send(h, { type: 'ARM' })
@@ -944,11 +944,11 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(logs.slice(logsBeforeCaseB).some((s) => s.handled.some((x) => x.kind === 'expired')), false)
   }],
 
-  ['done throwing reports exact defect and rolls back its sayings while still clearing armed', async () => {
+  ['expired throwing reports exact defect and rolls back its sayings while still clearing armed', async () => {
     const manual = manualClock()
     const store = memory()
     const defects: Defect[] = []
-    const boom = new Error('done exploded')
+    const boom = new Error('expired exploded')
     type Shape = {
       data: { sideEffect: number }
       internal: { type: 'AFTER' }
@@ -958,7 +958,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const m = state<Shape, Ev>()({
       data: { sideEffect: 0 },
       arms: ({ one }) => ({
-        w: one({ after: 50, done: ({ send }) => {
+        w: one({ after: 50, expired: ({ send }) => {
           store.put('thread', '1', { topic: 'ok' })
           send({ type: 'AFTER' })
           throw boom
@@ -985,7 +985,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(sys.read(h).data.sideEffect, 0)
     strictEqual(store.get('thread', '1'), undefined)
     strictEqual(defects.length, 1)
-    strictEqual(defects[0]!.message, 'm threw in w done, and nothing changed: done exploded')
+    strictEqual(defects[0]!.message, 'm threw in w expired, and nothing changed: expired exploded')
     strictEqual(defects[0]!.ref, 'm')
     strictEqual(defects[0]!.error, boom)
   }],
@@ -1011,8 +1011,8 @@ const checks: Array<[string, () => Promise<void>]> = [
         session: {
           initial: 'a',
           arms: ({ one, each }) => ({
-            keepalive: one({ after: 100, done: ({ data }) => ({ data: { expired: data.expired + 1 } }) }),
-            tagged: each({ after: 100, done: ({ key }) => ({ data: (d) => { d.tags.push(key) } }) }),
+            keepalive: one({ after: 100, expired: ({ data }) => ({ data: { expired: data.expired + 1 } }) }),
+            tagged: each({ after: 100, expired: ({ key }) => ({ data: (d) => { d.tags.push(key) } }) }),
           }),
           answers: {
             PING: (_, { arm }) => { arm('keepalive'); return 'armed' },
@@ -1070,7 +1070,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const debouncer = state<Shape, Ev>()({
       data: { count: 0, settled: false },
       arms: ({ one }) => ({
-        settle: one({ after: 50, done: () => ({ data: { settled: true } }) }),
+        settle: one({ after: 50, expired: () => ({ data: { settled: true } }) }),
       }),
       on: {
         TOUCH: (_, { data, arm }) => {
@@ -1101,15 +1101,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     const manual = manualClock()
     const sys = system({ side: 'backend', clock: manual.clock })
     const given = (what: unknown) => ({ def: { arms: ({ one }: { one: Function }) => ({ retry: one(what) }) } })
-    throws(() => sys.start('number', given(100) as never), { message: 'number declares timer retry with a number where its options go: a timer takes { after, whenArmed, done }' })
-    throws(() => sys.start('function', given(() => {}) as never), { message: 'function declares timer retry with a function where its options go: a timer takes { after, whenArmed, done }' })
+    throws(() => sys.start('number', given(100) as never), { message: 'number declares timer retry with a number where its options go: a timer takes { after, whenArmed, expired }' })
+    throws(() => sys.start('function', given(() => {}) as never), { message: 'function declares timer retry with a function where its options go: a timer takes { after, whenArmed, expired }' })
     // One inside a state is refused as the one at the top is.
     throws(
       () => sys.start('inner', { def: { initial: 'a', states: { a: { arms: ({ each }: { each: Function }) => ({ flash: each('soon') }) } } } } as never),
-      { message: 'inner declares timer flash with a string where its options go: a timer takes { after, whenArmed, done }' },
+      { message: 'inner declares timer flash with a string where its options go: a timer takes { after, whenArmed, expired }' },
     )
-    throws(() => sys.start('null', given(null) as never), { message: 'null declares timer retry with null where its options go: a timer takes { after, whenArmed, done }' })
-    throws(() => sys.start('array', given([100]) as never), { message: 'array declares timer retry with an array where its options go: a timer takes { after, whenArmed, done }' })
+    throws(() => sys.start('null', given(null) as never), { message: 'null declares timer retry with null where its options go: a timer takes { after, whenArmed, expired }' })
+    throws(() => sys.start('array', given([100]) as never), { message: 'array declares timer retry with an array where its options go: a timer takes { after, whenArmed, expired }' })
     // So is a `whenArmed` that is neither of the two it can be, whatever it is.
     throws(() => sys.start('reset', given({ after: 100, whenArmed: 'reset' }) as never), { message: "reset declares timer retry with whenArmed 'reset': it is 'restart' or 'ignore'" })
     throws(() => sys.start('flag', given({ after: 100, whenArmed: true }) as never), { message: "flag declares timer retry with whenArmed true: it is 'restart' or 'ignore'" })
