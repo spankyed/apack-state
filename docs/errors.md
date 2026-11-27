@@ -161,6 +161,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | `attachPeer(sys, 'unknown', () => {})` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"runHistory" \| "audit"'. | unknown peer name is rejected at attach time |
 | `attachPeer(sys, 'audit', (_event: { type: 'STEP_RECORDED'; id: string; detail: string }…` | TS2345: Argument of type '(_event: { type: "STEP_RECORDED"; id: string; detail: string; }) => void' is not assignable to parameter of type 'TypedPeer&lt;{ type: "NOTE"; text: string; }>'. | wrong event union for the named peer |
 | `attachNone(sys, 'runHistory', () => {})` | TS2345: Argument of type '"runHistory"' is not assignable to parameter of type 'never'. | Net with no peers rejects every peer name |
+| `attachOptional(sys, 'unknown', () => {})` | TS2345: Argument of type '"unknown"' is not assignable to parameter of type '"audit"'. | optional peers still reject unknown peer names |
 
 ## A refusal's data is part of the ask's declaration.
 

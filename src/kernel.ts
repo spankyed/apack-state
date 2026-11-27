@@ -1684,11 +1684,11 @@ export type TypedPeer<E extends AnyEvent> =
  * `attachPeer(sys, name, handler)` type-checks both the peer name and its event union.
  */
 export function peersFor<N extends Net>(): <
-  K extends N['peers'] extends Record<string, { events: AnyEvent }> ? keyof N['peers'] & string : never,
+  K extends NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? keyof NonNullable<N['peers']> & string : never,
 >(
   sys: System,
   name: K,
-  handler: TypedPeer<N['peers'] extends Record<string, { events: AnyEvent }> ? N['peers'][K]['events'] : never>,
+  handler: TypedPeer<NonNullable<N['peers']> extends Record<string, { events: AnyEvent }> ? NonNullable<N['peers']>[K]['events'] : never>,
 ) => () => void {
   return (sys, name, handler) => {
     const port: PeerPort = typeof handler === 'function'

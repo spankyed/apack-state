@@ -439,11 +439,11 @@ export type OutcomeOf<A extends AskShape> = Outcome<A['answer'], AskFailure<A>>;
 export type PeerPort = Pick<Port, 'tell'>;
 
 // @public
-export function peersFor<N extends Net>(): <K extends N['peers'] extends Record<string, {
+export function peersFor<N extends Net>(): <K extends NonNullable<N['peers']> extends Record<string, {
     events: AnyEvent;
-}> ? keyof N['peers'] & string : never>(sys: System, name: K, handler: TypedPeer<N['peers'] extends Record<string, {
+}> ? keyof NonNullable<N['peers']> & string : never>(sys: System, name: K, handler: TypedPeer<NonNullable<N['peers']> extends Record<string, {
     events: AnyEvent;
-}> ? N['peers'][K]['events'] : never>) => () => void;
+}> ? NonNullable<N['peers']>[K]['events'] : never>) => () => void;
 
 // @public
 export interface Port {

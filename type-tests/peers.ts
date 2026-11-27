@@ -55,3 +55,17 @@ attachPeer(sys, 'unknown', () => {})
 attachPeer(sys, 'audit', (_event: { type: 'STEP_RECORDED'; id: string; detail: string }) => {})
 // @ts-expect-error Net with no peers rejects every peer name
 attachNone(sys, 'runHistory', () => {})
+
+// Optional `peers?: ...` on a Net still resolves its peer names and event unions cleanly.
+const attachOptional = peersFor<{
+  systems: {}
+  surfaces: {}
+  views: {}
+  peers?: { audit: { events: { type: 'NOTE'; text: string } } }
+}>()
+attachOptional(sys, 'audit', (event) => {
+  const text: string = event.text
+  void text
+})
+// @ts-expect-error optional peers still reject unknown peer names
+attachOptional(sys, 'unknown', () => {})
