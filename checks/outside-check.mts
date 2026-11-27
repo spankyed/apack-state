@@ -159,6 +159,20 @@ await run([
     deepStrictEqual(saw, ['effect thread', 'finally'])
   }],
 
+  ['what outside work ends with is put off in a lane of its own, named for the system, so a schedule can order it', async () => {
+    const saw: string[] = []
+    const lanes: string[] = []
+    const work = held<string>()
+    const sys = system({ side: 'window', name: 'the shell', later: (lane, go) => { lanes.push(lane.label); nextTurn(go) } })
+    sys.start('o', opening(work.promise, saw))
+    await turns(4)
+    lanes.length = 0
+    work.resolve('thread')
+    await rest()
+    deepStrictEqual(lanes.filter((label) => /outside/.test(label)), ['the shell\'s outside work'])
+    deepStrictEqual(saw, ['effect thread', 'finally'])
+  }],
+
   ['outside work that fails, started and waited for by nothing before its work ends, is said then; one waited for later is thrown there and not said', async () => {
     for (const waitsLater of [false, true]) {
       const saw: string[] = []
