@@ -119,6 +119,20 @@ state<{ data: { n: number }; waits: { fixed: 'one'; dynamic: { one: 'ms' }; keye
   }),
 })
 
+declare const flag: boolean
+// Conditional `done` / options unions with `undefined` compile cleanly while misspelled option keys are still rejected.
+state<{ data: { n: number }; waits: { optFn: 'one'; optObj: 'one'; optDyn: { one: 'ms' }; optEach: 'each'; badOptUnion: 'one' } }>()({
+  data: { n: 0 },
+  waits: ({ one, each }) => ({
+    optFn: one(100, flag ? ({ data }) => ({ data: { n: data.n + 1 } }) : undefined),
+    optObj: one(100, flag ? { reset: false } : undefined),
+    optDyn: one(flag ? { reset: false } : undefined),
+    optEach: each(100, flag ? ({ key }) => { void key } : undefined),
+    // @ts-expect-error unknown option keys are still rejected when unioned with `undefined`
+    badOptUnion: one(100, flag ? { rest: false, done: () => {} } : undefined),
+  }),
+})
+
 state<{ data: { n: number }; waits: { badDone: 'one'; badEachDone: 'each'; badOptFixed: 'one'; badOptDyn: { one: 'ms' }; badEachOptFixed: 'each'; badEachOptDyn: { each: 'ms' } } }>()({
   data: { n: 0 },
   waits: ({ one, each }) => ({
@@ -161,3 +175,42 @@ void _pulse; void _backoff; void _inner; void _flash; void _retry; void _badOne;
 declare const plainValue: Value<{ data: { n: number } }>
 // @ts-expect-error a state with no declared waits has no `waiting` property on its value
 void plainValue.waiting
+
+// Sibling states may share a wait name with the same kind (e.g. `'one'` and `{ one: 'ms' }`),
+// but conflicting kinds (`one` vs `each`) across states are refused at definition time.
+type SameKindWaitsShape = {
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: { one: 'ms' } } }
+  }
+}
+state<SameKindWaitsShape, never>()({
+  initial: 'a',
+  states: {
+    a: { waits: ({ one }) => ({ retry: one(100) }) },
+    b: { waits: ({ one }) => ({ retry: one() }) },
+  },
+})
+declare const sameKindWaitsValue: Value<SameKindWaitsShape>
+const _sameKindWaiting: boolean = sameKindWaitsValue.waiting.retry
+void _sameKindWaiting
+
+type ConflictingWaitsShape = {
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: 'each' } }
+  }
+}
+state<ConflictingWaitsShape, never>()({
+  initial: 'a',
+  states: {
+    a: {
+      // @ts-expect-error a wait name cannot be declared with conflicting kinds across states of one machine
+      waits: ({ one }) => ({ retry: one(100) }),
+    },
+    b: {
+      // @ts-expect-error a wait name cannot be declared with conflicting kinds across states of one machine
+      waits: ({ each }) => ({ retry: each(100) }),
+    },
+  },
+})

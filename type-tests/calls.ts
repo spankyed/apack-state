@@ -161,3 +161,42 @@ const _manyCount: number = typedValue.pending.uploadDirect
 // @ts-expect-error a `many` call exposes its in-flight count (`number`), not a `boolean`
 const _wrongManyPending: boolean = typedValue.pending.uploadDirect
 void _manyCount; void _wrongManyPending
+
+// Sibling states may share a call name with the same kind (e.g. bare `'one'` and typed `{ one: In }`),
+// but conflicting kinds (`one` vs `each`) across states are refused at definition time.
+type SameKindCallsShape = {
+  states: {
+    a: { calls: { save: 'one' } }
+    b: { calls: { save: { one: { message: string } } } }
+  }
+}
+typed<SameKindCallsShape, never>()({
+  initial: 'a',
+  states: {
+    a: { calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }) },
+    b: { calls: ({ one }) => ({ save: one('svc', 'COMMIT', { done: () => {} }) }) },
+  },
+})
+declare const sameKindCallsValue: Value<SameKindCallsShape>
+const _sameKindPending: boolean = sameKindCallsValue.pending.save
+void _sameKindPending
+
+type ConflictingCallsShape = {
+  states: {
+    a: { calls: { save: 'one' } }
+    b: { calls: { save: 'each' } }
+  }
+}
+typed<ConflictingCallsShape, never>()({
+  initial: 'a',
+  states: {
+    a: {
+      // @ts-expect-error a call name cannot be declared with conflicting kinds across states of one machine
+      calls: ({ one }) => ({ save: one('svc', 'PING', { done: () => {} }) }),
+    },
+    b: {
+      // @ts-expect-error a call name cannot be declared with conflicting kinds across states of one machine
+      calls: ({ each }) => ({ save: each('svc', 'PING', { done: () => {} }) }),
+    },
+  },
+})

@@ -3,7 +3,7 @@
 // keep, and is read beside the data.
 //
 //   npx vitest run calls
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { effect } from '@vue/reactivity'
 import { connect, rest, run, system } from './checks.mts'
 import { mirror } from '../src/mirror.ts'
@@ -532,6 +532,65 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(uploadCalls.length >= 2 && uploadCalls.every((e) => e.key === undefined))
 
     held.stop()
+    sys.stop()
+  }],
+
+  ['conflicting call kinds across states fail fast on start, matching kinds succeed, and untyped each calls without a string key report a defect', async () => {
+    const sys = system({ side: 'backend' })
+
+    // Same kind across sibling states is allowed and runs normally.
+    const sameKind = state<{ states: { a: { calls: { save: 'one' } }; b: { calls: { save: 'one' } } } }>()({
+      initial: 'a',
+      states: {
+        a: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'a' }), done: () => {} }) }) },
+        b: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'b' }), done: () => {} }) }) },
+      },
+    })
+    const okHandle = sys.start('same-kind', sameKind)
+    deepStrictEqual(sys.read(okHandle).pending, { save: false })
+
+    // Conflicting kinds across nested states fail fast at start() before anything runs.
+    const conflicting = {
+      def: {
+        initial: 'a',
+        states: {
+          a: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+          outer: {
+            initial: 'inner',
+            states: {
+              inner: { calls: ({ each }: { each: Function }) => ({ save: each('worker', 'RUN', { args: (id: string) => ({ id }), done: () => {} }) }) },
+            },
+          },
+        },
+      },
+    }
+    throws(
+      () => sys.start('bad-calls', conflicting as never),
+      { message: 'bad-calls declares call save with conflicting kinds (one and each)' },
+    )
+
+    // Untyped call on an `each` entry without a string key reports a defect and does not corrupt `pending`.
+    const defects: Array<{ message: string; ref?: string }> = []
+    const guarded = system({ side: 'backend', onDefect: (d) => defects.push({ message: d.message, ref: d.ref }) })
+    const did: string[] = []
+    guarded.start('worker', worker(did))
+    const m = state<{ calls: { run: 'each' } }, { type: 'MISSING' } | { type: 'NUM' }>()({
+      calls: ({ each }) => ({ run: each('worker', 'RUN', { args: (id) => ({ id }), done: () => {} }) }),
+      on: {
+        MISSING: (_, { call }) => { (call as (n: string) => void)('run') },
+        NUM: (_, { call }) => { (call as (n: string, k: unknown) => void)('run', 42) },
+      },
+    })
+    const mh = guarded.start('m', m)
+    guarded.send(mh, { type: 'MISSING' })
+    guarded.send(mh, { type: 'NUM' })
+    deepStrictEqual(defects, [
+      { message: 'm cannot call run without a string key', ref: 'm' },
+      { message: 'm cannot call run without a string key', ref: 'm' },
+    ])
+    deepStrictEqual(guarded.read(mh).pending, { run: {} })
+    deepStrictEqual(did, [])
+    guarded.stop()
     sys.stop()
   }],
 ]
