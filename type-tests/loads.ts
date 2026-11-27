@@ -32,6 +32,9 @@ state<Reader, ReaderEvent>()({
     eachAlone: load('library', 'LOOKUP', { each: 'watched', args: (id, from) => ({ query: `${id} ${Object.keys(from).length}` }), done: () => {} }),
     // @ts-expect-error one for each key of a field is not also read again from that same field
     eachTwice: load('library', 'LOOKUP', { each: 'watched', from: ['watched'], args: (id) => ({ query: id }), done: () => {} }),
+    // @ts-expect-error whether there is one read or one for each key cannot go by a value
+    eachMaybe: load('library', 'LOOKUP', { each: Math.random() > 0.5 ? 'watched' : undefined, args: () => ({ query: '' }), done: () => {} }),
+    eachNot: load('library', 'LOOKUP', { each: undefined, args: () => ({ query: '' }), done: () => {} }),
     // @ts-expect-error one for each key is given its key first, which is a string, and the fields it named after it
     eachKeyless: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: ({ again }) => ({ query: String(again) }), done: () => {} }),
     // @ts-expect-error one read from fields alone is not one of many, so how it ended has no key
@@ -48,6 +51,16 @@ type BatchNet = {
   views: {}
 }
 declare const worked: readonly 'ids'[]
+declare const some: boolean
+declare const untypedFrom: any
+declare const heldRev: readonly 'rev'[]
+declare const maybeRev: readonly 'rev'[] | undefined
+// Options held in a constant of a type written out, one of them left out.
+declare const heldOptions: { each: 'ids'; args: (id: string) => { ids: string[] }; done: () => void; progress?: () => void }
+declare const heldOptionsFrom: { each: 'ids'; from: readonly 'rev'[]; args: (id: string, from: { readonly rev: number }) => { ids: string[] }; done: () => void; progress?: () => void }
+declare const heldOptionsMaybeFrom: { each: 'ids'; from?: readonly 'rev'[]; args: (id: string, from: { readonly rev: number } | undefined) => { ids: string[] }; done: () => void }
+declare const heldOptionsMaybeFromRead: { each: 'ids'; from?: readonly 'rev'[]; args: (id: string, from: { readonly rev: number }) => { ids: string[] }; done: () => void }
+declare const heldOptionsUnkeyed: { from: readonly 'rev'[]; args: (from: { readonly rev: number }) => { ids: string[] }; done: () => void; progress?: () => void }
 forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single'; each: 'each' } }, never>()({
   data: { ids: [], rev: 0 },
   loads: (load) => ({
@@ -70,6 +83,53 @@ forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single
     eachMisspelt: load('svc', 'PING', { each: 'ids', from: [], dnoe: () => {}, done: () => {} }),
     // @ts-expect-error one for each key of a field is not also read again from that field, where the fields it names are worked out
     eachTwiceWorkedOut: load('svc', 'BATCH', { each: 'ids', from: worked, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // A `from` written as `undefined` is no `from`: one for each key is given its key alone.
+    eachUndefined: load('svc', 'BATCH', { each: 'ids', from: undefined, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // @ts-expect-error one for each key whose `from` is `undefined` names no fields, and is given its key alone
+    eachUndefinedRead: load('svc', 'BATCH', { each: 'ids', from: undefined, args: (id, from) => ({ ids: [id, ...Object.keys(from)] }), done: () => {} }),
+    // A `from` that may be `undefined` gives the fields it names where it is there, and `undefined` where it is not.
+    eachMaybe: load('svc', 'BATCH', { each: 'ids', from: some ? ['rev'] : undefined, args: (id, from) => ({ ids: [id, from === undefined ? '' : from.rev.toFixed()] }), done: () => {} }),
+    eachMaybeAlone: load('svc', 'BATCH', { each: 'ids', from: some ? ['rev'] : undefined, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // @ts-expect-error one for each key whose `from` may be `undefined` may be given no fields, so they are not read unasked
+    eachMaybeRead: load('svc', 'BATCH', { each: 'ids', from: some ? ['rev'] : undefined, args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    // @ts-expect-error fields that may not be there are not read as though they were
+    eachMaybeUnasked: load('svc', 'BATCH', { each: 'ids', from: some ? ['rev'] : undefined, args: (id, from) => ({ ids: [id, from.rev.toFixed()] }), done: () => {} }),
+    // The fields named are held in a constant: it is given its key and then those fields.
+    eachHeld: load('svc', 'BATCH', { each: 'ids', from: heldRev, args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    eachMaybeHeld: load('svc', 'BATCH', { each: 'ids', from: maybeRev, args: (id, from) => ({ ids: [id, from ? from.rev.toFixed() : ''] }), done: () => {} }),
+    // @ts-expect-error fields named in a constant that may be `undefined` may not be given
+    eachMaybeHeldRead: load('svc', 'BATCH', { each: 'ids', from: maybeRev, args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    // @ts-expect-error a constant that may be `undefined` is held to the fields the state has all the same
+    eachMaybeMissing: load('svc', 'BATCH', { each: 'ids', from: some ? ['revision'] : undefined, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // @ts-expect-error one for each key of a field is not read again from that field, where that may be `undefined` too
+    eachMaybeTwice: load('svc', 'BATCH', { each: 'ids', from: some ? ['ids'] : undefined, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // A `from` of type `any` says nothing of there being fields, so one for each key is typed as given its key alone.
+    eachUntyped: load('svc', 'BATCH', { each: 'ids', from: untypedFrom, args: (id) => ({ ids: [id] }), done: () => {} }),
+    // @ts-expect-error a `from` of type `any` does not say there are fields, so none are read
+    eachUntypedRead: load('svc', 'BATCH', { each: 'ids', from: untypedFrom, args: (id, { rev }) => ({ ids: [id, String(rev)] }), done: () => {} }),
+    // Fields named as a tuple that cannot be written to are named all the same.
+    eachFixed: load('svc', 'BATCH', { each: 'ids', from: ['rev'] as const, args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    // Options held in a constant are taken as they are typed, what they leave out included.
+    eachOptions: load('svc', 'BATCH', heldOptions),
+    eachOptionsFrom: load('svc', 'BATCH', heldOptionsFrom),
+    eachOptionsMaybeFrom: load('svc', 'BATCH', heldOptionsMaybeFrom),
+    // @ts-expect-error options whose `from` may be left out have an `args` that may be given no fields
+    eachOptionsMaybeFromRead: load('svc', 'BATCH', heldOptionsMaybeFromRead),
+    options: load('svc', 'BATCH', heldOptionsUnkeyed),
+    // Given its type arguments outright, one for each key with no fields to name is given its key alone.
+    eachOutrightAlone: load<'svc', 'BATCH', never, 'ids'>('svc', 'BATCH', { each: 'ids', args: (id) => ({ ids: [id] }), done: () => {} }),
+    // @ts-expect-error given its type arguments outright with no fields to name, it has none to be given
+    eachOutrightAloneRead: load<'svc', 'BATCH', never, 'ids'>('svc', 'BATCH', { each: 'ids', args: (id, from) => ({ ids: [id, ...Object.keys(from)] }), done: () => {} }),
+    // @ts-expect-error given the fields it names outright, it is written with them: a `from` of `undefined` would be given none
+    eachOutrightUndefined: load<'svc', 'BATCH', 'rev', 'ids'>('svc', 'BATCH', { each: 'ids', from: undefined, args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    outright: load<'svc', 'BATCH', 'ids'>('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
+    // One read from fields alone is given an object whatever its `from`: with none, an empty one.
+    undefinedFrom: load('svc', 'BATCH', { from: undefined, args: (from) => ({ ids: Object.keys(from) }), done: () => {} }),
+    noFrom: load('svc', 'BATCH', { args: (from) => ({ ids: Object.keys(from) }), done: () => {} }),
+    held: load('svc', 'BATCH', { from: heldRev, args: ({ rev }) => ({ ids: [rev.toFixed()] }), done: () => {} }),
+    maybe: load('svc', 'BATCH', { from: some ? ['rev'] : undefined, args: ({ rev }) => ({ ids: [rev === undefined ? '' : rev.toFixed()] }), done: () => {} }),
+    // @ts-expect-error fields whose `from` may be `undefined` may each not be there
+    maybeRead: load('svc', 'BATCH', { from: some ? ['rev'] : undefined, args: ({ rev }) => ({ ids: [rev.toFixed()] }), done: () => {} }),
   }),
   calls: ({ single, each }) => ({
     run: single('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),

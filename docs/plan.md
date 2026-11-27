@@ -245,7 +245,11 @@ points at.
     `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it has
     no `from`. That goes by whether `from` is there and not by what is in it, in the types as in the kernel: one
     written with `from: []` is given the key and then an empty object, as a single one written with `from: []` is
-    given an empty object and asked once. It may return nothing for a key, as it may for one alone, and that key is
+    given an empty object and asked once. The type of the `from` written is what types `args`: a `from` of
+    `undefined` is no `from`, so the key alone, and one that may be `undefined` gives fields that may be `undefined`,
+    which is what the kernel calls it with either way. Options held in a constant are taken as they are typed,
+    whichever of them that type leaves out. Whether an entry is one or one for each key is what it is, so `each` is a field's name or is not there, and one
+    that may be either by a value is refused where it is written. It may return nothing for a key, as it may for one alone, and that key is
     then not read until there is something to ask for: what was read or followed for it is given up, and it is asked
     again when a field it names changes. An `args` that throws is reported, and has seen the values it threw for: it
     is not called for them again at some later look, and what it had live goes on as it was, since what it threw is
@@ -384,9 +388,13 @@ points at.
     handler is written (what a state takes and answers, its `run` and `failed`, what a call, a read and a view come
     back to, a timer's `expired`), for a function written out there and for the name of one function, and a move
     read so is listed with the rest. A function inside a handler, or handed to anything else (`args`, a callback),
-    is not a handler, and what it returns says nothing of where the state goes. A value returned that is a name
-    other than a `const`, or what a call gives back, is read by its type alone: where that type says less than the
-    value, the move is not read.
+    is not a handler, and what it returns says nothing of where the state goes. A `const` is read as what it was
+    given wherever that is written: in the file, or in another it is imported from, under whatever name. One that is
+    only declared (`declare const`, a declaration file) has no value to read, and goes where its type says and
+    anywhere where its type does not say. The change an answer comes with is read the same way, from what this
+    package's `answered` is given: its type is the type of what it was given, which may say less. A value returned
+    that is a name other than a `const`, or what any other call gives back, is read by its type alone: where that
+    type says less than the value, the move is not read.
     A state is entered at what it starts at once, however often it is entered, so a state that starts at itself is
     read to an end. One that is live only as the state around another has not been entered itself, and is entered at
     what it starts at when it is.
@@ -402,7 +410,15 @@ points at.
     in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
     what is unread in a state never entered hides nothing, and the unread `expired` of a timer hides nothing until the
     timer is armed. What is written in a timer's entry that is not read is that timer's `expired` too: what it arms is
-    armed once that timer is, and not because its state is the case.
+    armed once that timer is, and not because its state is the case. What is written among a state's timers and is
+    the entry of no one of them (a table that is not an arrow returning its entries written out, what is spread into
+    one, an entry under a name worked out) is the `expired` of one of them, whichever: it runs once any timer the
+    state declares is armed. That is more than is so, and hides nothing that is not so.
+
+    `undefined` written where a handler or a table goes is nothing written there, and leaves nothing unread. A
+    method declared with no body yet is a handler not read. A handler whose moves are not known is not listed as
+    changing data only. The analysis reads any file TypeScript can parse to an end: a shape that holds itself is
+    read once, and one whose type never ends sixty-four states deep.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.

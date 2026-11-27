@@ -53,7 +53,8 @@ Each entry depends on the data in one of two ways:
 What is followed or loaded may say both: **`each: 'openDiffs', from: ['revision']`** is one for each key, every one
 of them asked again when a field in `from` changes, the one before for that key stopped. A key that appears or goes
 still starts or stops its own alone. `args` is given the key, and then the fields named: the key alone where there
-is no `from`, and the key and an empty object where it is `from: []`. An `args` that throws is reported once for the
+is no `from`, and the key and an empty object where it is `from: []`. A `from` of `undefined` is no `from`, and one
+that may be `undefined` types the fields as perhaps `undefined` too. An `args` that throws is reported once for the
 values it threw for, and what it had live goes on as it was.
 
 So changing data is how they start and stop:

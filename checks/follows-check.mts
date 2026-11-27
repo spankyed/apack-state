@@ -843,6 +843,24 @@ const keyedFrom: Array<[string, () => void]> = [
     deepStrictEqual(made, [['a'], ['a', { currency: 'EUR' }]])
     sys.stop()
   }],
+  ['one for each key whose fields to name are `undefined` is given its key alone, as one that names none is', () => {
+    const made: unknown[][] = []
+    const sys = system({ side: 'window', views: () => () => {} })
+    // Which fields each names is worked out: the one comes to none to name, the other to one.
+    const naming = (named: boolean): readonly 'currency'[] | undefined => (named ? ['currency'] : undefined)
+    sys.start('watcher', state<{ data: { watching: Record<string, true>; currency: string } }>()({
+      data: { watching: { a: true }, currency: 'EUR' },
+      follows: (follow) => ({
+        written: follow('shop', 'price', { each: 'watching', from: undefined, args: (...given) => { made.push(['written', given.length, ...given]); return { id: given[0] } }, updated: () => {} }),
+        without: follow('shop', 'price', { each: 'watching', from: naming(false), args: (id, from) => { made.push(['without', id, from === undefined ? 'no fields' : from.currency]); return { id } }, updated: () => {} }),
+        counted: follow('shop', 'price', { each: 'watching', from: naming(false), args: (...given) => { made.push(['counted', given.length, ...given]); return { id: given[0] } }, updated: () => {} }),
+        withOne: follow('shop', 'price', { each: 'watching', from: naming(true), args: (id, from) => { made.push(['with', id, from === undefined ? 'no fields' : from.currency]); return { id } }, updated: () => {} }),
+        alone: follow('shop', 'total', { from: naming(false), args: (from) => { made.push(['alone', from, from.currency === undefined ? 'no currency' : from.currency]); return { currency: '' } }, updated: () => {} }),
+      }),
+    }))
+    deepStrictEqual(made, [['written', 1, 'a'], ['without', 'a', 'no fields'], ['counted', 1, 'a'], ['with', 'a', 'EUR'], ['alone', {}, 'no currency']])
+    sys.stop()
+  }],
 ]
 
 // ── what a view delivers once it is no longer the one followed ──────────────────────────────────────────────────────
