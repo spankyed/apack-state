@@ -123,6 +123,8 @@ const work = (): void => {}
 const moreOptions = {} as { done: () => { at: 'far' } }
 const buildLoads = (load: any) => ({ far: load('svc', 'X', { from: [] }) })
 function hand(_: unknown): void {}
+const wrapped = (load: any): any => load('svc', 'X', { from: [], done: () => ({ at: 'far' }) })
+const other = (..._: any[]): any => ({ of: 'svc', ask: 'X', from: [], done: () => ({ at: 'far' }) })
 type PlacedNet = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
 type Placed = {
   internal: { type: 'GO' }
@@ -163,6 +165,7 @@ const UNREAD = {
     `on: { GO: (_, { arm }) => { hand(arm) } }`,
     `on: { GO: (_, scope) => { hand(scope) } }`,
     `on: { GO: (_, { arm }) => { arm(anyName()) } }`,
+    `on: { GO: (_, { tell, broadcast, onExit, ...rest }) => { rest.arm('side') } }`,
     `internal: { GO: quiet }`,
     `listen: heard`,
     `listen: flag ? heard : heard`,
@@ -192,6 +195,9 @@ const UNREAD = {
     `loads: (load) => ({ got: load('svc', 'X', { from: [], done: typedVoid }) })`,
     `loads: (load) => ({ got: load('svc', 'X', moreOptions as never) })`,
     `loads: (load) => ({ [anyName()]: load('svc', 'X', { from: [], done: () => {} }) })`,
+    `loads: (load) => ({ got: wrapped(load) })`,
+    `loads: () => ({ got: other('svc', 'X', { from: [], done: () => {} }) })`,
+    `loads: ({ ...helpers }: any) => ({ got: helpers('svc', 'X', { from: [], done: () => {} }) })`,
     `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], updated: typedVoid }) })`,
   ],
   held: [
@@ -1209,6 +1215,19 @@ export const held = state<Shape, { type: 'P' } | { type: 'C' } | { type: 'D' } |
     deepStrictEqual(held(`states: { ...made, ${d} }`, `const made: any = {}`), [S])
     deepStrictEqual(held(`states: { [name]: {}, ${c}, ${d} }`, `declare const name: string`), [S])
     deepStrictEqual(held(`states: { get c(): any { return {} }, ${d} }`), [S])
+    // What a declaration is made by is what its own table is handed, not what some function around it is.
+    deepStrictEqual(dead(findingsIn(`
+type Net = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
+type Two = { states: { live: {}; far: {} } }
+export const build = (handed: any) => forNet<Net>()<Two, never>()({
+  initial: 'live',
+  states: { live: { loads: () => ({ got: handed('svc', 'X', { from: [], done: () => {} }) }) }, far: {} },
+})
+export const read = forNet<Net>()<Two, never>()({
+  initial: 'live',
+  states: { live: { loads: (load) => ({ got: load('svc', 'X', { from: [], done: () => {} }) }) }, far: {} },
+})
+`).flat()), ['far is never entered'])
     const whole = findingsIn(`
 type Shape = { waits: { t: 'one' }; states: { live: {}; dead: {} } }
 const made = { initial: 'live', waits: ({ one }: any) => ({ t: one(100) }), states: { live: {}, dead: {} } } as const
@@ -1217,13 +1236,15 @@ export const elsewhere = state<Shape, never>()(made as never)
     deepStrictEqual(whole, ['definition is not an inline object literal; reaches, follows, loads, calls, and waits could not be scanned'])
   }],
   ['the done of a wait that is not read does what it may once its wait is armed, and nothing before', () => {
-    const done = (waits: string, armed: 't' | 'u' | ''): string[] => dead(findingsIn(`
+    const done = (waits: string, armed: 't' | 'u' | 'v' | ''): string[] => dead(findingsIn(`
 declare const flag: boolean
 const quiet = (): void => {}
 const typedVoid: () => void = () => ({ at: 'far' })
 const options = { done: quiet }
+const optionsFar = { done: () => ({ at: 'far' as const }) }
 const buildWaits = ({ one }: any) => ({ t: one(100), u: one(100) })
 const more = {} as {}
+const other = (ms: number): any => ({ kind: 'one', ms, done: () => ({ at: 'far' }) })
 type Shape = { waits: { u: 'one' }; states: { live: { waits: { t: 'one'; v: 'one' } }; beside: { waits: { side: 'one' } }; far: {} } }
 export const waiting = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'live',
@@ -1241,6 +1262,7 @@ export const waiting = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
     const each: Array<[string, string[]]> = [
       // Written here, it is read: it arms nothing and goes nowhere.
       [table(`one(100, () => {})`), [far, U, V, S]],
+      [`(waits) => ({ t: waits.one(100, () => {}), v: waits.one(100) })`, [far, U, V, S]],
       // The name of a function leaves what it arms unread: the waits of its state and the states around it.
       [table(`one(100, quiet)`), [far, S]],
       [table(`one(100, { done: quiet })`), [far, S]],
@@ -1252,11 +1274,18 @@ export const waiting = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
       [table(`one(100, { [String(flag)]: 1 })`), [S]],
       [table(`one(100, options)`), [S]],
       [`({ one }) => ({ t: flag ? one(100) : one(200), v: one(100) })`, [S]],
+      // One made by anything but what the table is handed holds what that made of it.
+      [table(`other(100)`), [S]],
     ]
     for (const [waits, armed] of each) {
       deepStrictEqual(done(waits, 't'), armed, waits)
       deepStrictEqual(done(waits, ''), [far, U, T, V, S], waits)
     }
+    // Options written elsewhere are read by their type for where the done goes, and it goes there once armed.
+    deepStrictEqual(done(table(`one(100, optionsFar)`), 't'), [S])
+    deepStrictEqual(done(table(`one(100, optionsFar)`), ''), [U, 'nothing arms t in live, so nothing enters far', V, S])
+    // One entry that is not read leaves the done of the others in its table as they are written.
+    deepStrictEqual(done(`({ one }) => ({ t: flag ? one(100) : one(200), v: one(100) })`, 'v'), [far, U, T, S])
     // A table of waits that is not written out, or not all: the done of each wait there is unread, armed or not.
     for (const waits of [`buildWaits`, `({ one }) => ({ ...more, t: one(100), v: one(100) })`, `({ one }) => ({ [String(flag)]: one(100), t: one(100), v: one(100) })`, `({ one }) => { return { t: one(100), v: one(100) } }`]) {
       deepStrictEqual(done(waits, 't'), [S], waits)

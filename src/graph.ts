@@ -227,14 +227,14 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
 
     /**
      * What a handler returns, by its type. One with more than one way to be called, or that may be either of two
-     * functions, is read as its first: it is never a function written out, so how it is written already leaves where
-     * it goes unread (`unreadBy`).
+     * functions, is read as its first, and one that is no function as nothing: none of them is a function written
+     * out, so how it is written already leaves where it goes unread (`unreadBy`).
      */
     const returnedBy = (handler: Type | undefined, at: Site): Type[] | undefined => {
       if (!handler) return undefined
       const signatures = handler.getCallSignatures()
       const values = signatures.length ? unwrap(signatures[0].getReturnType()) : undefined
-      if (!values || values.some((value: Type) => value.flags & ts.TypeFlags.Any)) at.anywhere = true
+      if (values?.some((value: Type) => value.flags & ts.TypeFlags.Any)) at.anywhere = true
       return values
     }
 
@@ -242,6 +242,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       if (!isDeclName(inner)) {
         const p = inner.parent
         if (verbOf(inner) === 'arm' && !(p && ts.isCallExpression(p) && p.expression === inner)) {
+          at.armsAround = true
+        } else if (ts.isBindingElement(inner) && inner.dotDotDotToken && ts.isObjectBindingPattern(p) && isScopeReceiver(p)) {
+          // The rest of a scope taken apart holds whatever of it was not named, `arm` among it.
           at.armsAround = true
         } else if (ts.isIdentifier(inner) && isScopeReceiver(inner)
           && !(p && ts.isPropertyAccessExpression(p) && p.expression === inner)
@@ -378,6 +381,18 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       const symbol = ts.isShorthandPropertyAssignment(written) ? checker.getShorthandAssignmentValueSymbol(written) : ts.isIdentifier(value) ? checker.getSymbolAtLocation(value) : undefined
       if (moves && !saysItsReturn(symbol)) at.anywhere = true
     }
+    /**
+     * Whether an entry of a table of declarations is made by what the table is handed: `one(...)` or `helpers.one(...)`
+     * of the table's own parameter. One made by anything else holds what that made of it, which is not read.
+     */
+    const madeByHelper = (callee: any, table: any): boolean => {
+      const named = unwrapParens(callee)
+      const from = ts.isPropertyAccessExpression(named) ? unwrapParens(named.expression) : named
+      if (!ts.isIdentifier(from)) return false
+      let decl = checker.getSymbolAtLocation(from)?.valueDeclaration
+      if (decl && ts.isBindingElement(decl) && !decl.dotDotDotToken && ts.isObjectBindingPattern(decl.parent) && !ts.isPropertyAccessExpression(named)) decl = decl.parent.parent
+      return Boolean(decl && ts.isParameter(decl) && decl.parent === table)
+    }
     const declarations = (object: any, path: string): void => {
       const here = handlersIn(path)
       for (const property of object.properties) {
@@ -484,7 +499,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             continue
           }
           const entryName = entry.name ? propName(entry.name) : undefined
-          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer) || entryName === undefined) {
+          if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer) || entryName === undefined || !madeByHelper(entry.initializer.expression, made)) {
             uncertain.add(`could not statically read ${where(path, `${name}.${entryName ?? (entry.name ? entry.name.getText() : '?')}`)}`)
             if (name === 'waits' && entryName !== undefined && byWaitKey.has(waitKey(path, entryName))) unreadHandler(doneOf(waitKey(path, entryName)))
             else unreadEntries()

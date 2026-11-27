@@ -353,15 +353,16 @@ points at.
 
     What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
     written in the definition may arm any wait its own state or a state around it declares, and so may an `arm` of a
-    name that is not known, and an `arm` or a scope handed to other code. A handler that returns `any`, is not one
-    function, is written as anything but a function or the name of one, is named by something whose type may say
-    less than it returns (a `const` given a type, a function declared without its body), is under a name worked
-    out, or moves to a state that is not known, may enter any state; an `initial` that is not one name enters each
-    it may be. A table of handlers not written out, and what a read, a view or a call hears with where its options
-    are not all read, may do both. A state, or part of one, that could not be read may hold anything a state
-    holds, in it and inside it, and a definition that could not be read may do anything. Each does so only once it
-    can run: what is unread in a state never entered hides nothing, and the unread `done` of a wait hides nothing
-    until the wait is armed.
+    name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
+    that returns `any`, is not one function, is written as anything but a function or the name of one, is named by
+    something whose type may say less than it returns (a `const` given a type, a function declared without its
+    body), is under a name worked out, or moves to a state that is not known, may enter any state; an `initial` that
+    is not one name enters each it may be. A table of handlers not written out, what a read, a view or a call hears
+    with where its options are not all read, and a declaration made by anything but what its table is handed (`one`,
+    `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
+    in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
+    what is unread in a state never entered hides nothing, and the unread `done` of a wait hides nothing until the
+    wait is armed.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
