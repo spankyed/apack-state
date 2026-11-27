@@ -590,16 +590,6 @@
     "why": "The ref is internal to fromEvents: nothing outside reads it, so any name runs the state the same"
   },
   {
-    "key": "src/inspect.ts | ArrayDeclaration | const fromOutside = outsideTraces.get(systemName) ?? [] | [\"Stryker was here\"]",
-    "original": "[]",
-    "why": "What the kernel traced of events sent from outside, where it traced nothing: a line put there is looked for only by a line the kernel writes whole, with a state's ref and an event's name in it, and no ref and name make this one"
-  },
-  {
-    "key": "src/inspect.ts | ArrayDeclaration | if (line.endsWith(' from outside, which only it raises: ignored')) pushBounded(touch(outsideTraces, systemName, () => [], Infinity), line) | [\"Stryker was here\"]",
-    "original": "[]",
-    "why": "The same list as it is first made, for a system's first trace of an event sent from outside: a line put there is looked for only by a line the kernel writes whole, and matches none"
-  },
-  {
     "key": "src/inspect.ts | ConditionalExpression | if (d.step !== undefined) { | true",
     "original": "d.step !== undefined",
     "why": "A defect of no step, taken as one of a step: no step logged has no number, so it is found among none and kept under a key no step reads, which costs room up to the limit and changes nothing that is said"
