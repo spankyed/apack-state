@@ -7,7 +7,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { analyseGraphs, formatGraphs, runGraphCli } from '../src/graph.ts'
+import { analyseGraphs, formatGraphs, runGraphCli, type StateGraph } from '../src/graph.ts'
 import { run } from './checks.mts'
 
 const root = join(import.meta.dirname, '..')
@@ -23,18 +23,34 @@ const runCli = (...args: string[]): { out: string; err: string; status: number }
   return { out, err, status }
 }
 
-/** What the tool finds in each state a source declares, in the order they are written, with the files it is written `beside`. */
-const findingsIn = (source: string, beside: Record<string, string> = {}): string[][] => {
+/** A source as a file of its own, with the files it is written `beside`, for as long as `read` takes. */
+const written = <T,>(source: string, beside: Record<string, string>, read: (file: string) => T): T => {
   const work = mkdtempSync(join(tmpdir(), 'apack-graph-findings-'))
   try {
     const file = join(work, 'states.ts')
-    for (const [name, written] of Object.entries(beside)) writeFileSync(join(work, name), written)
+    for (const [name, text] of Object.entries(beside)) writeFileSync(join(work, name), text)
     writeFileSync(file, `import { answered, forNet, state } from '${join(root, 'src', 'index.ts').replaceAll('\\', '/')}'\n${source}`)
-    return (analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? []).map((g) => [...g.findings])
+    return read(file)
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
 }
+/** The graph of each state a source declares, in the order they are written. */
+const graphsIn = (source: string, beside: Record<string, string> = {}): readonly StateGraph[] =>
+  written(source, beside, (file) => analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') }).get(file) ?? [])
+/** What the tool finds in each state a source declares, in the order they are written, with the files it is written `beside`. */
+const findingsIn = (source: string, beside: Record<string, string> = {}): string[][] => graphsIn(source, beside).map((g) => [...g.findings])
+/** Long enough for any source to be read on any machine: a reading still going then is one that does not end. */
+const NEVER_ENDS = 300_000
+/**
+ * The tool run on a source as a process of its own, which is stopped if it is still reading after `NEVER_ENDS`: a
+ * reading that does not end fails its case, and the cases after it are run. The process started is the one that
+ * reads, with nothing between that would be stopped in its place and leave it running.
+ */
+const graphOf = (source: string): { out: string; err: string; status: number | null } => written(source, {}, (file) => {
+  const ran = spawnSync(process.execPath, ['--import', 'tsx', join(root, 'tools', 'graph.mts'), '--tsconfig', join(root, 'tsconfig.json'), file], { cwd: root, encoding: 'utf8', timeout: NEVER_ENDS, killSignal: 'SIGKILL' })
+  return { out: ran.stdout, err: ran.stderr, status: ran.status }
+})
 /**
  * A state with a timer of its own and a timer in each of two states beside each other, `inA` written in the first
  * and `inB` in the second.
@@ -1398,6 +1414,10 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
     // Options written elsewhere are read by their type for where the expired goes, and it goes there once armed.
     deepStrictEqual(expired(table(`single(optionsFar)`), 't'), [S])
     deepStrictEqual(expired(table(`single(optionsFar)`), ''), [U, 'nothing arms t in live, so nothing enters far', V, S])
+    // What is written in an entry that is not read is its timer's expired: a timer armed only there is armed once that one is.
+    const armsV = `({ single }) => ({ t: flag ? single({ after: 100, expired: ({ arm }) => { arm('v') } }) : single({ after: 200 }), v: single({ after: 100 }) })`
+    deepStrictEqual(expired(armsV, ''), [far, U, 'nothing arms t in live, so nothing arms v in live', S])
+    deepStrictEqual(expired(armsV, 't'), [S])
     // One entry that is not read leaves the expired of the others in its table as they are written.
     deepStrictEqual(expired(`({ single }) => ({ t: flag ? single({ after: 100 }) : single({ after: 200 }), v: single({ after: 100 }) })`, 'v'), [far, U, T, S])
     // A table of timers that is not written out, or not all: the expired of each timer there is unread, armed or not.
@@ -1469,29 +1489,203 @@ export const begins = state<Shape, { type: 'GO' }>()({
     deepStrictEqual(startsAt('some'), [])
   }],
   ['a move a handler makes is read from what it returns, where the type its return is given leaves it out', () => {
-    const hidden = (handler: string): string[] => findingsIn(`
+    // `dead` is entered by nothing but what is written at `top`, and `keep` is armed only there; nothing enters `gone`.
+    // `has` is what its shape declares for what is written there, and `arms` its timer where that is not as here.
+    const source = (top: string, has = '', arms = `({ single }) => ({ keep: single({ after: 100 }) })`): string => `
+import { importedHides } from './handlers.ts'
 declare const anyValue: any
 declare const somewhere: string
-type Shape = { data: { n: number }; arms: { keep: 'single' }; states: { live: {}; dead: {}; gone: {} } }
+declare const elsewhere: { data: { n: number }; at: string }
+declare const flag: boolean
+declare const maybe: { data: { n: number }; at: 'dead' } | undefined
+type Data = { data: { n: number } }
+type Net = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void; progress: number } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
+type Shape = { data: { n: number }; arms: { keep: 'single' }; states: { live: {}; dead: {}; gone: {} }; ${has} }
+type Asked = ${top.startsWith('answers') ? `{ GET: { args: {}; answer: { at: string } } }` : '{}'}
 const going = { data: { n: 1 }, at: 'dead' as const }
-export const hides = state<Shape, { type: 'GO' }>()({
-  data: { n: 0 }, initial: 'live', arms: ({ single }) => ({ keep: single({ after: 100 }) }),
-  on: { GO: ${handler} },
+const plain: Data = { data: { n: 2 } }
+function declaredHides(): Data { return going }
+function declaredStays(): Data { return { data: { n: 2 } } }
+const workedOut = () => { if (flag) return going; return plain }
+const saidConst = () => ({ data: { n: 1 }, at: 'dead' } as const)
+const namedHides = (): Data => going
+const againHides = namedHides
+const GO = function (): Data { return going }
+const namedAnywhere = (): Data => anyValue
+async function later(): Promise<Data> { return going }
+export const hides = forNet<Net>()<Shape, { type: 'GO' }, Asked>()({
+  data: { n: 0 }, initial: 'live', arms: ${arms},
+  ${top},
   states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } }, gone: {} },
 })
-`)[0]!
+`
+    const BESIDE = { 'handlers.ts': `const going = { data: { n: 1 }, at: 'dead' as const }\nexport const importedHides = (): { data: { n: number } } => going\n` }
+    const read = (text: string, has?: string, arms?: string): StateGraph => graphsIn(source(text, has, arms), BESIDE)[0]!
+    const top = (text: string, has?: string, arms?: string): string[] => dead(read(text, has, arms).findings)
+    const hidden = (handler: string): string[] => top(`on: { GO: ${handler} }`)
+    const gone = ['gone is never entered']
     const neither = ['dead is never entered, so nothing arms keep', 'gone is never entered']
     // The type says only that the data changes; the value also says where it goes, and it goes nowhere else.
-    deepStrictEqual(hidden(`(): { data: { n: number } } => going`), ['gone is never entered'])
-    deepStrictEqual(hidden(`(): { data: { n: number } } => { if (Math.random() > 0.5) return { data: { n: 2 } }; return going }`), ['gone is never entered'])
-    deepStrictEqual(hidden(`function (): { data: { n: number } } { return going }`), ['gone is never entered'])
+    deepStrictEqual(hidden(`(): Data => going`), gone)
+    deepStrictEqual(hidden(`(): Data => { if (Math.random() > 0.5) return { data: { n: 2 } }; return going }`), gone)
+    deepStrictEqual(hidden(`function (): Data { return going }`), gone)
+    deepStrictEqual(top(`on: { GO(): Data { return going } }`), gone)
+    // So does a type worked out from two values, one of which is the other with a move: it is the one without.
+    deepStrictEqual(hidden(`() => { if (flag) return going; return plain }`), gone)
+    deepStrictEqual(hidden(`() => (flag ? going : plain)`), gone)
+    deepStrictEqual(hidden(`() => (flag && going) || plain`), gone)
+    deepStrictEqual(hidden(`() => (flag && plain) || going`), gone)
+    deepStrictEqual(hidden(`() => (flag && (flag ? going : plain)) || plain`), gone)
+    deepStrictEqual(hidden(`() => maybe ?? plain`), gone)
+    deepStrictEqual(hidden(`() => (flag ? plain : undefined) ?? going`), gone)
+    deepStrictEqual(hidden(`() => (void 0, flag ? plain : going)`), gone)
+    // And a type the value is said to be.
+    deepStrictEqual(hidden(`() => going as Data`), gone)
+    deepStrictEqual(hidden(`() => going satisfies Data as Data`), gone)
+    deepStrictEqual(hidden(`() => (going as Data)!`), gone)
+    deepStrictEqual(hidden(`() => <Data>going`), gone)
+    deepStrictEqual(hidden(`() => (flag ? going : plain) satisfies Data`), gone)
+    deepStrictEqual(hidden(`(): Data => plain as typeof going`), gone)
+    // And a type a name is given, where it names what the value was made as.
+    deepStrictEqual(hidden(`() => { const held: Data = going; return held }`), gone)
+    deepStrictEqual(hidden(`() => { const held: Data = flag ? going : plain; const again = held; return again }`), gone)
+    // One given itself, as code half written may be, is read to an end.
+    deepStrictEqual(hidden(`() => { const held: Data = flag ? held : going; return held }`), gone)
     // A value that could be anything, or that goes to a state not known, may go anywhere.
-    deepStrictEqual(hidden(`(): { data: { n: number } } => anyValue`), [])
-    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 }, at: somewhere })`), [])
+    deepStrictEqual(hidden(`(): Data => anyValue`), [])
+    deepStrictEqual(hidden(`(): Data => elsewhere`), [])
     // What a function kept inside it returns is not what it returns.
-    deepStrictEqual(hidden(`(): { data: { n: number } } => { const inner = (): unknown => going; void inner; return { data: { n: 2 } } }`), neither)
-    deepStrictEqual(hidden(`(): { data: { n: number } } => { function inner(): unknown { return going } void inner; return { data: { n: 2 } } }`), neither)
+    deepStrictEqual(hidden(`(): Data => { const inner = (): unknown => going; void inner; return { data: { n: 2 } } }`), neither)
+    deepStrictEqual(hidden(`(): Data => { function inner(): unknown { return going } void inner; return { data: { n: 2 } } }`), neither)
     // And one whose values go nowhere is still told so.
-    deepStrictEqual(hidden(`(): { data: { n: number } } => ({ data: { n: 2 } })`), neither)
+    deepStrictEqual(hidden(`(): Data => ({ data: { n: 2 } })`), neither)
+
+    // A handler written elsewhere is read where it is written: a function declared, one kept under a name, the name
+    // of that, one in another file. What it arms is not read, so `keep` may be armed, and is not said.
+    for (const named of ['declaredHides', 'namedHides', '(namedHides)', 'againHides', 'importedHides']) deepStrictEqual(hidden(named), gone, named)
+    deepStrictEqual(top(`on: { GO }`), gone)
+    deepStrictEqual(hidden('workedOut'), gone)
+    deepStrictEqual(hidden('saidConst'), gone)
+    deepStrictEqual(hidden('namedAnywhere'), [])
+    deepStrictEqual(hidden('declaredStays'), ['dead is never entered', 'gone is never entered'])
+
+    // Wherever a handler is written, it is read so: what a state takes, answers, does and is told its work failed
+    // with, what a call and a read come back to, what a view is heard with, and what a timer does when it expires.
+    const armed = `on: { GO: (_, { arm }) => { arm('keep') } }`
+    // Each is listed as a move under what it is, and what is written beside it and goes nowhere as changing data only.
+    const [internal, calls] = [`internal: { type: 'IN' }`, `calls: { save: 'single' }`]
+    const each: Array<{ text: string; on: string; stays?: string[]; has?: string; arms?: string }> = [
+      { text: `internal: { IN: (): Data => going }`, on: 'IN', has: internal },
+      { text: `internal: { IN: declaredHides }`, on: 'IN', has: internal },
+      { text: `answers: { GET: (): ReturnType<typeof answered<{ at: string }, Data>> => answered({ at: 'gone' }, going) }`, on: 'GET (answering)' },
+      { text: `run: (): Data => going`, on: '(its work ends)' },
+      { text: `run: declaredHides`, on: '(its work ends)' },
+      { text: `run: later, failed: () => {}`, on: '(its work ends)', stays: ['(its work fails)'] },
+      { text: `run: async () => {}, failed: (): Data => going`, on: '(its work fails)' },
+      { text: `run: async () => {}, failed: declaredHides`, on: '(its work fails)' },
+      { text: `calls: ({ single }) => ({ save: single('svc', 'X', { done: (): Data => going }) })`, on: 'save (done)', has: calls },
+      { text: `calls: ({ single }) => ({ save: single('svc', 'X', { done: () => {}, progress: (): Data => going }) })`, on: 'save (progress)', stays: ['save (done)'], has: calls },
+      { text: `calls: ({ single }) => ({ save: single('svc', 'X', { done: declaredHides }) })`, on: 'save (done)', has: calls },
+      { text: `loads: (load) => ({ got: load('svc', 'X', { from: [], done: (): Data => going }) })`, on: 'got (done)' },
+      { text: `loads: (load) => ({ got: load('svc', 'X', { from: [], done: () => {}, progress: namedHides }) })`, on: 'got (progress)', stays: ['got (done)'] },
+      { text: `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], updated: (): Data => going }) })`, on: 'docs (updated)' },
+      { text: `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], updated: declaredHides }) })`, on: 'docs (updated)' },
+      { text: armed, on: 'keep (expired)', stays: ['GO'], arms: `({ single }) => ({ keep: single({ after: 100, expired: (): Data => going }) })` },
+      { text: armed, on: 'keep (expired)', stays: ['GO'], arms: `({ single }) => ({ keep: single({ after: 100, expired: declaredHides }) })` },
+    ]
+    for (const { text, on, stays = [], has, arms } of each) {
+      const graph = read(text, has, arms)
+      deepStrictEqual(dead(graph.findings), gone, `${text} ${arms ?? ''}`)
+      deepStrictEqual(graph.moves, [{ from: 'anywhere', on, to: ['dead'] }], `${text} ${arms ?? ''}`)
+      deepStrictEqual([...graph.stays].sort(), [...stays, 'GO in dead'].sort(), `${text} ${arms ?? ''}`)
+    }
+    // What an answer is, where it comes with no change, is not where the state goes.
+    deepStrictEqual(top(`answers: { GET: (): { at: 'dead' } => ({ at: 'dead' }) }`), neither)
+
+    // A function inside a handler, or handed to what a declaration is made with, is not a handler: what it returns,
+    // and the type that is given, say nothing of where the state goes.
+    for (const text of [
+      `on: { GO: () => { void [1].map((x): { at: number } => ({ at: x })) } }`,
+      `on: { GO: () => { void [1].map(function (x): { at: number } { return { at: x } }) } }`,
+      `on: { GO: () => { void { made(): { at: string } { return { at: somewhere } } } } }`,
+      `run: () => { void [1].map((x): { at: number } => ({ at: x })) }`,
+      `listen: () => { const stop = [1].map((x): { at: number } => ({ at: x })); return (): void => { void stop } }`,
+      `listen: (): (() => { at: string }) => () => ({ at: somewhere })`,
+      `listen: () => Object.assign(() => {}, { at: somewhere })`,
+      `loads: (load) => ({ got: load('svc', 'X', { from: [], args: (): { at: number } => ({ at: 1 }), done: () => {} }) })`,
+      `follows: (follow) => ({ docs: follow('docs', 'all', { from: [], args: (): { at: number } => ({ at: 1 }), updated: () => {} }) })`,
+    ]) deepStrictEqual(top(text), neither, text)
+    deepStrictEqual(top(`calls: ({ single }) => ({ save: single('svc', 'X', { args: (): { at: number } => ({ at: 1 }), done: () => {} }) })`, calls), neither)
+  }],
+  ['a move read from what a handler returns is listed with the moves, and the handler not among those that change data only', () => {
+    const listed = (handler: string): StateGraph => graphsIn(`
+declare const anyValue: any
+type Data = { data: { n: number } }
+type Shape = { data: { n: number }; states: { live: {}; dead: {}; other: {} } }
+const going = { data: { n: 1 }, at: 'dead' as const }
+function declaredHides(): Data { return going }
+export const hides = state<Shape, { type: 'FIRST' } | { type: 'GO' } | { type: 'LAST' }>()({
+  data: { n: 0 }, initial: 'live',
+  on: { FIRST: () => ({ at: 'live' }), GO: ${handler}, LAST: () => ({ at: 'other' }) },
+  states: { live: {}, dead: { on: { GO: () => {} } }, other: {} },
+})
+`)[0]!
+    const around = [{ from: 'anywhere', on: 'FIRST', to: ['live'] }, { from: 'anywhere', on: 'LAST', to: ['other'] }]
+    for (const handler of [`(): Data => going`, 'declaredHides']) {
+      const graph = listed(handler)
+      // Where its handler is written, among the others.
+      deepStrictEqual(graph.moves, [around[0], { from: 'anywhere', on: 'GO', to: ['dead'] }, around[1]], handler)
+      deepStrictEqual(graph.stays, ['GO in dead'], handler)
+      ok(/\n +anywhere +GO +→ dead\n/.test(graph.text), graph.text)
+    }
+    // An event a state takes from others and from itself is listed for each, with where each goes.
+    const both = graphsIn(`
+type Data = { data: { n: number } }
+type Shape = { data: { n: number }; internal: { type: 'GO' }; states: { live: {}; dead: {}; other: {} } }
+const going = { data: { n: 1 }, at: 'dead' as const }
+export const twice = state<Shape, { type: 'GO' }>()({
+  data: { n: 0 }, initial: 'live',
+  on: { GO: () => ({ at: 'other' }) },
+  internal: { GO: (): Data => going },
+  states: { live: {}, dead: {}, other: {} },
+})
+`)[0]!
+    deepStrictEqual(both.moves, [{ from: 'anywhere', on: 'GO', to: ['other'] }, { from: 'anywhere', on: 'GO', to: ['dead'] }])
+    deepStrictEqual(both.findings, [])
+    // One that goes nowhere changes data only, and one that may go anywhere is neither.
+    deepStrictEqual(listed(`(): Data => ({ data: { n: 2 } })`).stays, ['GO', 'GO in dead'])
+    deepStrictEqual(listed(`(): Data => ({ data: { n: 2 } })`).moves, around)
+    deepStrictEqual(listed(`(): Data => anyValue`).stays, ['GO in dead'])
+    deepStrictEqual(listed(`(): Data => anyValue`).moves, around)
+  }],
+  ['a state that starts at itself is read to an end, and one live around another is still entered at what it starts at', () => {
+    // A state named by nothing, which the state everything is in starts at.
+    const empty = graphOf(`
+const net = forNet()
+export const named = net<{ states: { '': {}; a: {} } }>()({ initial: '', states: { '': {}, a: {} } })
+`)
+    strictEqual(empty.status, 0, empty.err)
+    ok(empty.out.includes('findings: a is never entered\n'), empty.out)
+    // Half written, with nothing yet where it starts.
+    const halfWritten = graphOf(`
+const net = forNet()
+export const half = net<{ states: { a: {}; b: {} } }>()({ initial: '', states: { a: {}, b: {} } })
+`)
+    strictEqual(halfWritten.status, 0, halfWritten.err)
+    ok(halfWritten.out.includes('states: a, b\n'), halfWritten.out)
+    // `box` is first live as the state around `box.second`, and is entered itself after: `box.first` and what that starts at are entered then.
+    const entered = (moves: string): string[] => findingsIn(`
+type Shape = { states: { idle: {}; box: { states: { first: { states: { deep: {}; never: {} } }; second: {} } } } }
+export const nested = state<Shape, { type: 'GO' }>()({
+  initial: 'idle',
+  states: {
+    idle: { on: { GO: () => (${moves}) } },
+    box: { initial: 'first', states: { first: { initial: 'deep', states: { deep: {}, never: {} } }, second: {} } },
+  },
+})
+`)[0]!
+    deepStrictEqual(entered(`Math.random() > 0.5 ? { at: 'box.second' as const } : { at: 'box' as const }`), ['box.first.never is never entered'])
+    deepStrictEqual(entered(`Math.random() > 0.5 ? { at: 'box' as const } : { at: 'box.second' as const }`), ['box.first.never is never entered'])
+    deepStrictEqual(entered(`{ at: 'box.second' as const }`), ['box.first is never entered, so nothing enters box.first.deep, box.first.never'])
   }],
 ])
