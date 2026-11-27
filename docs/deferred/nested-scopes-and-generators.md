@@ -107,7 +107,7 @@ One method on the work scope, `outside` ([the design](../design.md), Talking to 
 
 ```ts
 // Ends with `Cancelled` where it is awaited when the work's owner goes, as `ask` and `sleep` do.
-outside<T>(work: PromiseLike<T>): Promise<T>
+outside<T>(work: PromiseLike<T>): Promise<Awaited<T>>
 ```
 
 It makes an outside promise a wait the kernel owns: every row of the first table then holds at every `await` that
@@ -147,6 +147,5 @@ undo what that work already did.
 
 ## Open
 
-- Whether `outside` should also take `(signal) => Promise`, so that handing the signal on is the easy thing to write.
 - Whether the graph check should say where work awaits something that did not come from its scope. It reads `run`
   already, and it would make the one row the kernel does not own a finding.

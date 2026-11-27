@@ -580,6 +580,28 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(asked, [['a'], ['a', { rev: 7 }]])
     sys.stop()
   }],
+  ['one for each key whose fields to name are `undefined` is given its key alone, as one that names none is', async () => {
+    type EchoAsks = { ECHO: { args: { given: unknown[] }; answer: null } }
+    const echoState = forNet<{ systems: { svc: { events: never; asks: EchoAsks } }; surfaces: {}; views: {} }>()
+    const asked: unknown[][] = []
+    const sys = system({ side: 'backend' })
+    sys.start('svc', echoState<{}, never, EchoAsks>()({ answers: { ECHO: ({ given }) => { asked.push(given); return null } } }))
+    // Which fields each names is worked out: the one comes to none to name, the other to one.
+    const naming = (named: boolean): readonly 'rev'[] | undefined => (named ? ['rev'] : undefined)
+    sys.start('reader', echoState<{ data: { keys: Record<string, true>; rev: number } }>()({
+      data: { keys: { a: true }, rev: 7 },
+      loads: (load) => ({
+        written: load('svc', 'ECHO', { each: 'keys', from: undefined, args: (...given) => ({ given: ['written', given.length, ...given] }), done: () => {} }),
+        without: load('svc', 'ECHO', { each: 'keys', from: naming(false), args: (key, from) => ({ given: ['without', key, from === undefined ? 'no fields' : from.rev] }), done: () => {} }),
+        counted: load('svc', 'ECHO', { each: 'keys', from: naming(false), args: (...given) => ({ given: ['counted', given.length, ...given] }), done: () => {} }),
+        withOne: load('svc', 'ECHO', { each: 'keys', from: naming(true), args: (key, from) => ({ given: ['with', key, from === undefined ? 'no fields' : from.rev] }), done: () => {} }),
+        alone: load('svc', 'ECHO', { from: naming(false), args: (from) => ({ given: ['alone', from, from.rev === undefined ? 'no rev' : from.rev] }), done: () => {} }),
+      }),
+    }))
+    await rest()
+    deepStrictEqual(asked, [['written', 1, 'a'], ['without', 'a', 'no fields'], ['counted', 1, 'a'], ['with', 'a', 7], ['alone', {}, 'no rev']])
+    sys.stop()
+  }],
   ['one that names fields is given them as an object whatever they come to: none named at all is still an object', async () => {
     type EchoAsks = { ECHO: { args: { given: unknown[] }; answer: null } }
     const echoState = forNet<{ systems: { svc: { events: never; asks: EchoAsks } }; surfaces: {}; views: {} }>()

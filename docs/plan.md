@@ -245,7 +245,10 @@ points at.
     `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it has
     no `from`. That goes by whether `from` is there and not by what is in it, in the types as in the kernel: one
     written with `from: []` is given the key and then an empty object, as a single one written with `from: []` is
-    given an empty object and asked once. It may return nothing for a key, as it may for one alone, and that key is
+    given an empty object and asked once. The type of the `from` written is what types `args`: a `from` of
+    `undefined` is no `from`, so the key alone, and one that may be `undefined` gives fields that may be `undefined`,
+    which is what the kernel calls it with either way. Options held in a constant are taken as they are typed,
+    whichever of them that type leaves out. It may return nothing for a key, as it may for one alone, and that key is
     then not read until there is something to ask for: what was read or followed for it is given up, and it is asked
     again when a field it names changes. An `args` that throws is reported, and has seen the values it threw for: it
     is not called for them again at some later look, and what it had live goes on as it was, since what it threw is

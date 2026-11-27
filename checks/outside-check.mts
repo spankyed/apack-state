@@ -205,7 +205,7 @@ await run([
     strictEqual(sys.read(handle).data.found, 'plain')
   }],
 
-  ['in an ask\'s handler, whoever asked going ends the wait and the ask is abandoned', async () => {
+  ['in an ask\'s handler, the answering state being left ends the wait and the ask is abandoned', async () => {
     const saw: string[] = []
     const work = held<string>()
     type Asks = { FIND: { args: {}; answer: string } }
@@ -235,6 +235,58 @@ await run([
     work.resolve('late')
     await rest()
     strictEqual(sys.idle(), true)
+  }],
+
+  ['in an ask\'s handler, whoever asked going ends the wait, and the state that was answering stays where it was', async () => {
+    const saw: string[] = []
+    const work = held<string>()
+    type Asks = { FIND: { args: {}; answer: string } }
+    type AskerNet = { systems: { finder: { events: never; asks: Asks } }; surfaces: {}; views: {} }
+    const answerer = state<{ states: { open: {} } }, never, Asks>()({
+      initial: 'open',
+      states: {
+        open: {
+          answers: {
+            FIND: async (_, { outside }) => {
+              try { return await outside(work.promise) } catch (error) { saw.push(error instanceof Cancelled ? 'Cancelled' : String(error)); throw error }
+            },
+          },
+        },
+      },
+    })
+    const asker = forNet<AskerNet>()<{ states: { asking: {}; done: {} } }, { type: 'LEAVE' }>()({
+      initial: 'asking',
+      states: {
+        asking: {
+          on: { LEAVE: () => ({ at: 'done' }) },
+          async run({ ask }) { await ask('finder', 'FIND', {}) },
+          failed: () => { saw.push('asker failed') },
+        },
+        done: {},
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const answering = sys.start('finder', answerer)
+    const asking = sys.start('asker', asker)
+    await turns(4)
+    deepStrictEqual(saw, [])
+    sys.send(asking, { type: 'LEAVE' })
+    await rest()
+    deepStrictEqual(saw, ['Cancelled'])
+    strictEqual(sys.read(answering).at, 'open')
+    work.resolve('late')
+    await rest()
+    strictEqual(sys.idle(), true)
+  }],
+
+  ['a thenable that throws as it is read is the failure of the work, as one that rejects is', async () => {
+    const saw: string[] = []
+    const broken = Object.defineProperty({}, 'then', { get: () => { throw new Error('no then') } }) as PromiseLike<string>
+    const sys = system({ side: 'window' })
+    const handle = sys.start('o', opening(broken, saw))
+    await rest()
+    strictEqual(sys.read(handle).data.failure, 'Error: no then')
+    deepStrictEqual(saw, ['threw Error: no then', 'finally'])
   }],
 ], async (tally) => {
   await tally.every('outside work racing a leaving event under every ordering has its effect only while the state is the case', () =>

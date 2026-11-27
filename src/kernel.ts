@@ -728,8 +728,8 @@ export function system<N extends Net = Net>(host: {
       waiting.catch(() => {})
       return waiting
     },
-    outside: <T,>(work: PromiseLike<T>): Promise<T> => {
-      const waiting = new Promise<T>((resolve, reject) => {
+    outside: <T,>(work: PromiseLike<T>): Promise<Awaited<T>> => {
+      const waiting = new Promise<Awaited<T>>((resolve, reject) => {
         const gone = (): void => { reject(new Cancelled('outside work')) }
         // What the work ends with is always taken, so that one that fails after its owner has gone is not a failure of the process.
         const ended = <V,>(settle: (with_: V) => void) => (with_: V): void => { workSignal.removeEventListener('abort', gone); settle(with_) }
