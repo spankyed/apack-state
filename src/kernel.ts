@@ -126,7 +126,7 @@ interface Active {
  * One view being followed or one ask loaded: the values of the fields it named when it was asked, how to stop it,
  * and which deliveries led to it being asked.
  */
-interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
+interface Live { seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
   calls: Map<string, 'one' | 'each' | 'many'>
@@ -958,9 +958,9 @@ export function system<N extends Net = Net>(host: {
       }
 
       /**
-       * One of what this state follows or loads, as it should be now. `seen` is the values of the fields it named:
-       * the data is never changed in place, so a field that changed is a different value, and comparing the two
-       * says whether to ask again without working anything out.
+       * One of what this state follows or loads, as it should be now. `seen` is the values of the fields it named,
+       * after its key where it is one of many: the data is never changed in place, so a field that changed is a
+       * different value, and comparing the two says whether to ask again without working anything out.
        */
       const settle = (live: Map<string, Live>, id: string, seen: readonly unknown[], args: () => unknown, begin: (what: object, entry: Live) => (() => void) | undefined): void => {
         const now = live.get(id)
@@ -976,6 +976,8 @@ export function system<N extends Net = Net>(host: {
           defect(hearing.id === here
             ? `what ${here} delivered changed a field it is itself asked from. It goes on as it was`
             : `what ${hearing.id} delivered changed a field ${here} is asked from, and ${here} is what led to ${hearing.id} being asked. ${here} goes on as it was`, top.ref)
+          // What it was refused for is what it has now seen: it is not asked again for these values at some later look.
+          now.seen = seen
           return
         }
         now?.stop()
@@ -988,9 +990,13 @@ export function system<N extends Net = Net>(host: {
         if (stop) entry.stop = stop; else live.delete(id)
       }
       const picked = (from: readonly string[]): Plain => Object.fromEntries(from.map((field) => [field, top.data[field]]))
-      /** For one declared with `each`: the keys there are now, with what went stopped. Nothing if the field did not change. */
-      const keysNow = (live: Map<string, Live>, name: string, field: string, what: string): string[] | undefined => {
-        if (!looks(field)) return undefined
+      /**
+       * For one declared with `each`: the keys to look at now. Where the field changed, those are its keys, with what
+       * went stopped. Where only a field named in `from` did, they are the keys there already were, each to be asked
+       * again. Where neither did, none.
+       */
+      const keysNow = (live: Map<string, Live>, name: string, field: string, from: readonly string[], what: string): string[] => {
+        if (!looks(field)) return from.some(looks) ? keysOf(top.data[field]) : []
         trace(`${top.ref} looked at ${field} for which ${name} to ${what}`)
         const keys = keysOf(top.data[field])
         const wanted = new Set(keys.map((key) => `${name}/${key}`))
@@ -1039,12 +1045,13 @@ export function system<N extends Net = Net>(host: {
             return () => safely(`stopping ${top.ref}'s view ${id}`, stop, top.ref)
           })
         }
+        const from = declared.from ?? []
+        const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
+          for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {}))
         } else {
-          const from = declared.from ?? []
           if (!from.some(looks) && at.following.has(name)) continue
-          followed(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
+          followed(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
 
@@ -1064,12 +1071,13 @@ export function system<N extends Net = Net>(host: {
             return () => given.abort()
           })
         }
+        const from = declared.from ?? []
+        const read = from.map((field) => top.data[field])
         if (declared.each !== undefined) {
-          for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {}))
+          for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {}))
         } else {
-          const from = declared.from ?? []
           if (!from.some(looks) && at.awaiting.has(name)) continue
-          awaited(name, undefined, from.map((field) => top.data[field]), () => (declared.args ? declared.args(picked(from)) : {}))
+          awaited(name, undefined, read, () => (declared.args ? declared.args(picked(from)) : {}))
         }
       }
     }
@@ -1167,6 +1175,22 @@ export function system<N extends Net = Net>(host: {
       }
       return undefined
     }
+    // One for each key of a field is not also asked again from that field: each key there would give up and ask again
+    // whenever another came or went.
+    const twice = (node: LooseDef, path: string): string | undefined => {
+      for (const [kind, table] of [['follows', declaredBy(node).follows], ['loads', declaredBy(node).loads]] as const) {
+        for (const [name, entry] of Object.entries(table)) {
+          if (entry.from?.includes(entry.each!)) return `${kind} ${name}${path ? ` at ${path}` : ''} for each key of ${entry.each} and again from ${entry.each}: name it once`
+        }
+      }
+      for (const [name, inner] of Object.entries(node.states ?? {})) {
+        const problem = twice(inner, path ? `${path}.${name}` : name)
+        if (problem) return problem
+      }
+      return undefined
+    }
+    const named = twice(def, '')
+    if (named) return named
     const conflict = conflicts(def)
     if (conflict) return conflict
     for (let cur = def, path = ''; cur.initial !== undefined; ) {

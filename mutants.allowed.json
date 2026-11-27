@@ -215,12 +215,12 @@
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'follow'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'await'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
@@ -325,11 +325,6 @@
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
   },
   {
-    "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | []",
-    "original": "[key]",
-    "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
-  },
-  {
     "key": "src/kernel.ts | ArrayDeclaration | const from = declared.from ?? [] | [\"Stryker was here\"]",
     "original": "[]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
@@ -337,11 +332,6 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | if (!from.some(looks) && at.following.has(name)) continue | false",
     "original": "!from.some(looks) && at.following.has(name)",
-    "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
-  },
-  {
-    "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | []",
-    "original": "[key]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {

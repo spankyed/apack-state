@@ -46,6 +46,10 @@ Each entry depends on the data in one of two ways:
 - **`each: 'titles'`**: there is one for each key of this field, or each item of a list. A key that appears starts
   one, and a key that goes stops it.
 
+What is followed or loaded may say both: **`each: 'openDiffs', from: ['revision']`** is one for each key, every one
+of them asked again when a field in `from` changes, the one before for that key stopped. A key that appears or goes
+still starts or stops its own alone. `args` is given the key, and then the fields named.
+
 So changing data is how they start and stop:
 
 | To do this | Change the data like this |
@@ -53,6 +57,7 @@ So changing data is how they start and stop:
 | Open a thread's state | Add its id to `titles` |
 | Follow another thread's detail | Set `id` |
 | Read the status again | Count `revision` up |
+| Read every open diff again | Count `revision` up, where each is `each: 'openDiffs', from: ['revision']` |
 
 ## A write is called once
 
