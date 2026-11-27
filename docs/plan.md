@@ -90,6 +90,10 @@ Exactly one path is the case, so where a state is is one string, and its data is
 A handler or `run` returns the same two fields the value has: `{ at, data }`. Giving only `data` changes fields and
 stays. Giving `at` goes to that path.
 
+It returns the part of the value that changes, under the names it is read by: `at` read is where the state is and
+`at` returned is where it will be, as `data` read is its fields and `data` returned is what they will be. So what a
+handler returns is a value and not a command.
+
 `data` is the fields to replace, or, for a change to something nested, a function that edits a draft in place:
 
 ```ts
