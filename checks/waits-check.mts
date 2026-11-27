@@ -863,30 +863,60 @@ const checks: Array<[string, () => Promise<void>]> = [
 
   ['stale expiry is impossible: late firing from buggy clock creates no step, and queued wait behind disarm is ignored', async () => {
     const manual = manualClock()
-    type Shape = { data: { fired: number }; waits: { w: 'one' } }
-    type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'PING' }
-    const m = state<Shape, Ev>()({
-      data: { fired: 0 },
+    type StreamNet = {
+      systems: { svc: { events: never; asks: { STREAM: { args: {}; progress: string; answer: void } } } }
+      surfaces: {}
+      views: {}
+    }
+    const netState = forNet<StreamNet>()
+    let emitProgress!: (p: string) => void
+    let finishStream!: () => void
+    const svc = netState<{}, never, StreamNet['systems']['svc']['asks']>()({
+      answers: {
+        STREAM: (_, { progress }) => new Promise<void>((resolve) => {
+          emitProgress = progress
+          finishStream = resolve
+        }),
+      },
+    })
+    type Shape = { data: { fired: number; batches: string[][] }; waits: { w: 'one' }; calls: { stream: 'one' } }
+    type Ev = { type: 'ARM' } | { type: 'DISARM' } | { type: 'STREAM' }
+    const m = netState<Shape, Ev>()({
+      data: { fired: 0, batches: [] },
       waits: ({ one }) => ({ w: one(100, ({ data }) => ({ data: { fired: data.fired + 1 } })) }),
+      calls: ({ one }) => ({
+        stream: one('svc', 'STREAM', {
+          progress: (updates) => ({ data: (d) => { d.batches.push([...updates]) } }),
+          done: () => {},
+        }),
+      }),
       on: {
         ARM: (_, { arm }) => { arm('w') },
         DISARM: (_, { disarm }) => { disarm('w') },
-        PING: () => ({ data: { fired: 0 } }),
+        STREAM: (_, { call }) => { call('stream') },
       },
     })
 
     const logs: StepLog[] = []
     const sys = system({ side: 'backend', clock: manual.clock, log: (s) => logs.push(s) })
+    sys.start('svc', svc)
     const h = sys.start('m', m)
 
-    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry and done never runs.
+    // Case A: buggy clock fires cancelled callback after disarm -> no StepLog entry, done never runs,
+    // and gathered progress waiting for its frame is NOT flushed early by `handOver()`.
+    sys.send(h, { type: 'STREAM' })
     sys.send(h, { type: 'ARM' })
     const firstCallback = manual.timers[0]!.run
     sys.send(h, { type: 'DISARM' })
+    emitProgress('u1')
     const logsBefore = logs.length
     firstCallback()
     strictEqual(logs.length, logsBefore)
     strictEqual(sys.read(h).data.fired, 0)
+    deepStrictEqual(sys.read(h).data.batches, [])
+    finishStream()
+    await rest()
+    deepStrictEqual(sys.read(h).data.batches, [['u1']])
 
     // Case B: while flushing a commit, subscriber queues DISARM and THEN fires the timer -> DISARM runs first, queued wait is stale and dropped before starting a step!
     sys.send(h, { type: 'ARM' })

@@ -172,9 +172,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       }
     }
 
-    const rootArmed = new Set<string>()
-    const waitEdges = new Map<string, Set<string>>()
-    const armedByWait = new Map<string, Set<string>>()
+    const rawArms: Array<{ statePath: string; targetKey: string; fromWaitKey?: string }> = []
     let hasDynamicArm = false
     const scan = (inner: any, statePath: string, fromWaitKey?: string): void => {
       if (!isDeclName(inner)) {
@@ -202,17 +200,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             else for (const m of real(checker.getTypeAtLocation(target))) if (m.isStringLiteral()) names.push(m.value as string)
             for (const armedName of names) {
               const targetKey = resolveWait(statePath, armedName)
-              if (!targetKey) continue
-              if (fromWaitKey === undefined) {
-                rootArmed.add(targetKey)
-              } else {
-                let out = waitEdges.get(fromWaitKey)
-                if (!out) { out = new Set(); waitEdges.set(fromWaitKey, out) }
-                out.add(targetKey)
-                let inc = armedByWait.get(targetKey)
-                if (!inc) { inc = new Set(); armedByWait.set(targetKey, inc) }
-                inc.add(fromWaitKey)
-              }
+              if (targetKey) rawArms.push({ statePath, targetKey, fromWaitKey })
             }
           }
         }
@@ -271,6 +259,16 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     walk(def, '')
 
     const text = (node: any): string => (ts.isStringLiteralLike(node) ? node.text : node.getText())
+    const propName = (nameNode: any): string | undefined => {
+      if (ts.isIdentifier(nameNode) || ts.isStringLiteralLike(nameNode) || ts.isNumericLiteral(nameNode)) return nameNode.text
+      if (ts.isComputedPropertyName(nameNode)) {
+        const resolvedExpr = unwrapConst(nameNode.expression)
+        if (ts.isStringLiteralLike(resolvedExpr) || ts.isNumericLiteral(resolvedExpr)) return resolvedExpr.text
+        const lits = literalsOf(checker.getTypeAtLocation(nameNode.expression))
+        if (lits.length === 1) return lits[0]
+      }
+      return undefined
+    }
     const isInlineFn = (node: any): boolean => {
       let cur = node
       while (cur && ts.isParenthesizedExpression(cur)) cur = cur.expression
@@ -290,7 +288,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           scan(property, path)
           continue
         }
-        const name = text(property.name)
+        const name = propName(property.name)
+        if (name === undefined) {
+          uncertain.add(`computed property ${property.name.getText()} in ${path || 'definition'} could not be statically read`)
+          scan(property, path)
+          continue
+        }
         const made = ts.isPropertyAssignment(property) ? property.initializer : undefined
         if (name === 'on' || name === 'internal' || name === 'answers') {
           if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) hasOpaqueHandler = true
@@ -313,11 +316,18 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
               uncertain.add(`spread in ${where(path, 'states')} could not be statically read`)
               scan(inner, path)
             } else if (ts.isPropertyAssignment(inner)) {
-              const subName = text(inner.name)
-              if (ts.isObjectLiteralExpression(inner.initializer)) declarations(inner.initializer, join(path, subName))
-              else { uncertain.add(`could not statically read ${join(path, subName)}`); scan(inner, path) }
+              const subName = propName(inner.name)
+              if (subName === undefined) {
+                uncertain.add(`could not statically read ${where(path, inner.name.getText())}`)
+                scan(inner, path)
+              } else if (ts.isObjectLiteralExpression(inner.initializer)) {
+                declarations(inner.initializer, join(path, subName))
+              } else {
+                uncertain.add(`could not statically read ${join(path, subName)}`)
+                scan(inner, path)
+              }
             } else if (ts.isShorthandPropertyAssignment(inner)) {
-              uncertain.add(`could not statically read ${join(path, text(inner.name))}`)
+              uncertain.add(`could not statically read ${join(path, inner.name.text)}`)
               scan(inner, path)
             } else {
               scan(inner, path)
@@ -348,11 +358,17 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             continue
           }
           if (!ts.isPropertyAssignment(entry) || !ts.isCallExpression(entry.initializer)) {
-            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name ? text(entry.name) : '?'}`)}`)
+            const rawEntry = entry.name ? (propName(entry.name) ?? entry.name.getText()) : '?'
+            uncertain.add(`could not statically read ${where(path, `${name}.${rawEntry}`)}`)
             scan(entry, path)
             continue
           }
-          const entryName = text(entry.name)
+          const entryName = propName(entry.name)
+          if (entryName === undefined) {
+            uncertain.add(`could not statically read ${where(path, `${name}.${entry.name.getText()}`)}`)
+            scan(entry, path)
+            continue
+          }
           if (name === 'waits') {
             scan(entry.initializer, path, waitKey(path, entryName))
             const [first, second] = entry.initializer.arguments
@@ -361,13 +377,13 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             const rest = hasMs ? second : first
             let noReset = false
             if (rest && ts.isObjectLiteralExpression(rest)) {
-              if (rest.properties.some((p: any) => ts.isSpreadAssignment(p))) {
+              if (rest.properties.some((p: any) => ts.isSpreadAssignment(p) || (p.name && propName(p.name) === undefined))) {
                 uncertain.add(`spread in ${where(path, `waits.${entryName}`)} could not be statically read`)
               }
-              const resetProp = rest.properties.find((each: any) => each.name && text(each.name) === 'reset')
+              const resetProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'reset')
               const resetInit = resetProp && ts.isPropertyAssignment(resetProp) ? resetProp.initializer : undefined
               if (resetInit && resetInit.kind === ts.SyntaxKind.FalseKeyword) noReset = true
-              const doneProp = rest.properties.find((each: any) => each.name && text(each.name) === 'done')
+              const doneProp = rest.properties.find((each: any) => each.name && propName(each.name) === 'done')
               if (doneProp && !isInlineHandlerProp(doneProp)) hasOpaqueHandler = true
               const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
               if (signature) read(unwrap(signature.getReturnType()), path, `${entryName} (done)`)
@@ -394,7 +410,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             uncertain.add(`could not statically read ${where(path, `${name}.${entryName}`)}`)
             continue
           }
-          const option = (key: string): any => opts.properties.find((each: any) => each.name && text(each.name) === key)
+          const option = (key: string): any => opts.properties.find((each: any) => each.name && propName(each.name) === key)
           const valueOf = (prop: any): any => prop && (prop.initializer ?? prop.name)
           const each = valueOf(option('each'))
           const from = valueOf(option('from'))
@@ -432,6 +448,26 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
     }
     enter('')
     for (const move of moves) for (const target of move.to) enter(target)
+
+    const rootArmed = new Set<string>()
+    const waitEdges = new Map<string, Set<string>>()
+    const armedByWait = new Map<string, Set<string>>()
+    for (const { statePath, targetKey, fromWaitKey } of rawArms) {
+      const targetWait = byWaitKey.get(targetKey)
+      if (statePath && !entered.has(statePath) && targetWait && targetWait.within !== statePath && !targetWait.within.startsWith(`${statePath}.`)) {
+        continue
+      }
+      if (fromWaitKey === undefined) {
+        rootArmed.add(targetKey)
+      } else {
+        let out = waitEdges.get(fromWaitKey)
+        if (!out) { out = new Set(); waitEdges.set(fromWaitKey, out) }
+        out.add(targetKey)
+        let inc = armedByWait.get(targetKey)
+        if (!inc) { inc = new Set(); armedByWait.set(targetKey, inc) }
+        inc.add(fromWaitKey)
+      }
+    }
 
     const liveWaits = new Set<string>(rootArmed)
     const queue = [...rootArmed]

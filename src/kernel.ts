@@ -1459,7 +1459,9 @@ export function system<N extends Net = Net>(host: {
       at.waiting.set(id, live)
       let cancel: () => void
       try {
-        cancel = host.clock.after(duration as number, () => arrive({ kind: 'wait', of: at, name, id, key, live }))
+        cancel = host.clock.after(duration as number, () => {
+          if (at.waiting.get(id) === live) arrive({ kind: 'wait', of: at, name, id, key, live })
+        })
       } catch (error) {
         if (prev) at.waiting.set(id, prev); else at.waiting.delete(id)
         defect(`${top.ref} could not arm ${id}: ${said(error)}`, top.ref, error)

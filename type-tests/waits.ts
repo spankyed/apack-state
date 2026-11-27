@@ -2,7 +2,7 @@
 // Compiled by `npm run typecheck`, never run: each `@ts-expect-error` is a line that must not compile, and one that
 // compiled would fail the check as an unused directive.
 
-import { state, type Value } from '../src/index.ts'
+import { forNet, state, type Value } from '../src/index.ts'
 
 type TimersShape = {
   data: { count: number; lastKey: string | null }
@@ -216,12 +216,19 @@ state<ConflictingWaitsShape, never>()({
 })
 
 // A nested state cannot redeclare a wait name already declared by an enclosing state (direct child or grandchild),
-// and the error lands on the redeclaring inner declaration even when the inner kind also differs.
+// and the error lands on the redeclaring inner declaration even when the inner kind also differs; a call of the same
+// name lives in `pending` (a separate namespace from `waiting`), so a child call may share the parent's wait name.
+type WaitCallCrossNet = { systems: { svc: { events: never; asks: { PING: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
+const waitTyped = forNet<WaitCallCrossNet>()
 type DirectShadowWaitsShape = {
   waits: { retry: 'one' }
-  states: { a: { waits: { retry: 'one' } }; b: { waits: { retry: 'each' } } }
+  states: {
+    a: { waits: { retry: 'one' } }
+    b: { waits: { retry: 'each' } }
+    c: { waits: { other: 'one' }; calls: { retry: 'one' } }
+  }
 }
-state<DirectShadowWaitsShape, never>()({
+waitTyped<DirectShadowWaitsShape, never>()({
   initial: 'a',
   waits: ({ one }) => ({ retry: one(100) }),
   states: {
@@ -232,6 +239,10 @@ state<DirectShadowWaitsShape, never>()({
     b: {
       // @ts-expect-error shadowing an enclosing wait name is reported on the redeclaring child even with a different kind
       waits: ({ each }) => ({ retry: each(100) }),
+    },
+    c: {
+      waits: ({ one }) => ({ other: one(100) }),
+      calls: ({ one }) => ({ retry: one('svc', 'PING', { done: () => {} }) }),
     },
   },
 })

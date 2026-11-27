@@ -509,10 +509,48 @@ export const quotedWaits = state<QuotedWaitsShape, { type: 'GO' }>()({
   }),
   on: { GO: (_, { arm }) => { arm('live-first') } },
 })
+
+const SUB = 'active' as const
+const W = 'pulse' as const
+type ComputedNamesShape = {
+  states: {
+    [SUB]: { waits: { [W]: 'one' } }
+    idle: {}
+  }
+}
+export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 'STOP' }>()({
+  initial: SUB,
+  states: {
+    [SUB]: {
+      waits: ({ one }) => ({ [W]: one(100) }),
+      on: {
+        GO: (_, { arm }) => { arm(W) },
+        STOP: () => ({ at: 'idle' }),
+      },
+    },
+    idle: {},
+  },
+})
+
+type UnenteredArmShape = {
+  waits: { keepalive: 'one' }
+  states: { live: {}; dead: { waits: { inner: 'one' } } }
+}
+export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
+  initial: 'live',
+  waits: ({ one }) => ({ keepalive: one(100) }),
+  states: {
+    live: { on: { GO: () => {} } },
+    dead: {
+      waits: ({ one }) => ({ inner: one(50) }),
+      on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
+    },
+  },
+})
 `)
       const all = analyseGraphs([file], { tsconfig: join(root, 'tsconfig.json') })
       const graphs = all.get(file) ?? []
-      strictEqual(graphs.length, 6, formatGraphs(graphs))
+      strictEqual(graphs.length, 8, formatGraphs(graphs))
 
       deepStrictEqual(graphs[0]!.findings, ['nothing arms loop except its own done'])
       deepStrictEqual(graphs[1]!.findings, [
@@ -528,6 +566,9 @@ export const quotedWaits = state<QuotedWaitsShape, { type: 'GO' }>()({
         'nothing arms dead-first',
         'nothing arms dead-next except the done of dead-first, which nothing arms',
       ])
+      deepStrictEqual(graphs[6]!.waits, ['pulse in active: 100ms, one at a time'])
+      deepStrictEqual(graphs[6]!.findings, [])
+      deepStrictEqual(graphs[7]!.findings, ['dead is never entered', 'nothing arms keepalive'])
     } finally {
       rmSync(work, { recursive: true, force: true })
     }
