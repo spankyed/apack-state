@@ -484,8 +484,11 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
         : ArmedSingle<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>
   }
 }) & ([Names<S>] extends [never] ? { initial?: never; states?: never } : {
-  /** The state inside it that it enters first when whoever enters it does not say. */
-  initial: { [K in Names<S>]: {} extends DataOf<StatesOf<S>[K]> ? K : never }[Names<S>]
+  /**
+   * The state inside it that it enters first when whoever enters it does not say. It is entered with nothing given,
+   * so no field of its data may be `given`, which `NoInitialGiven` holds the definition to, field by field.
+   */
+  initial: { [K in Names<S>]: K }[Names<S>]
   /** Every state inside it. */
   states: { [K in Names<S>]: Def<R, StatesOf<S>[K], Join<H, K>, E, A, N> }
 })
@@ -709,16 +712,36 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
 }) => Loaded<R, H, E, N>
 
 /**
- * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
- * with no supplied fields, so a `given` field there would never be provided.
+ * What a declaration that breaks a rule is held to, in place of `never`: nothing written can be it, and the compiler
+ * prints it as `Refused<"…">`, so its error says which rule was broken and by which name. `forNet` intersects the
+ * refusals ahead of the definition, which puts the reason first in the type the error names. It is held to by the
+ * whole of what declares the name (a state's `data`, `calls` or `arms`), not by the one entry: it asks for a property
+ * nothing has, so what any entry is written as, `any` included, does not come into it. The property is one of its own
+ * making, so there is no reason, not even none at all, that leaves it something a definition can be.
  */
+declare const refused: unique symbol
+type Refused<Why extends string> = { readonly [refused]: Why }
+
+/**
+ * Refuses `given` in any state entered automatically via `initial` (at any depth): an `initial` substate is entered
+ * with no supplied fields, so a `given` field there would never be provided. A state whose data all has values of
+ * its own can be entered first like any other.
+ */
+/**
+ * The fields of written data that are `given`: the ones an initial state cannot have. A value typed `any` is not one
+ * of them, and nor is one that may be `given` or a value: a field read as its declared type is exactly that, so the
+ * two cannot be told apart here, and what either holds is found where the state starts.
+ */
+type GivenIn_<X> = { [F in keyof X]: 0 extends 1 & X[F] ? never : [X[F]] extends [Given] ? F : never }[keyof X]
 type NoInitialGiven<D> =
   D extends { initial: infer K extends string; states: infer T extends Record<string, unknown> }
     ? {
         states: {
           [P in keyof T]: P extends K
             ? (T[P] extends { data: infer X }
-                ? { data: { [F in keyof X]: [X[F]] extends [Given] ? never : unknown } }
+                ? ([GivenIn_<X>] extends [never]
+                    ? unknown
+                    : { data: { [F in GivenIn_<X>]: Refused<`data field '${F & string}' cannot be given: an initial state is entered with nothing given`> } })
                 : unknown) & NoInitialGiven<T[P]>
             : NoInitialGiven<T[P]>
         }
@@ -740,13 +763,13 @@ type NoShadowed<S, AboveData extends string = never, AboveCalls extends string =
           [P in keyof T]:
             ([Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>] extends [never]
               ? unknown
-              : { data: { [F in Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>]: never } })
+              : { data: Refused<`data field '${Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>}' is already declared by an enclosing state`> })
             & ([Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>] extends [never]
               ? unknown
-              : { calls: (...args: never[]) => { [F in Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>]: never } })
+              : { calls: Refused<`call '${Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>}' is already declared by an enclosing state`> })
             & ([Extract<keyof ArmsOf<T[P]> & string, AboveArms | (keyof ArmsOf<S> & string)>] extends [never]
               ? unknown
-              : { arms: (...args: never[]) => { [F in Extract<keyof ArmsOf<T[P]> & string, AboveArms | (keyof ArmsOf<S> & string)>]: never } })
+              : { arms: Refused<`timer '${Extract<keyof ArmsOf<T[P]> & string, AboveArms | (keyof ArmsOf<S> & string)>}' is already declared by an enclosing state`> })
             & NoShadowed<
                 T[P],
                 AboveData | (keyof DataOf<S> & string),
@@ -768,15 +791,20 @@ type ConflictingNames<Entries> =
   ([Entries] extends [[infer K extends string, unknown]]
     ? { [P in K]: IsUnion<Extract<Entries, [P, unknown]>[1]> extends true ? P : never }[K]
     : never) & string
-type RejectConflicting<S, BadCalls extends string, BadArms extends string> =
+/**
+ * Each reason is written where it is used and under no name of its own: the compiler prints an argument that has a
+ * name by that name, and one that has none as the sentences it holds. There is a sentence for each kind a name is
+ * declared with, made from the kinds as they are declared, so none is spelled here.
+ */
+type RejectConflicting<S, Calls, Arms, BadCalls extends string, BadArms extends string> =
   ([Extract<keyof CallsOf<S> & string, BadCalls>] extends [never] ? unknown : {
-    calls: (...args: never[]) => { [K in Extract<keyof CallsOf<S> & string, BadCalls>]: never }
+    calls: Refused<{ [K in Extract<keyof CallsOf<S> & string, BadCalls>]: `call '${K}' is declared with more than one kind across states: '${Extract<Calls, [K, unknown]>[1] & string}' is one of them` }[Extract<keyof CallsOf<S> & string, BadCalls>]>
   })
   & ([Extract<keyof ArmsOf<S> & string, BadArms>] extends [never] ? unknown : {
-    arms: (...args: never[]) => { [K in Extract<keyof ArmsOf<S> & string, BadArms>]: never }
+    arms: Refused<{ [K in Extract<keyof ArmsOf<S> & string, BadArms>]: `timer '${K}' is declared with more than one kind across states: '${Extract<Arms, [K, unknown]>[1] & string}' is one of them` }[Extract<keyof ArmsOf<S> & string, BadArms>]>
   })
   & (S extends { states: infer T extends Record<string, Shape> }
-    ? { states: { [P in keyof T]: RejectConflicting<T[P], BadCalls, BadArms> } }
+    ? { states: { [P in keyof T]: RejectConflicting<T[P], Calls, Arms, BadCalls, BadArms> } }
     : unknown)
 /**
  * Refuses declaring the same `calls` or `arms` name with conflicting kinds (`single` vs `each` vs `many`) across
@@ -786,7 +814,7 @@ type RejectConflicting<S, BadCalls extends string, BadArms extends string> =
 type NoConflictingKinds<S> =
   [ConflictingNames<CallEntries<S>> | ConflictingNames<ArmEntries<S>>] extends [never]
     ? unknown
-    : RejectConflicting<S, ConflictingNames<CallEntries<S>>, ConflictingNames<ArmEntries<S>>>
+    : RejectConflicting<S, CallEntries<S>, ArmEntries<S>, ConflictingNames<CallEntries<S>>, ConflictingNames<ArmEntries<S>>>
 
 /**
  * `state`, bound to the network `N` it can reach by name. In the app this is what a pack's generated facade exports.
@@ -797,7 +825,7 @@ type NoConflictingKinds<S> =
  * resolved name per running state instance for its lifetime, validates that the return value is a non-empty string,
  * and isolates thrown errors as defects without corrupting state or pending bookkeeping.
  */
-export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: D & NoInitialGiven<NoInfer<D>> & NoShadowed<S> & NoConflictingKinds<S>) => State<S, E, A, GivenIn<D>> {
+export function forNet<N extends Net = Nothing>(resolve?: (name: string) => string): <S extends Shape, E extends AnyEvent = never, A extends Asks = {}>() => <D extends Def<S, S, '', E, A, N>>(def: NoShadowed<S> & NoConflictingKinds<S> & NoInitialGiven<NoInfer<D>> & D) => State<S, E, A, GivenIn<D>> {
   return () => (def) => (resolve ? { def, resolve } : { def })
 }
 
