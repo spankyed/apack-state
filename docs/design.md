@@ -246,6 +246,9 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
   its pending calls or armed waits changed.
+- **Only what was taken.** A view's update, how a read or write finished, its progress, or a timer's expiry that is
+  stale when its turn comes (the state no longer follows, awaits, has pending or has armed the one it belongs to) takes
+  no step, so no log names it and the numbers have no gap for it.
 - **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
   `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
@@ -285,6 +288,9 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
 - **An ask or `sleep` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
+- **What is no longer held is not heard from.** What a view delivers, how a read or a write ended, what it said
+  before it ended, and a timer's expiry reach a handler only while the state holds the very one they belong to. One
+  that was left, stopped, cancelled, disarmed or begun again by the time its turn comes takes no step at all.
 - **Nothing depends on itself in a circle.** What a view delivers, or how a read ended, may not change a field it is
   itself asked from.
 - **Every ordering is checked, not the one that happened.** A schedule stands in for the event loop and runs a
