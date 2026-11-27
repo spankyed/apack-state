@@ -1185,6 +1185,59 @@ const moves: Array<[string, () => void]> = [
     strictEqual(invocations.get('svc'), 2)
     sys.stop()
   }],
+  ['data is already frozen during synchronous listen and run on entry, transition, and substate exit', () => {
+    const checksSaw: boolean[] = []
+    type SyncShape = {
+      data: { nested: { n: number }; count: number }
+      states: {
+        first: { data: { sub: { k: number } } }
+        second: {}
+      }
+    }
+    const syncState = state<SyncShape, { type: 'GO'; extra: { n: number } }>()({
+      data: { nested: { n: 1 }, count: 0 },
+      initial: 'first',
+      listen: ({ data }) => {
+        checksSaw.push(Object.isFrozen(data), Object.isFrozen(data.nested))
+      },
+      on: {
+        GO: ({ extra }) => ({ at: 'second', data: { nested: extra } }),
+      },
+      states: {
+        first: {
+          data: { sub: { k: 1 } },
+          run: ({ data }) => {
+            checksSaw.push(Object.isFrozen(data), Object.isFrozen(data.nested), Object.isFrozen(data.sub))
+            return { data: (d) => { d.count = 1 } }
+          },
+        },
+        second: {
+          run: ({ data }) => {
+            checksSaw.push(Object.isFrozen(data), Object.isFrozen(data.nested))
+            return { data: (d) => { d.count = 2 } }
+          },
+        },
+      },
+    })
+    const emptyRoot = state<{ states: { on: {} } }>()({
+      initial: 'on',
+      states: {
+        on: {
+          run: ({ data }) => { checksSaw.push(Object.isFrozen(data)) },
+        },
+      },
+    })
+    const sys = system({ side: 'backend' })
+    const h = sys.start('sync', syncState)
+    ok(Object.isFrozen(sys.read(h).data) && Object.isFrozen(sys.read(h).data.nested))
+    strictEqual(sys.read(h).data.count, 1)
+    sys.send(h, { type: 'GO', extra: { n: 9 } })
+    ok(Object.isFrozen(sys.read(h).data) && Object.isFrozen(sys.read(h).data.nested))
+    strictEqual(sys.read(h).data.count, 2)
+    sys.start('empty', emptyRoot)
+    ok(checksSaw.length === 8 && checksSaw.every(Boolean), String(checksSaw))
+    sys.stop()
+  }],
 ]
 
 await runChecks([...checks, ...moves])

@@ -745,7 +745,7 @@ export function system<N extends Net = Net>(host: {
     if (entries.length) {
       const nextData: Plain = { ...top.data }
       for (const [field, initial] of entries) nextData[field] = Object.hasOwn(entering, field) ? entering[field] : initial
-      top.data = nextData
+      top.data = frozen(nextData)
     }
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.listen) {
@@ -852,7 +852,7 @@ export function system<N extends Net = Net>(host: {
     for (const release of active.releases.splice(0).reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
-    active.top.data = rest
+    active.top.data = Object.freeze(rest)
     if (active.around) active.around.inside = undefined
   }
 
@@ -1231,10 +1231,9 @@ export function system<N extends Net = Net>(host: {
     survey(def)
     restarted.add(ref)
     mark(ref)
-    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
+    const top: Running = { ref, data: Object.freeze({}), root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
-    top.data = frozen(top.data)
   }
 
   const end = (ref: string): void => {
@@ -1252,11 +1251,8 @@ export function system<N extends Net = Net>(host: {
     trace(`LARGE: ${top.ref} holds ${held.length} items in ${field}. A collection this size belongs in a view`)
   }
 
-  /** Makes a change, and freezes what the state holds afterwards, however the change went. */
+  /** Makes a change, leaving what the state holds frozen all the way down. */
   const apply = (active: Active, next: unknown, mayRefuse = false): boolean => {
-    try { return change(active, next, mayRefuse) } finally { active.top.data = frozen(active.top.data) }
-  }
-  const change = (active: Active, next: unknown, mayRefuse: boolean): boolean => {
     if (next === undefined || next === null || active.controller.signal.aborted) return MADE
     const { at, data = {} } = next as { at?: string; data?: Plain | ((draft: Plain) => void) }
     const top = active.top
@@ -1270,7 +1266,7 @@ export function system<N extends Net = Net>(host: {
       if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); return NOT_MADE }
       // Which fields there are is the states' to say, so the edit may change them and neither add nor remove one.
       // The write that tries throws there and then, and an edit that throws has changed nothing.
-      try { made = produce(before, data, { fixed: true, topLevel: true }) } catch (error) {
+      try { made = produce(before, data, { fixed: true, topLevel: true, freeze: frozen }) } catch (error) {
         // A change that came with an answer may refuse, with one of the refusals its ask declares.
         if (mayRefuse && error instanceof Refusal) throw error
         defect(`${top.ref}: ${said(error)}${whereOf(error)}`, top.ref, error)
@@ -1300,7 +1296,7 @@ export function system<N extends Net = Net>(host: {
       }
     }
     if (nextData) {
-      top.data = nextData
+      top.data = frozen(nextData)
       for (const field of fields.get(top.ref) ?? []) large(top, field)
     }
     if (at !== undefined) { const was = top.data; go(top, at, data); moved(top, was) }

@@ -16,6 +16,8 @@ interface Node {
   readonly path: Path
   /** The draft handed out for each key, so that reading the same place twice is the same draft. */
   readonly inside: Map<string, { node: Node; proxy: object }>
+  /** Keys assigned directly on this node when freezing is requested, so untouched entries from `base` are never re-walked. */
+  dirty?: Set<string>
 }
 
 const NODE = Symbol('draft')
@@ -30,9 +32,11 @@ const isPlain = (value: unknown): value is object => {
 /**
  * `fixed` says the outermost object's keys are not the edit's to change: its values can be edited and replaced, and
  * a key can be neither added nor removed. The write that tries is the one that throws, so the error is on its line.
+ * When `freeze` is given (and `base` is already deeply frozen), only newly assigned values and copied containers are
+ * frozen after the edit settles, avoiding re-walking untouched siblings from `base`.
  * @internal
  */
-export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean } = {}): { value: T; touched: Path[] } {
+export function produce<T extends object>(base: T, edit: (draft: T) => void, options: { fixed?: boolean; topLevel?: boolean; freeze?: (value: unknown) => void } = {}): { value: T; touched: Path[] } {
   const touched = new Map<string, Path>()
   const touchedTop = new Set<string>()
   let open = true
@@ -147,6 +151,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
         if (Object.is(latest(node)[key], next) && Object.hasOwn(latest(node), key)) return true
         own(node)[key] = next
         node.inside.delete(key)
+        ;(node.dirty ??= new Set()).add(key)
         note(node, key)
         return true
       },
@@ -182,8 +187,23 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     throw new Error('An edit cannot be async: a draft is closed as soon as the function returns')
   }
   if (returned !== undefined) throw new Error('An edit changes its draft and returns nothing. To replace a field, give the field')
+  const root = (draft as { [NODE]: Node })[NODE]
+  const value = settle(root) as T
+  if (options.freeze) {
+    const deepFreeze = options.freeze
+    // Deep-freeze assigned values before shallow-freezing copied containers so a freshly assigned object that was
+    // later edited through a child draft still has all of its untouched nested fields frozen.
+    const walk = (node: Node, visit: (made: Record<string, unknown>, current: Node) => void): void => {
+      const made = node.copy as Record<string, unknown> | undefined
+      if (!made) return
+      visit(made, node)
+      for (const [key, held] of node.inside) if (made[key] === held.node.copy) walk(held.node, visit)
+    }
+    walk(root, (made, node) => { if (node.dirty) for (const key of node.dirty) if (Object.hasOwn(made, key)) deepFreeze(made[key]) })
+    walk(root, (made) => { Object.freeze(made) })
+  }
   return {
-    value: settle((draft as { [NODE]: Node })[NODE]) as T,
+    value,
     touched: options.topLevel ? [...touchedTop].map((field) => [field]) : [...touched.values()],
   }
 }

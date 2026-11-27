@@ -341,6 +341,108 @@ const checks: Array<[string, () => void]> = [
     deepStrictEqual(value, { titles: { a: 'A', b: 'B', c: 'C' }, messages: { a: ['x', 'y', 'z'] }, count: 2 })
     deepStrictEqual(paths(touched), ['count', 'messages', 'titles'])
   }],
+  ['freeze mode freezes copied containers and newly assigned values without re-walking untouched siblings from base', () => {
+    const r0 = freeze({ id: '0', tags: ['a'] })
+    const r1 = freeze({ id: '1', tags: ['b'] })
+    const untouched = freeze({ k: 1 })
+    const base = freeze({ rows: [r0, r1], other: untouched })
+    const seen: unknown[] = []
+    const spyFreeze = (v: unknown): void => { seen.push(v); freeze(v) }
+
+    const added = { id: '2', tags: [] as string[] }
+    const { value } = produce(base, (draft) => {
+      draft.rows.push(added)
+      // Mutating a newly assigned object later inside the same edit must still work.
+      added.tags.push('urgent')
+    }, { freeze: spyFreeze })
+
+    ok(Object.isFrozen(value))
+    ok(Object.isFrozen(value.rows))
+    ok(Object.isFrozen(added))
+    ok(Object.isFrozen(added.tags))
+    deepStrictEqual(value.rows[2], { id: '2', tags: ['urgent'] })
+    ok(seen.includes(added))
+    ok(!seen.includes(r0) && !seen.includes(r1) && !seen.includes(untouched))
+
+    // A no-op edit touches nothing and freezes nothing.
+    seen.length = 0
+    const same = produce(base, (draft) => { draft.rows[0] = draft.rows[0]! }, { freeze: spyFreeze })
+    strictEqual(same.value, base)
+    deepStrictEqual(seen, [])
+  }],
+  ['freeze mode does not freeze discarded, overwritten, truncated, or rolled-back objects', () => {
+    const base = freeze({
+      byId: { a: { n: 1 } } as Record<string, { n: number }>,
+      rows: [{ n: 1 }],
+    })
+    const seen: unknown[] = []
+    const spyFreeze = (v: unknown): void => { seen.push(v); freeze(v) }
+    const deleted = { n: 2 }
+    const overwritten = { n: 3 }
+    const kept = { n: 4 }
+    const truncated = { n: 5 }
+
+    const { value } = produce(base, (draft) => {
+      draft.byId.tmp = deleted
+      delete draft.byId.tmp
+      draft.byId.a = overwritten
+      draft.byId.a = kept
+      draft.rows.push(truncated)
+      draft.rows.length = 1
+    }, { freeze: spyFreeze })
+
+    ok(Object.isFrozen(value) && Object.isFrozen(value.byId) && Object.isFrozen(value.rows))
+    ok(Object.isFrozen(kept))
+    strictEqual(Object.isFrozen(deleted), false)
+    strictEqual(Object.isFrozen(overwritten), false)
+    strictEqual(Object.isFrozen(truncated), false)
+    ok(!seen.includes(undefined) && !seen.includes(deleted) && !seen.includes(overwritten) && !seen.includes(truncated))
+
+    const aborted = { n: 6 }
+    throws(() => produce(base, (draft) => { draft.byId.fail = aborted; throw new Error('abort') }, { freeze: spyFreeze }), /abort/)
+    strictEqual(Object.isFrozen(aborted), false)
+  }],
+  ['freeze mode freezes untouched nested fields of a freshly assigned object edited through a child draft', () => {
+    const base = freeze({
+      x: { a: { n: 1 }, b: { m: 2 } },
+      y: { items: [] as Array<{ k: number }>, meta: { tag: 'old' } },
+    })
+    const { value } = produce(base, (draft) => {
+      draft.x = { a: { n: 10 }, b: { m: 20 } }
+      draft.x.a.n = 99
+      draft.y = { items: [{ k: 1 }], meta: { tag: 'new' } }
+      draft.y.items.push({ k: 2 })
+    }, { freeze })
+
+    ok(Object.isFrozen(value))
+    ok(Object.isFrozen(value.x) && Object.isFrozen(value.x.a) && Object.isFrozen(value.x.b))
+    ok(Object.isFrozen(value.y) && Object.isFrozen(value.y.items) && Object.isFrozen(value.y.items[0]) && Object.isFrozen(value.y.items[1]) && Object.isFrozen(value.y.meta))
+    deepStrictEqual(value.x, { a: { n: 99 }, b: { m: 20 } })
+    deepStrictEqual(value.y, { items: [{ k: 1 }, { k: 2 }], meta: { tag: 'new' } })
+  }],
+  ['freeze mode handles reassigned child drafts, reversed edited arrays, and detached truncated drafts', () => {
+    const base = freeze({
+      a: { n: 1 },
+      b: { n: 0 },
+      rows: [{ n: 1 }, { n: 2 }, { n: 3, child: null as { m: number } | null }],
+    })
+    const truncatedChild = { m: 99 }
+    const { value } = produce(base, (draft) => {
+      draft.a.n = 2
+      draft.b = draft.a
+      draft.a.n = 3
+      draft.rows[0]!.n = 10
+      draft.rows.reverse()
+      draft.rows[2]!.n = 20
+      draft.rows[2]!.child = truncatedChild
+      draft.rows.length = 2
+    }, { freeze })
+
+    ok(Object.isFrozen(value) && Object.isFrozen(value.a) && Object.isFrozen(value.b) && Object.isFrozen(value.rows))
+    ok(Object.isFrozen(value.rows[0]) && Object.isFrozen(value.rows[1]))
+    strictEqual(Object.isFrozen(truncatedChild), false)
+    deepStrictEqual({ a: value.a, b: value.b, rows: value.rows }, { a: { n: 3 }, b: { n: 3 }, rows: [{ n: 3, child: null }, { n: 2 }] })
+  }],
 ]
 
 await run(checks)
