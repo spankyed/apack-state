@@ -280,6 +280,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       }
       return undefined
     }
+    /** Whether what is written there is `undefined`, however it is written. */
+    const isUndefined = (node: any): boolean => Boolean(checker.getTypeAtLocation(node).flags & ts.TypeFlags.Undefined)
     const unwrapParens = (node: any): any => {
       let cur = node
       while (cur && ts.isParenthesizedExpression(cur)) cur = cur.expression
@@ -386,7 +388,9 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
           }
           if (name === 'arms') {
             scan(entry.initializer, path, timerKey(path, entryName))
-            const [options] = entry.initializer.arguments
+            const given = unwrapParens(entry.initializer.arguments[0])
+            // No options, written as `undefined`, are no options written at all.
+            const options = given && isUndefined(given) ? undefined : given
             const helper = entry.initializer.expression.getText()
             let msLabel = 'ms at arm'
             let ignoredWhileArmed = false
@@ -397,14 +401,16 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
               const named = (key: string): any => options.properties.find((each: any) => each.name && propName(each.name) === key)
               const afterProp = named('after')
               const after = afterProp && (ts.isPropertyAssignment(afterProp) ? afterProp.initializer : afterProp.name)
-              if (after) msLabel = ts.isNumericLiteral(after) ? `${after.text}ms` : text(after)
+              if (after && !isUndefined(after)) msLabel = ts.isNumericLiteral(after) ? `${after.text}ms` : text(after)
               const whenArmedProp = named('whenArmed')
-              const whenArmed = whenArmedProp && ts.isPropertyAssignment(whenArmedProp) ? whenArmedProp.initializer : undefined
-              if (whenArmed && ts.isStringLiteralLike(whenArmed) && whenArmed.text === 'ignore') ignoredWhileArmed = true
+              const whenArmed = whenArmedProp && (ts.isPropertyAssignment(whenArmedProp) ? whenArmedProp.initializer : whenArmedProp.name)
+              const whenArmedType = whenArmed && checker.getTypeAtLocation(whenArmed)
+              if (whenArmedType?.isStringLiteral() && whenArmedType.value === 'ignore') ignoredWhileArmed = true
               const doneProp = named('done')
               if (doneProp && !isInlineHandlerProp(doneProp)) hasOpaqueHandler = true
-              const signature = doneProp && checker.getTypeAtLocation(doneProp.initializer ?? doneProp).getCallSignatures()[0]
-              if (signature) read(unwrap(signature.getReturnType()), path, `${entryName} (done)`)
+              // A `done` that may be `undefined`, or one of two functions, moves as each function it may be does.
+              const signatures = doneProp ? real(checker.getTypeAtLocation(doneProp.initializer ?? doneProp)).flatMap((m: Type) => m.getCallSignatures().slice(0, 1)) : []
+              if (signatures.length) read(signatures.flatMap((signature: any) => unwrap(signature.getReturnType())), path, `${entryName} (done)`)
             } else if (options) {
               hasOpaqueHandler = true
               const optionsType = checker.getTypeAtLocation(options)

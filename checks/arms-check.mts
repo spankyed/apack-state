@@ -1097,7 +1097,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(explored.orderings >= 1)
   }],
 
-  ['a timer declared with something other than options is refused on start, saying what it was given, and one with none or with options is not', async () => {
+  ['a timer declared with something other than options, or with a whenArmed it cannot be, is refused on start, saying what it was given, and one with none or with options is not', async () => {
     const manual = manualClock()
     const sys = system({ side: 'backend', clock: manual.clock })
     const given = (what: unknown) => ({ def: { arms: ({ single }: { single: Function }) => ({ retry: single(what) }) } })
@@ -1108,8 +1108,19 @@ const checks: Array<[string, () => Promise<void>]> = [
       () => sys.start('inner', { def: { initial: 'a', states: { a: { arms: ({ each }: { each: Function }) => ({ flash: each('soon') }) } } } } as never),
       { message: 'inner declares timer flash with a string where its options go: a timer takes { after, whenArmed, done }' },
     )
+    throws(() => sys.start('null', given(null) as never), { message: 'null declares timer retry with null where its options go: a timer takes { after, whenArmed, done }' })
+    throws(() => sys.start('array', given([100]) as never), { message: 'array declares timer retry with an array where its options go: a timer takes { after, whenArmed, done }' })
+    // So is a `whenArmed` that is neither of the two it can be, whatever it is.
+    throws(() => sys.start('reset', given({ after: 100, whenArmed: 'reset' }) as never), { message: "reset declares timer retry with whenArmed 'reset': it is 'restart' or 'ignore'" })
+    throws(() => sys.start('flag', given({ after: 100, whenArmed: true }) as never), { message: "flag declares timer retry with whenArmed true: it is 'restart' or 'ignore'" })
+    throws(() => sys.start('nothing', given({ after: 100, whenArmed: null }) as never), { message: "nothing declares timer retry with whenArmed null: it is 'restart' or 'ignore'" })
     deepStrictEqual(sys.read(sys.start('none', given(undefined) as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('bare', { def: { arms: ({ single }: { single: Function }) => ({ retry: single() }) } } as never)), { data: {}, armed: { retry: false } })
     deepStrictEqual(sys.read(sys.start('options', given({ after: 100 }) as never)), { data: {}, armed: { retry: false } })
+    deepStrictEqual(sys.read(sys.start('empty', given({}) as never)), { data: {}, armed: { retry: false } })
+    for (const whenArmed of ['restart', 'ignore', undefined]) {
+      deepStrictEqual(sys.read(sys.start(`when-${whenArmed}`, given({ after: 100, whenArmed }) as never)), { data: {}, armed: { retry: false } })
+    }
   }],
 
   ['conflicting timer kinds across states fail fast on start while matching kinds across sibling states succeed', async () => {

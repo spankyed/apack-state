@@ -617,17 +617,40 @@ type ArmOptions<D> = {
   /** What arming it while it is armed does: `'restart'` (the default) runs it again from now, `'ignore'` leaves it as it is. */
   readonly whenArmed?: 'restart' | 'ignore'
 }
+/** Marks the options a builder falls back to when it could not read the ones it was given: no options written out have it. */
+declare const unread: unique symbol
+/** What a builder reads: a timer's options, or `undefined`. Options it cannot read as either are read as all of this. */
+type ArmRead<D> = ArmOptions<D> | ArmUnread | undefined
+type ArmUnread = { readonly [unread]?: never }
+/** The keys that are not options and that every object the options may be has. */
+type ArmSharedExtra<O, D> = Exclude<keyof Exclude<O, undefined>, keyof ArmOptions<D>>
+/** The keys that are not options and that any object the options may be has. */
+type ArmAnyExtra<O, D> = O extends unknown ? Exclude<keyof O, keyof ArmOptions<D>> : never
 /**
- * The options as given, with any key that is not an option refused: a misspelled one does not compile. Where every
- * key is an option, this is the options and nothing wider, so that a bare number or function in their place is
- * refused as having no option in it.
+ * The options as given, with any key that is not an option refused: a misspelled one does not compile, in whichever
+ * of the objects the options may be it is written. Where every key is an option, this is the options and nothing
+ * wider, so that a bare number or function in their place is refused as having no option in it.
  */
-type StrictArmOptions<O, D> =
-  [Exclude<keyof O, keyof ArmOptions<D>>] extends [never]
-    ? ArmOptions<D>
-    : ArmOptions<D> & { readonly [K in Exclude<keyof O, keyof ArmOptions<D>>]: never }
-/** Whether each `arm` has to give the duration: it does when the options give none. */
-type ArmGivesNoDuration<O> = O extends { readonly after: number } ? false : true
+type StrictArmOptions<O, D> = (O & ArmOptions<D> & ArmNoExtra<ArmSharedExtra<O, D>, Exclude<ArmAnyExtra<O, D>, ArmSharedExtra<O, D>>>) | (O & undefined)
+/** Each key that is not an option, refused: one every object has by being there at all, one only some have by holding anything. */
+type ArmNoExtra<Shared extends PropertyKey, Some extends PropertyKey> =
+  & ([Shared] extends [never] ? unknown : { readonly [K in Shared]: never })
+  & ([Some] extends [never] ? unknown : { readonly [K in Some]?: never })
+/**
+ * Whether each `arm` has to give the duration: `true` when the options give none, `false` when they give one, and
+ * `boolean`, which no declared timer takes, when they may or may not: options that may be `undefined`, an `after`
+ * that may be, or options of type `any`. Options the builder could not read are refused where they are written, so
+ * they fit either kind of timer here and that refusal is the one error.
+ */
+type ArmGivesNoDuration<O> =
+  0 extends 1 & O ? boolean
+    : [typeof unread] extends [O extends unknown ? keyof O : never] ? any
+    : ArmGivesNoDurationIn<O>
+/** The same of options that were read: of each thing they may be, and so `boolean` where those differ. */
+type ArmGivesNoDurationIn<O> =
+  O extends undefined ? true
+    : 'after' extends keyof O ? ([O['after']] extends [number] ? false : [O['after']] extends [undefined] ? true : boolean)
+    : true
 /** An imperative timer armed one at a time, as `single` builds it. */
 export interface ArmedSingle<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
   readonly kind: 'single'; readonly after?: number; readonly whenArmed?: 'restart' | 'ignore'; readonly done?: Function
@@ -639,13 +662,15 @@ export interface ArmedEach<R, H extends string, E extends AnyEvent, N extends Ne
   readonly _?: { r: R; h: H; e: E; n: N; m: (needsMs: NeedsMs) => NeedsMs }
 }
 /** Declares an imperative timer (`single`). Give `after` for `'single'`, or leave it out for `{ single: 'at arm' }`. */
-export type ArmSingle<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmDone<R, H, E, N>> = ArmOptions<ArmDone<R, H, E, N>>>(
-  options?: O & StrictArmOptions<O, ArmDone<R, H, E, N>>,
-) => ArmedSingle<R, H, E, N, ArmGivesNoDuration<O>>
+export type ArmSingle<R, H extends string, E extends AnyEvent, N extends Net> = {
+  (): ArmedSingle<R, H, E, N, true>
+  <O extends ArmRead<ArmDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmDone<R, H, E, N>>): ArmedSingle<R, H, E, N, ArmGivesNoDuration<O>>
+}
 /** Declares an imperative keyed timer (`each`). Give `after` for `'each'`, or leave it out for `{ each: 'at arm' }`. */
-export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = <O extends ArmOptions<ArmEachDone<R, H, E, N>> = ArmOptions<ArmEachDone<R, H, E, N>>>(
-  options?: O & StrictArmOptions<O, ArmEachDone<R, H, E, N>>,
-) => ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>
+export type ArmEach<R, H extends string, E extends AnyEvent, N extends Net> = {
+  (): ArmedEach<R, H, E, N, true>
+  <O extends ArmRead<ArmEachDone<R, H, E, N>>>(options: StrictArmOptions<O, ArmEachDone<R, H, E, N>>): ArmedEach<R, H, E, N, ArmGivesNoDuration<O>>
+}
 
 /** A standing ask a state loads, as `load` makes it. */
 export interface Loaded<R, H extends string, E extends AnyEvent, N extends Net> {

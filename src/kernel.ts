@@ -877,11 +877,19 @@ export function system<N extends Net = Net>(host: {
     descend(kept, names.slice(shared), entering)
   }
 
-  /** A timer as its builder was called. What was passed where its options go, if that was not options, is kept to be refused. */
-  const armEntry = (kind: 'single' | 'each', options?: { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }): { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string } =>
-    options == null || typeof options === 'object'
-      ? { kind, after: options?.after, whenArmed: options?.whenArmed, done: options?.done }
-      : { kind, not: typeof options }
+  /**
+   * A timer as its builder was called. What cannot be a timer's options is kept, in words, to be refused: anything
+   * passed where they go that is not an object of them, and a `whenArmed` that is neither of the two it can be.
+   */
+  const armEntry = (kind: 'single' | 'each', options?: unknown): { kind: 'single' | 'each'; after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function; not?: string } => {
+    const given = options === null ? 'null' : Array.isArray(options) ? 'an array' : typeof options === 'object' || options === undefined ? undefined : `a ${typeof options}`
+    if (given) return { kind, not: `${given} where its options go: a timer takes { after, whenArmed, done }` }
+    const { after, whenArmed, done } = (options ?? {}) as { after?: number; whenArmed?: 'restart' | 'ignore'; done?: Function }
+    if (whenArmed !== undefined && whenArmed !== 'restart' && whenArmed !== 'ignore') {
+      return { kind, not: `whenArmed ${typeof whenArmed === 'string' ? `'${whenArmed as string}'` : String(whenArmed)}: it is 'restart' or 'ignore'` }
+    }
+    return { kind, after, whenArmed, done }
+  }
   /** What a definition declares, read from it once: each is a function of the helper its entries are made with. */
   const declared = new WeakMap<LooseDef, { starts: ReturnType<NonNullable<LooseDef['starts']>>; follows: ReturnType<NonNullable<LooseDef['follows']>>; loads: ReturnType<NonNullable<LooseDef['loads']>>; calls: ReturnType<NonNullable<LooseDef['calls']>>; arms: ReturnType<NonNullable<LooseDef['arms']>> }>()
   const declaredBy = (def: LooseDef) => {
@@ -897,8 +905,8 @@ export function system<N extends Net = Net>(host: {
           many: (of: string, ask: string, options: object) => ({ kind: 'many', of, ask, ...options }),
         }) ?? {},
         arms: def.arms?.({
-          single: (options?: object) => armEntry('single', options),
-          each: (options?: object) => armEntry('each', options),
+          single: (options?: unknown) => armEntry('single', options),
+          each: (options?: unknown) => armEntry('each', options),
         }) ?? {},
       }
       declared.set(def, found)
@@ -1153,7 +1161,7 @@ export function system<N extends Net = Net>(host: {
         seenCalls.set(name, entry.kind)
       }
       for (const [name, entry] of Object.entries(declaredBy(node).arms)) {
-        if (entry.not) return `declares timer ${name} with a ${entry.not} where its options go: a timer takes { after, whenArmed, done }`
+        if (entry.not) return `declares timer ${name} with ${entry.not}`
         const prev = seenArms.get(name)
         if (prev && prev !== entry.kind) return `declares timer ${name} with conflicting kinds (${prev} and ${entry.kind})`
         seenArms.set(name, entry.kind)
