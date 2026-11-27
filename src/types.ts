@@ -675,7 +675,9 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
 /**
  * What a declaration that breaks a rule is held to, in place of `never`: nothing written can be it, and the compiler
  * prints it as `Refused<"…">`, so its error says which rule was broken and by which name. `forNet` intersects the
- * refusals ahead of the definition, which puts the reason first in the type the error names.
+ * refusals ahead of the definition, which puts the reason first in the type the error names. It is held to by the
+ * whole of what declares the name (a state's `data`, `calls` or `waits`), not by the one entry: it asks for a property
+ * nothing has, so what any entry is written as, `any` included, does not come into it.
  */
 type Refused<Why extends string> = { readonly [K in Why]: never }
 /**
@@ -716,7 +718,7 @@ type NoShadowed<S, AboveData extends string = never, AboveCalls extends string =
           [P in keyof T]:
             ([Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>] extends [never]
               ? unknown
-              : { data: { [F in Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>]: Refused<`data field '${F}' is already declared by an enclosing state`> } })
+              : { data: Refused<`data field '${Extract<keyof DataOf<T[P]> & string, AboveData | (keyof DataOf<S> & string)>}' is already declared by an enclosing state`> })
             & ([Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>] extends [never]
               ? unknown
               : { calls: Refused<`call '${Extract<keyof CallsOf<T[P]> & string, AboveCalls | (keyof CallsOf<S> & string)>}' is already declared by an enclosing state`> })

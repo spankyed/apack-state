@@ -134,6 +134,27 @@ state<DirectShadow, never>()({
     b: {},
   },
 })
+// A value typed `any` is refused there as any other is: what is refused is declaring the field, whatever is written for it.
+declare const untyped: any
+state<DirectShadow, never>()({
+  data: { error: null },
+  initial: 'b',
+  states: {
+    // @ts-expect-error a child state cannot shadow a field name declared by its parent, whatever its value is typed
+    a: { data: { error: untyped } },
+    b: {},
+  },
+})
+// Two fields declared again are both named.
+state<{ data: { error: string | null; note: string }; states: { a: { data: { error: string; note: string } }; b: {} } }, never>()({
+  data: { error: null, note: '' },
+  initial: 'b',
+  states: {
+    // @ts-expect-error each field a child declares again is named in the refusal
+    a: { data: { error: '', note: '' } },
+    b: {},
+  },
+})
 
 type DeepShadow = {
   data: { error: string | null }
