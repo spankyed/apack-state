@@ -41,6 +41,9 @@ state<Shop, ShopEvent>()({
     eachAlone: follow('shop', 'price', { each: 'watching', args: (id, from) => ({ id: id + Object.keys(from).length }), updated: () => {} }),
     // @ts-expect-error one for each key of a field is not also followed again from that same field
     eachTwice: follow('shop', 'price', { each: 'watching', from: ['watching'], args: (id) => ({ id }), updated: () => {} }),
+    // @ts-expect-error whether there is one view or one for each key cannot go by a value
+    eachMaybe: follow('shop', 'price', { each: Math.random() > 0.5 ? 'watching' : undefined, args: () => ({ id: '' }), updated: () => {} }),
+    eachNot: follow('shop', 'price', { each: undefined, args: () => ({ id: '' }), updated: () => {} }),
     // A key there is nothing to follow for is skipped as a single view is: `args` returns nothing.
     skippableBoth: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id) => (id ? { id } : null), updated: () => {} }),
     skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } : null), updated: () => {} }),
