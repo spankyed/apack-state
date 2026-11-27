@@ -781,11 +781,11 @@ export function within<V extends {
 // .temp/api-types/types.d.ts:694:5 - (ae-forgotten-export) The symbol "Keyed" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "InputScope" needs to be exported by the entry point index.d.ts
 // .temp/api-types/types.d.ts:775:5 - (ae-forgotten-export) The symbol "Next" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:862:5 - (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
-// .temp/api-types/types.d.ts:867:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:863:5 - (ae-forgotten-export) The symbol "ArmDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmRead" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmEachDone" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "StrictArmOptions" needs to be exported by the entry point index.d.ts
+// .temp/api-types/types.d.ts:868:5 - (ae-forgotten-export) The symbol "ArmGivesNoDuration" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
