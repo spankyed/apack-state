@@ -2,6 +2,9 @@
 // while its owner is there, and ends with `Cancelled` where it is awaited once the owner has gone, so nothing after
 // it runs for a state that was left.
 //
+// No check here waits for a while. `start` runs a state's `run` as far as its first `await`, so its wait is under way
+// when `start` returns; where the order of the work and a leaving is the point, every order is run.
+//
 //   npx vitest run outside
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { rest, run, system } from './checks.mts'
@@ -10,9 +13,6 @@ import { explore, onSchedule } from '../src/testing.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const state = forNet()
-
-/** A system whose work is waiting is not at rest, so what it has done so far is waited for by turns. */
-const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
 
 /** A promise and the two ways to end it. */
 const held = <T,>() => {
@@ -57,7 +57,6 @@ await run([
     const work = held<string>()
     const sys = system({ side: 'window' })
     const handle = sys.start('o', opening(work.promise, saw))
-    await turns(4)
     strictEqual(sys.read(handle).at, 'checking')
     work.resolve('thread')
     await rest()
@@ -85,7 +84,6 @@ await run([
     const work = held<string>()
     const sys = system({ side: 'window' })
     const handle = sys.start('o', opening(work.promise, saw))
-    await turns(4)
     sys.send(handle, { type: 'LEAVE' })
     await rest()
     deepStrictEqual(saw, ['Cancelled: waiting for outside work was cancelled before it finished', 'finally'])
@@ -103,7 +101,6 @@ await run([
     const work = held<string>()
     const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
     const handle = sys.start('o', opening(work.promise, saw))
-    await turns(4)
     sys.send(handle, { type: 'LEAVE' })
     work.reject(new Error('aborted'))
     await rest()
@@ -117,7 +114,6 @@ await run([
     const whole = state<{}>()({ async run({ outside }) { await outside(work.promise) }, failed: () => {} })
     const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
     const handle = sys.start('w', whole)
-    await turns(4)
     sys.stop(handle)
     work.reject(new Error('aborted'))
     await rest()
@@ -131,7 +127,6 @@ await run([
       const work = held<string>()
       const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
       const handle = sys.start('o', opening(work.promise, saw))
-      await turns(4)
       if (ending === 'resolve') work.resolve('thread')
       else work.reject(new Error('no such entity'))
       // A leaving sent from a promise callback queued behind the work's ending.
@@ -149,7 +144,6 @@ await run([
     const work = held<string>()
     const sys = system({ side: 'window' })
     sys.start('o', opening(work.promise, saw))
-    await turns(4)
     work.resolve('thread')
     await Promise.resolve()
     await Promise.resolve()
@@ -165,7 +159,6 @@ await run([
     const work = held<string>()
     const sys = system({ side: 'window', name: 'the shell', later: (lane, go) => { lanes.push(lane.label); nextTurn(go) } })
     sys.start('o', opening(work.promise, saw))
-    await turns(4)
     lanes.length = 0
     work.resolve('thread')
     await rest()
@@ -197,11 +190,13 @@ await run([
           done: {},
         },
       })
-      const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
+      // Both endings have been given once the kernel has run what it put off for each.
+      const given = held<void>()
+      let toGive = 2
+      const sys = system({ side: 'window', trace: (line) => { traces.push(line) }, later: (lane, go) => { nextTurn(() => { go(); if (/outside work/.test(lane.label) && --toGive === 0) given.resolve() }) } })
       const handle = sys.start('f', forgetful)
-      await turns(4)
       failing.reject(new Error('save failed'))
-      await turns(4)
+      await given.promise
       // While its work is under way it may yet be waited for, so nothing is said.
       deepStrictEqual(traces.filter((line) => /outside work/.test(line)), [])
       gate.resolve()
@@ -210,35 +205,6 @@ await run([
       strictEqual(sys.read(handle).at, waitsLater ? 'working' : 'done')
       deepStrictEqual(traces.filter((line) => /outside work/.test(line)), waitsLater ? [] : ['f in working did not wait for outside work it started, which failed: save failed'])
     }
-  }],
-
-  ['one that was waited for is not heard from when the state is left afterwards', async () => {
-    const order: string[] = []
-    const first = held<string>()
-    const second = held<string>()
-    const twice = state<{ states: { working: {}; left: {} } }, { type: 'LEAVE' }>()({
-      initial: 'working',
-      states: {
-        working: {
-          on: { LEAVE: () => ({ at: 'left' }) },
-          async run({ outside }) {
-            const kept = outside(first.promise)
-            kept.then((value) => { order.push(`first ${value}`) }, (error) => { order.push(`first ${String(error)}`) })
-            await kept
-            try { await outside(second.promise) } catch (error) { order.push(`second ${error instanceof Cancelled}`); throw error }
-          },
-          failed: () => { order.push('failed') },
-        },
-        left: {},
-      },
-    })
-    const sys = system({ side: 'window' })
-    const handle = sys.start('t', twice)
-    first.resolve('done')
-    await turns(4)
-    sys.send(handle, { type: 'LEAVE' })
-    await rest()
-    deepStrictEqual(order, ['first done', 'second true'])
   }],
 
   ['one still waiting when its work finishes is cancelled, as a sleep is', async () => {
@@ -290,7 +256,6 @@ await run([
     })
     const sys = system({ side: 'window' })
     const handle = sys.start('l', lingering)
-    await turns(4)
     sys.send(handle, { type: 'LEAVE' })
     gate.resolve()
     await rest()
@@ -330,7 +295,6 @@ await run([
     const sys = system({ side: 'backend' })
     const handle = sys.start('a', answerer)
     const finding = sys.ask(handle, 'FIND', {})
-    await turns(4)
     sys.send(handle, { type: 'SHUT' })
     const found = await finding
     await rest()
@@ -372,7 +336,6 @@ await run([
     const sys = system({ side: 'backend' })
     const answering = sys.start('finder', answerer)
     const asking = sys.start('asker', asker)
-    await turns(4)
     deepStrictEqual(saw, [])
     sys.send(asking, { type: 'LEAVE' })
     await rest()
@@ -426,4 +389,42 @@ await run([
         strictEqual(effects.length, effectsAtLeaving)
       }
     }))
+
+  // Every way it can end, and each of them is one some ordering ends in.
+  const endings = ['first cancelled', 'first gave,second cancelled', 'first gave,second gave']
+  const ended = new Set<string>()
+  await tally.every('each wait ends once, with what its work gave or with Cancelled, whatever order two works and a leaving come in', () =>
+    explore((schedule) => {
+      const ends: string[] = []
+      const twice = state<{ states: { working: {}; done: {}; left: {} } }, { type: 'LEAVE' }>()({
+        initial: 'working',
+        states: {
+          working: {
+            on: { LEAVE: () => ({ at: 'left' }) },
+            async run({ outside }) {
+              for (const name of ['first', 'second']) {
+                await outside(schedule.work(`the ${name} work`, name)).then(
+                  (gave) => { ends.push(`${gave} gave`) },
+                  (error) => { ends.push(`${name} ${error instanceof Cancelled ? 'cancelled' : 'failed'}`); throw error },
+                )
+              }
+              return { at: 'done' }
+            },
+            failed: () => { ends.push('failed') },
+          },
+          done: { on: { LEAVE: () => ({ at: 'left' }) } },
+          left: {},
+        },
+      })
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'the window') })
+      const handle = sys.start('t', twice)
+      schedule.does('the user', ['LEAVE', () => sys.send(handle, { type: 'LEAVE' })])
+      return () => {
+        strictEqual(sys.idle(), true)
+        strictEqual(sys.read(handle).at, 'left')
+        // A wait that gave is not heard from again when the state is left after it, and none follows one cancelled.
+        ok(endings.includes(ends.join(',')), ends.join(','))
+        ended.add(ends.join(','))
+      }
+    }).then((found) => { deepStrictEqual([...ended].sort(), endings); return found }))
 })

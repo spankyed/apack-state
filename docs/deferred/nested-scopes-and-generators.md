@@ -56,8 +56,8 @@ And across all 48 files, in `run` and in handlers alike:
 | A deadline put on a part of some work | 0 |
 | An `AbortController` made inside work to end a part of it | 0 |
 | An `ask` from `run` | 1, the one above |
-| `signal.aborted` read in a state's work or an ask's handler | 20, in 6 files |
-| A helper that waits for an outside promise or the signal, whichever is first | 2: the terminal's `awaitRestore` (18 lines, 9 callers) and the promise brain's step builds around a callback |
+| `signal.aborted` read in a state's work, an ask's handler, or a helper one of them calls | 20, in 6 files |
+| A helper that waits for an outside promise or the signal, whichever is first | 2: the terminal's `awaitRestore` (18 lines, 8 callers) and the promise brain's step builds around a callback |
 
 Three things follow.
 
@@ -103,7 +103,7 @@ not a wrong effect.
 
 ## What the survey supported, and is built
 
-One method on the work scope, `outside` ([the design](../design.md), Talking to other states).
+One method on the work scope, `outside` ([the design](../design.md), When to use which).
 
 ```ts
 // Ends with `Cancelled` where it is awaited when the work's owner goes, as `ask` and `sleep` do.
@@ -131,7 +131,7 @@ if (!exists) { refuse(request, '…'); … }
 |---|---|---|
 | Entity opening, `unreachable` | One guard each, before an effect the kernel cannot stop | No guard. The effect cannot happen for a state left before the work ended |
 | Pack frontends | Seven guards in one body | None. A pack's frontend is not loaded for a state that was left |
-| The terminal's `awaitRestore` | An 18-line helper with its own listener, throwing its own `Error('Cancelled')` | `await outside(restore.ready)` at its 9 callers |
+| The terminal's `awaitRestore` | An 18-line helper with its own listener, throwing its own `Error('Cancelled')` | `await outside(restore.ready)` at its 8 callers |
 | Brain's step | A promise built around a callback, settled by the signal, 6 guards | Unchanged: what it waits on is a callback, not a promise |
 
 What it does not do: it does not stop the outside work, which still needs the signal handed to it, and it does not

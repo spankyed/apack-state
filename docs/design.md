@@ -204,6 +204,7 @@ follows: (follow) => ({
 | A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
 | A timer to arm on demand (debounce, throttle, TTL flag, retry) | `arms`, with `single` or `each`, and `arm(name, ...)` / `disarm(name, key?)` (`armed.<name>`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
+| Work outside the kernel that a state waits for (a client's call, a file) | `run`, waiting with `outside(work)` so that the wait ends with the state |
 | External push events (emitters, watchers, DOM listeners) | `listen` (state-lifetime scope, automatic cleanup, keeps `idle()` true) |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
@@ -222,7 +223,6 @@ ask's args — `args` may be omitted.
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
 | `tell({ peer }, event)` | A state | A non-window peer named with `sys.peer(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
-| `outside(work)` | A state's `run`, or an ask's handler | Work the kernel did not start: a promise, waited for as an ask is |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
