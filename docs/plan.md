@@ -572,7 +572,8 @@ timer's expiry) is asked one question as its turn comes, before a step opens: do
 this belongs to? If it does not, because the state left, stopped following or awaiting it, cancelled or disarmed it,
 or began it again under the same name, it is dropped there: no step, no log, nothing against the limit. These four
 only ever arrive from outside a step, never from a handler within one, so that one place is the only place the
-question is asked, and a step that is logged is one in which something was taken.
+question is asked. It is asked of these four and of nothing else: the answer to an ask already given up, and how
+work ended in a state that has since been left, are still taken in a step that does nothing.
 
 ### Rows
 
