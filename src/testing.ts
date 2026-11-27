@@ -122,10 +122,9 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
     // itself, its first choices would be the events' first draws, and some pairings of event and order never made.
     const ordering = random.int(0x100000000)
     let sys: System | undefined
-    let explored
     const inspector = createInspector()
     try {
-      explored = await sample((schedule) => {
+      const explored = await sample((schedule) => {
         const hooks = inspector.hooks('the window')
         sys = kernel({ side: 'window', ...onSchedule(schedule, 'the window'), ...hooks })
         const running = sys
@@ -148,13 +147,14 @@ export async function fromEvents<S extends Shape, E extends AnyEvent, A extends 
           if (failure !== undefined) throw failure
         }
       }, { seed: ordering, runs: 1 })
+      if (explored.failure) {
+        const error = explored.failure.error
+        // The trace is read here, before anything is stopped: what stopping does is no part of how the run failed.
+        throw new Error(`Run ${run + 1}, from seed ${seed}, failed after sending ${sent.map((event) => event.type).join(', ') || 'nothing'}:\n${error instanceof Error ? error.message : String(error)}\n\nCausal trace:\n${inspector.format({ last: 20 })}`, { cause: error })
+      }
     } finally {
       // However the run ended, what it started is stopped.
       sys?.stop()
-    }
-    if (explored.failure) {
-      const error = explored.failure.error
-      throw new Error(`Run ${run + 1}, from seed ${seed}, failed after sending ${sent.map((event) => event.type).join(', ') || 'nothing'}:\n${error instanceof Error ? error.message : String(error)}\n\nCausal trace:\n${inspector.format({ last: 20 })}`, { cause: error })
     }
   }
 }
@@ -165,24 +165,29 @@ export interface InspectOrderOptions extends ExploreOptions {
   readonly last?: number
 }
 
+/** How many steps an inspector keeps unless a trace is asked for more. */
+const KEPT = 500
+
 /**
- * Runs a scenario under `explore()` with a fresh `Inspector` per ordering. If any ordering fails, throws an `Error`
- * containing the failure message, `cause`, and the formatted multi-system causal trace for that failing ordering.
+ * Runs a scenario under `explore()` with a causal inspector of its own for each ordering: the scenario is handed
+ * `hooks`, and spreads `hooks(name)` into each system it makes. If an ordering fails, throws an `Error` with the
+ * failure's message and `cause`, what the ordering took and the choices to `replay` it with, and the causal trace of
+ * that ordering's last steps across every system.
  */
 export async function inspectOrder(
-  scenario: (schedule: Schedule, inspector: Inspector) => () => void | Promise<void>,
+  scenario: (schedule: Schedule, hooks: (name: string) => { log(step: unknown): void; onDefect(defect: Defect): void; trace(line: string): void }) => () => void | Promise<void>,
   options: InspectOrderOptions = {},
 ): Promise<Explored> {
   const { last = 30, ...exploreOpts } = options
   let latest!: Inspector
   const explored = await explore((schedule) => {
-    latest = createInspector()
-    return scenario(schedule, latest)
+    latest = createInspector({ limit: Math.max(last, KEPT) })
+    return scenario(schedule, latest.hooks)
   }, exploreOpts)
   if (explored.failure) {
-    const error = explored.failure.error
+    const { error, taken, choices } = explored.failure
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`Ordering failed (${explored.orderings} explored): ${detail}\n\nCausal trace:\n${latest.format({ last })}`, { cause: error })
+    throw new Error(`Ordering failed (${explored.orderings} explored): ${detail}\n  after: ${taken.join(' → ')}\n  replay: [${choices.join(', ')}]\n\nCausal trace:\n${latest.format({ last })}`, { cause: error })
   }
   return explored
 }

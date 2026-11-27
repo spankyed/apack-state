@@ -646,8 +646,8 @@ await run([
     strictEqual(fromErr.message.split('\n').filter((line) => line.startsWith('the window#')).length, 20, fromErr.message)
 
     // 2. inspectOrder succeeds on a clean multi-ordering scenario and respects `limit`.
-    const clean = await inspectOrder((schedule, inspector) => {
-      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+    const clean = await inspectOrder((schedule, hooks) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...hooks('w') })
       const h = sys.start('counter', counter)
       schedule.does('a', ['add1', () => { sys.send(h, { type: 'ADD', by: 1 }) }])
       schedule.does('b', ['add2', () => { sys.send(h, { type: 'ADD', by: 2 }) }])
@@ -661,8 +661,8 @@ await run([
 
     // 3. inspectOrder failure throws with cause, ordering count, and causal trace capped by `last` (including non-Error throws).
     const boom = new Error('invariant broken')
-    const failErr = await inspectOrder((schedule, inspector) => {
-      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+    const failErr = await inspectOrder((schedule, hooks) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...hooks('w') })
       const h = sys.start('counter', counter)
       schedule.does('u', ['a', () => { sys.send(h, { type: 'ADD', by: 1 }) }], ['b', () => { sys.send(h, { type: 'ADD', by: 2 }) }])
       return () => {
@@ -678,12 +678,62 @@ await run([
     strictEqual(stepHeaders.length, 1, failErr.message)
 
     // 4. Default `last` (30) and non-Error throw formatting.
-    const strErr = await inspectOrder((schedule, inspector) => {
-      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...inspector.hooks('w') })
+    const strErr = await inspectOrder((schedule, hooks) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...hooks('w') })
       sys.start('counter', counter)
       return () => { sys.stop(); throw 'string-boom' }
     }).then(() => undefined, (caught: unknown) => caught as Error)
     ok(strErr instanceof Error && strErr.message.includes('string-boom') && strErr.message.includes('w#1'), strErr?.message)
     strictEqual(strErr.cause, 'string-boom')
+  }],
+  ['a failure\'s causal trace ends at the step that failed, holds as many steps as were asked for, and says the ordering to replay it with', async () => {
+    // fromEvents: the last step traced is the one after which `always` did not hold, not what stopping did after.
+    const stepper = state<{ data: { n: number } }, { type: 'INC' }>()({ data: { n: 0 }, on: { INC: (_, { data }) => ({ data: { n: data.n + 1 } }) } })
+    const failed = await fromEvents({
+      state: stepper,
+      events: { INC: () => ({ type: 'INC' }) },
+      always: (value) => { if (value.data.n >= 25) throw new Error('too high') },
+      steps: 30, runs: 1, seed: 1,
+    }).then(() => undefined, (caught: unknown) => caught as Error)
+    const headers = (failed!.message.split('\n')).filter((line) => line.startsWith('the window#'))
+    // Step 1 started it, and the twenty-fifth INC is step 26.
+    strictEqual(headers.length, 20)
+    strictEqual(headers[0], 'the window#7 [committed @ 0ms]')
+    strictEqual(headers.at(-1), 'the window#26 [committed @ 0ms]')
+
+    // inspectOrder: asked for more steps than an inspector keeps unasked, it keeps them.
+    const long = await inspectOrder((schedule, hooks) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...hooks('w') })
+      const made = sys.start('stepper', stepper)
+      schedule.does('the user', ['counts', () => { for (let count = 0; count < 600; count++) sys.send(made, { type: 'INC' }) }])
+      return () => { throw new Error('at the end') }
+    }, { last: 601 }).then(() => undefined, (caught: unknown) => caught as Error)
+    strictEqual(long!.message.split('\n').filter((line) => line.startsWith('w#')).length, 601)
+
+    // One ordering of six fails: its error says which, as choices `replay` takes, and the trace is that ordering's.
+    const ordered = (schedule: Parameters<Scenario>[0], hooks: (name: string) => object = () => ({})): (() => void) => {
+      const sys = system({ side: 'window', ...onSchedule(schedule, 'w'), ...hooks('w') })
+      const made = sys.start('counter', counter)
+      schedule.does('a', ['adds one', () => { sys.send(made, { type: 'ADD', by: 1 }) }])
+      schedule.does('b', ['resets', () => { sys.send(made, { type: 'RESET' }) }])
+      schedule.does('c', ['adds two', () => { sys.send(made, { type: 'ADD', by: 2 }) }])
+      // Two, then the reset, then one: the only order that leaves one.
+      return () => { ok(sys.read(made).data.count !== 1, 'two was added, it was reset, and one was added') }
+    }
+    const thrown = await inspectOrder(ordered).then(() => undefined, (caught: unknown) => caught as Error)
+    ok(thrown instanceof Error, 'no ordering failed')
+    ok(thrown.message.includes('two was added, it was reset, and one was added'), thrown.message)
+    ok(thrown.message.includes('\n  after: c: adds two → b: resets → a: adds one\n'), thrown.message)
+    const choices = /\n  replay: \[([\d, ]*)\]\n/.exec(thrown.message)![1]!.split(', ').map(Number)
+    strictEqual(choices.length, 2)
+    const again = await replay(ordered, choices)
+    deepStrictEqual(again.taken, ['c: adds two', 'b: resets', 'a: adds one'])
+    ok(String(again.error).includes('two was added, it was reset, and one was added'))
+    // The trace is of the ordering that failed: two, the reset, and then one.
+    deepStrictEqual(thrown.message.split('\n').filter((line) => line.startsWith('  ◀ ') || line.startsWith('  Δ ')), [
+      '  ◀ event counter ADD', '  Δ counter: fields=[count]',
+      '  ◀ event counter RESET', '  Δ counter: fields=[count, resets]',
+      '  ◀ event counter ADD', '  Δ counter: fields=[count]',
+    ])
   }],
 ])
