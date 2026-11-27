@@ -368,9 +368,19 @@ points at.
     first declared speaks, with what leads back to it. What two causes each lead to is said by the first. A timer
     declared in a state never entered is not named: the state says it.
 
-    Where a handler goes is read from the type it returns, and, where that type is written by hand, from each value
-    it returns as well: a type given to a return may say less than the values do, and a move it leaves out is still
-    made.
+    Where a handler goes is read from the type it returns, and from each value it returns as well: the type may say
+    less than the values do, and a move it leaves out is still made. That is so of a type given to the return, of one
+    a value is said to be (`as`) or a `const` it names is given, and of one worked out, since of two values returned,
+    one with a move and one the same without it, the type worked out is the one without. It is read at each place a
+    handler is written (what a state takes and answers, its `run` and `failed`, what a call, a read and a view come
+    back to, a timer's `expired`), for a function written out there and for the name of one function, and a move
+    read so is listed with the rest. A function inside a handler, or handed to anything else (`args`, a callback),
+    is not a handler, and what it returns says nothing of where the state goes. A value returned that is a name
+    other than a `const`, or what a call gives back, is read by its type alone: where that type says less than the
+    value, the move is not read.
+    A state is entered at what it starts at once, however often it is entered, so a state that starts at itself is
+    read to an end. One that is live only as the state around another has not been entered itself, and is entered at
+    what it starts at when it is.
     What the graph cannot read is what it may do, where it is, and no rule is turned off for it. A handler not
     written in the definition may arm any timer its own state or a state around it declares, and so may an `arm` of a
     name that is not known, an `arm` or a scope handed to other code, and the rest of a scope taken apart. A handler
@@ -382,7 +392,8 @@ points at.
     `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
     in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
     what is unread in a state never entered hides nothing, and the unread `expired` of a timer hides nothing until the
-    timer is armed.
+    timer is armed. What is written in a timer's entry that is not read is that timer's `expired` too: what it arms is
+    armed once that timer is, and not because its state is the case.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.
