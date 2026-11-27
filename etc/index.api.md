@@ -587,13 +587,17 @@ export interface StepLog {
 }
 
 // @public (undocumented)
-export interface System {
+export interface System<N extends Net = Net> {
     // (undocumented)
     [Symbol.dispose](): void;
     // (undocumented)
     ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
     attach(peer: Port): () => void;
-    attach(name: string, peer: PeerPort): () => void;
+    attach<K extends NonNullable<N['peers']> extends Record<string, {
+        events: AnyEvent;
+    }> ? keyof NonNullable<N['peers']> & string : never>(name: K, peer: TypedPeer<NonNullable<N['peers']> extends Record<string, {
+        events: AnyEvent;
+    }> ? NonNullable<N['peers']>[K]['events'] : never>): () => void;
     child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
     idle(): boolean;
     readonly port: Port;
@@ -613,7 +617,7 @@ export interface System {
 }
 
 // @public (undocumented)
-export function system(host: {
+export function system<N extends Net = Net>(host: {
     side: 'backend' | 'window';
     name?: string;
     views?: ViewHost;
@@ -625,10 +629,15 @@ export function system(host: {
     log?(step: StepLog): void;
     clock?: Clock;
     limit?: number;
-}): System;
+}): System<N>;
 
 // @public
 export type Transact = <T>(run: () => T) => T;
+
+// @public
+export type TypedPeer<E = unknown> = ((event: [AnyEvent] extends [E] ? unknown : Read<E>) => void) | {
+    tell(peer: string, event: [AnyEvent] extends [E] ? unknown : Read<E>): void;
+};
 
 // Warning: (ae-forgotten-export) The symbol "Leaves" needs to be exported by the entry point index.d.ts
 // Warning: (ae-forgotten-export) The symbol "AllCalls" needs to be exported by the entry point index.d.ts
