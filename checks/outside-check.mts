@@ -111,6 +111,19 @@ await run([
     deepStrictEqual(traces.filter((line) => /DEFECT|failed/.test(line)), ['o in checking was no longer waiting for outside work when it failed: aborted'])
   }],
 
+  ['and a state with no states inside it is named alone when its outside work fails too late', async () => {
+    const traces: string[] = []
+    const work = held<string>()
+    const whole = state<{}>()({ async run({ outside }) { await outside(work.promise) }, failed: () => {} })
+    const sys = system({ side: 'window', trace: (line) => { traces.push(line) } })
+    const handle = sys.start('w', whole)
+    await turns(4)
+    sys.stop(handle)
+    work.reject(new Error('aborted'))
+    await rest()
+    deepStrictEqual(traces.filter((line) => /no longer waiting/.test(line)), ['w was no longer waiting for outside work when it failed: aborted'])
+  }],
+
   ['a wait that has ended is not taken back: a state left before its work went on is Cancelled at the next wait', async () => {
     const saw: string[] = []
     const first = held<string>()
