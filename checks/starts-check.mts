@@ -83,17 +83,17 @@ const board = (log: string[], work: (label: string) => Promise<unknown> = () => 
     CLOSE: () => ({ at: 'closed' }),
     OPEN: () => ({ at: 'open' }),
     // Tells itself to add an item and then to bump it: two more things in the step this one is handled in.
-    ADD_THEN_BUMP: ({ id, label }, { send }) => { send({ type: 'ADD', id, label }); send({ type: 'BUMP', id }) },
+    ADD_THEN_BUMP: ({ id, label }, { raise }) => { raise({ type: 'ADD', id, label }); raise({ type: 'BUMP', id }) },
     CARD_BUMPED: ({ bumps, from }) => ({ data: { lastBump: `${from} to ${bumps}` } }),
     // Takes an item out and puts it back, in one handler or as two things it tells itself.
-    AGAIN: ({ id, how }, { data, send }) => {
+    AGAIN: ({ id, how }, { data, raise }) => {
       const label = data.items[id]!
       if (how === 'one handler') return { data: (d) => { delete d.items[id]; d.items[id] = label } }
-      send({ type: 'REMOVE', id })
-      send({ type: 'ADD', id, label })
+      raise({ type: 'REMOVE', id })
+      raise({ type: 'ADD', id, label })
     },
     // Puts an item in, bumps it, and takes it out again, all in the step this is handled in.
-    BRIEFLY: ({ id, label }, { send }) => { send({ type: 'ADD', id, label }); send({ type: 'BUMP', id }); send({ type: 'REMOVE', id }) },
+    BRIEFLY: ({ id, label }, { raise }) => { raise({ type: 'ADD', id, label }); raise({ type: 'BUMP', id }); raise({ type: 'REMOVE', id }) },
   },
 
   answers: {

@@ -24,7 +24,7 @@ Its shape is a type. Its definition has the same keys at every depth.
 | `data` | Its own fields and their starting values. `given` marks one that whoever enters it has to give |
 | `initial`, `states` | The states inside it, and which it is at when entered |
 | `on` | The events others may send it. A handler is synchronous and returns what happens next: `{ at, data }` |
-| `internal` | The events it sends itself, which nothing else may send it |
+| `internal` | The events it raises, which nothing else may send it |
 | `answers` | The asks it answers. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `listen` | External push subscriptions held while it is the case, without blocking `idle()`. Returning a cleanup registers it with `onExit` |
 | `run`, `failed` | Work it does while it is the case, and where it goes if that work fails |
@@ -32,6 +32,11 @@ Its shape is a type. Its definition has the same keys at every depth.
 | `follows` | Views of the database it keeps up to date |
 | `loads` | Reads it is loading |
 | `calls` | Writes it calls on demand |
+| `arms` | Timers it arms on demand |
+
+A handler returns the part of what is read that changes, under the names it is read by: `at` read is where the state
+is and `at` returned is where it will be, as `data` read is its fields and `data` returned is what they will be. So
+what a handler returns is a value and not a command.
 
 ## Standing things follow the data
 
@@ -45,6 +50,12 @@ Each entry depends on the data in one of two ways:
 - **`each: 'titles'`**: there is one for each key of this field, or each item of a list. A key that appears starts
   one, and a key that goes stops it.
 
+What is followed or loaded may say both: **`each: 'openDiffs', from: ['revision']`** is one for each key, every one
+of them asked again when a field in `from` changes, the one before for that key stopped. A key that appears or goes
+still starts or stops its own alone. `args` is given the key, and then the fields named: the key alone where there
+is no `from`, and the key and an empty object where it is `from: []`. An `args` that throws is reported once for the
+values it threw for, and what it had live goes on as it was.
+
 So changing data is how they start and stop:
 
 | To do this | Change the data like this |
@@ -52,6 +63,7 @@ So changing data is how they start and stop:
 | Open a thread's state | Add its id to `titles` |
 | Follow another thread's detail | Set `id` |
 | Read the status again | Count `revision` up |
+| Read every open diff again | Count `revision` up, where each is `each: 'openDiffs', from: ['revision']` |
 
 ## A write is called once
 
@@ -69,6 +81,19 @@ Keeping the two apart is what Elm does with subscriptions and commands, and TanS
 mutations. It matters for three reasons: the kernel never changes a state's data, one thing owns the record of what
 is in flight, and restoring a state reads again but does not write again.
 
+The same split holds for imperative timers under **`arms`**: armed on demand with `arm(name, ...)` and cleared with
+`disarm(name, key?)`. A timer is `single` or keyed `each`, and is built from one labelled object,
+`single({ after: 100, expired, whenArmed })`: `after` is how long it runs, which an `arm` may override, and a timer declared
+`{ single: 'at arm' }` / `{ each: 'at arm' }` leaves it out and is given its duration by each `arm`; `whenArmed` says what
+arming it while it is armed does, `'restart'` (a debounce, the default) or `'ignore'` (a throttle); `expired` is what its
+expiring does, left out for a pure-TTL flag.
+Which timers are armed lives on `armed` beside `at`, `data`, and `pending`, disarms automatically on state exit, and
+never blocks `idle()`. Like `call`, an `arm` belongs to the active state instance that declared it (so exiting or
+self-re-entering that state in the same step drops it); to arm a timer on state entry or self-transition, call `arm`
+from that state's `listen` or `run`. A name under `calls` or `arms` is one entry of `pending` or `armed` and stands for
+one thing: it has one kind across a definition, and a state does not declare again a name a state around it declares.
+States beside each other may share one.
+
 ## A complete example
 
 A slice of the app's commit surface: its status, the diff of the selected file, staging, and a push. The real one is
@@ -85,7 +110,7 @@ type Commit = {
     pushPhase: string | null
     gitError: string | null
   }
-  calls: { stage: 'each'; push: 'one' }                 // staging for each of many paths, one push at a time
+  calls: { stage: 'each'; push: 'single' }              // staging for each of many paths, one push at a time
 }
 
 const commit = state<Commit, CommitEvent>()({
@@ -109,13 +134,13 @@ const commit = state<Commit, CommitEvent>()({
   }),
 
   // Writes. Each is called when a handler says so.
-  calls: ({ one, each }) => ({
+  calls: ({ single, each }) => ({
     stage: each('code', 'commit.STAGE_FILES', {
       args: (path) => ({ paths: [path] }),
       done: (outcome, { key }) => (outcome.ok ? undefined : { data: { gitError: `Could not stage ${key}: ${outcome.failure.message}` } }),
     }),
 
-    push: one('code', 'commit.PUBLISH_BRANCH', {
+    push: single('code', 'commit.PUBLISH_BRANCH', {
       args: () => ({}),
       progress: (updates) => ({ data: { pushPhase: updates.at(-1)!.phase } }),
       done: (outcome) => ({ data: { pushPhase: null, ...(outcome.ok ? {} : { gitError: outcome.failure.message }) } }),
@@ -173,37 +198,39 @@ follows: (follow) => ({
 |---|---|
 | A value fetched for some arguments | `loads`, with `from` |
 | A value fetched for each of many things | `loads`, with `each` |
-| A write to fire, one at a time | `calls`, with `one`, and `call(name, input?)` (`pending.<name>: boolean`) |
+| A write to fire, one at a time | `calls`, with `single`, and `call(name, input?)` (`pending.<name>: boolean`) |
 | A write to fire, one per key | `calls`, with `each`, and `call(name, key, input?)` (`pending.<name>: Record<string, true>`) |
 | A write to fire, several unkeyed at once | `calls`, with `many`, and `call(name, input?)` (`pending.<name>: number`) |
+| A timer to arm on demand (debounce, throttle, TTL flag, retry) | `arms`, with `single` or `each`, and `arm(name, ...)` / `disarm(name, key?)` (`armed.<name>`) |
 | Something the surface is *in*, where what it accepts changes | A state with `run`, like `searching` |
 | External push events (emitters, watchers, DOM listeners) | `listen` (state-lifetime scope, automatic cleanup, keeps `idle()` true) |
 | A thing with a life of its own, one for each id | `starts`, with `each` |
 | Data from the database that keeps changing | `follows` |
 
-A call may declare a typed input in `Shape.calls` (`{ one: In }`, `{ each: In }`, `{ many: In }`). The frozen input is
+A call may declare a typed input in `Shape.calls` (`{ single: In }`, `{ each: In }`, `{ many: In }`). The frozen input is
 passed to `args`, `progress` (`scope.input`), and `done` (`scope.input`), and is never written to `StepLog`. When the
-ask takes `{}` — or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object already assignable to the
+ask takes `{}` — or, for `{ single: In }` / `{ many: In }`, when `Read<In>` is a plain object already assignable to the
 ask's args — `args` may be omitted.
 
 ## Talking to other states
 
 | Verb | From | To |
 |---|---|---|
-| `send(event)` | A state | Itself: an event only it sends, or one others may send it |
+| `raise(event)` | A state | Itself: an event only it raises, or one others may send it |
 | `tell(name, event)` | A state | A backend system. Nobody waits |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window |
-| `tell({ peer }, event)` | A state | A named non-window peer attached via `attach(name, peer)`. Delivered after commit with no view hold |
+| `tell({ peer }, event)` | A state | A non-window peer named with `sys.peer(name, peer)`. Delivered after commit with no view hold |
 | `ask(name, ask, args)` | A state's `run`, or an ask's handler | A backend system. One answer comes back |
 | `progress(update)` | An ask's handler | Whoever asked, and only them |
 | `broadcast(name, event)` | The backend | That surface in every window |
 | `report(event)` | A state that was started | The state that started it |
 | `call(name, ...)` / `cancel(name, key?)` | A state | The kernel: fire a declared write (with key and/or typed input), or cancel it (or all in flight for `many`) |
+| `arm(name, ...)` / `disarm(name, key?)` | A state | The kernel: arm a declared timer (with key and/or `ms`), or disarm it (or all keys of `each`) |
 
 A component reads and sends. It does not ask.
 
 `tell({ peer: name }, event)` calls `port.tell(name, event)`, passing the peer name as the target `to`. To reach several
-systems behind one `@apackdev/link` connection, attach that same port under each peer name (and detach each on `link.onEnd`);
+systems behind one `@apackdev/link` connection, name that same port once for each (`sys.peer(name, port)`, and remove each on `link.onEnd`);
 if a remote system uses a different name than the local peer, wrap `tell` at the wiring site
 (`{ tell: (_, event) => port.tell('remoteName', event) }`).
 
@@ -224,12 +251,15 @@ system({ side: 'window', log: (step) => timeline.push(step) })
 
 - **What began it, and everything after**: each thing handled in order, as its kind (an event, an ask, a view's
   result, how a read or write finished, what a state's work found), the state, and the name it was declared or sent by.
-  An event a state sent itself is marked `own`. When the system is given a `clock`, `now` stamps when the step began,
+  An event a state raised is marked `own`. When the system is given a `clock`, `now` stamps when the step began,
   and every handler in the step reads that same `now`.
 - **What changed**: for each state that did, the fields of its data, whether it moved, where it is, and whether
-  its pending calls changed.
+  its pending calls or armed timers changed.
+- **Only what was taken.** A view's update, how a read or write finished, its progress, or a timer's expiry that is
+  stale when its turn comes (the state no longer follows, awaits, has pending or has armed the one it belongs to) takes
+  no step, so no log names it and the numbers have no gap for it.
 - **What was sent at the commit (`sent`)**, in order: answers, with `ok` or the failure's kind; progress; tells, peer tells (with
-  `dropped` when no peer is attached under that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
+  `dropped` when no peer has that name, or `failed` when its `tell` threw), asks, broadcasts, follows and
   unfollows across a link; asks abandoned when their state ended. Each by kind, to whom, and name.
 - **How it finished (`status`)**: `committed`; `lost`, when its rows could not be kept and the system stopped; `halted`, when it
   ran away.
@@ -260,13 +290,16 @@ system({ side: 'window', log: (step) => timeline.push(step) })
   and everything it started without touching sibling top-level states; `stop()` ends them all. `listen` keeps a
   state-lifetime scope until the state exits without blocking `idle()`, unsubscribes automatically on exit, and ignores
   late callbacks after exit. When `run` or an ask's handler finishes (returns or throws),
-  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`send`, `tell`,
+  the kernel cancels any `ask` or `sleep` it started and ignores any later calls on its scope (`raise`, `tell`,
   `progress`, etc.). Public `scope.signal` means cancellation only (the state was left, the asker left, or the system
   stopped): it does not abort on normal completion, so outside work handed `scope.signal` and not awaited is not stopped
   when `run` or an ask returns.
 - **An answer and the change it makes are one thing.** Whoever asked is never told of a change that was not made.
 - **An ask or `sleep` whose owner has gone throws `Cancelled` where it is awaited**, so `finally` runs and what was held is let go.
 - **Handlers are pure; work is not.** A handler's result depends only on its data, the event and the step's `now` (recorded in `StepLog.now`). In `run` or an ask's handler after an `await`, `now` reads the clock live and is not logged, so a decision that must be replayable belongs in the handler that receives the work's result.
+- **What is no longer held is not heard from.** What a view delivers, how a read or a write ended, what it said
+  before it ended, and a timer's expiry reach a handler only while the state holds the very one they belong to. One
+  that was left, stopped, cancelled, disarmed or begun again by the time its turn comes takes no step at all.
 - **Nothing depends on itself in a circle.** What a view delivers, or how a read ended, may not change a field it is
   itself asked from.
 - **Every ordering is checked, not the one that happened.** A schedule stands in for the event loop and runs a

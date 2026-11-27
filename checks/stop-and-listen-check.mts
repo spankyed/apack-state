@@ -145,7 +145,7 @@ await run([
       },
     })
 
-    const target = netState<{ data: { seen: string[] }; calls: { save: 'one' } }, { type: 'FIRE' }, Net['systems']['target']['asks']>()({
+    const target = netState<{ data: { seen: string[] }; calls: { save: 'single' } }, { type: 'FIRE' }, Net['systems']['target']['asks']>()({
       data: { seen: [] },
       follows: (follow) => ({
         items: follow('items', 'all', {
@@ -157,8 +157,8 @@ await run([
           done: () => { events.push('load:done') },
         }),
       }),
-      calls: ({ one }) => ({
-        save: one('worker', 'SAVE_SLOW', {
+      calls: ({ single }) => ({
+        save: single('worker', 'SAVE_SLOW', {
           done: () => { events.push('call:done') },
         }),
       }),
@@ -423,8 +423,8 @@ await run([
 
   // ── Def.listen ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  ['listen receives external push events across turns while sys.idle() stays true and supports send/tell/broadcast/call/cancel/report', async () => {
-    const emitter = makeEmitter<{ op: 'send' | 'internal' | 'tell' | 'broadcast' | 'call' | 'cancel' | 'report'; text: string }>()
+  ['listen receives external push events across turns while sys.idle() stays true and supports raise/tell/broadcast/call/cancel/report', async () => {
+    const emitter = makeEmitter<{ op: 'raise' | 'internal' | 'tell' | 'broadcast' | 'call' | 'cancel' | 'report'; text: string }>()
     const peerEvents: string[] = []
     let releaseCall!: () => void
     let callAborted = false
@@ -455,14 +455,14 @@ await run([
       data: { own: string[]; internal: string[] }
       internal: { type: 'INT'; text: string }
       reports: { type: 'REPORTED'; text: string }
-      calls: { work: 'one' }
+      calls: { work: 'single' }
     }, { type: 'EXT'; text: string }>()({
       data: { own: [], internal: [] },
-      calls: ({ one }) => ({ work: one('svc', 'WORK', { done: () => undefined }) }),
-      listen({ send, tell, broadcast, call, cancel, report }) {
+      calls: ({ single }) => ({ work: single('svc', 'WORK', { done: () => undefined }) }),
+      listen({ raise, tell, broadcast, call, cancel, report }) {
         return emitter.subscribe((msg) => {
-          if (msg.op === 'send') send({ type: 'EXT', text: msg.text })
-          if (msg.op === 'internal') send({ type: 'INT', text: msg.text })
+          if (msg.op === 'raise') raise({ type: 'EXT', text: msg.text })
+          if (msg.op === 'internal') raise({ type: 'INT', text: msg.text })
           if (msg.op === 'tell') { tell('svc', { type: 'HEARD', text: msg.text }); tell({ peer: 'audit' }, { type: 'LOG', text: msg.text }) }
           if (msg.op === 'broadcast') broadcast('panel', { type: 'FLASH', text: msg.text })
           if (msg.op === 'call') call('work')
@@ -491,7 +491,7 @@ await run([
     const backend = system({ side: 'backend' })
     const win = system({ side: 'window' })
     connect(win, backend)
-    backend.attach('audit', { tell: (_to, ev) => { peerEvents.push((ev as { text: string }).text) } })
+    backend.peer('audit', { tell: (_to, ev) => { peerEvents.push((ev as { text: string }).text) } })
     const hSvc = backend.start('svc', svc)
     const hParent = backend.start('parent', hostParent)
     const hPanel = win.start('panel', panel)
@@ -503,7 +503,7 @@ await run([
     strictEqual(win.idle(), true)
 
     // Emit across separate turns.
-    emitter.emit({ op: 'send', text: 'one' })
+    emitter.emit({ op: 'raise', text: 'one' })
     strictEqual(backend.idle(), true)
     await new Promise<void>((resolve) => nextTurn(resolve))
 
@@ -542,10 +542,10 @@ await run([
     }, { type: 'HEAR'; value: string } | { type: 'GO_B'; sub: string } | { type: 'REENTER_A' }>()({
       data: { label: 'root', heard: [] },
       initial: 'a',
-      listen({ data, send, onExit }) {
+      listen({ data, raise, onExit }) {
         order.push(`root:listen:${data.label}`)
         onExit(() => { order.push('root:onExit-in-listen') })
-        const off = emitter.subscribe((v) => send({ type: 'HEAR', value: `root:${v}` }))
+        const off = emitter.subscribe((v) => raise({ type: 'HEAR', value: `root:${v}` }))
         return () => { off(); order.push('root:listen-return') }
       },
       run({ onExit }) {
@@ -635,13 +635,13 @@ await run([
 
     const child = netState<{
       data: { count: number }
-      calls: { save: 'one' }
+      calls: { save: 'single' }
       reports: { type: 'PINGED' }
       states: { listening: {}; quiet: {} }
     }, { type: 'BUMP' } | { type: 'QUIET' }>()({
       data: { count: 0 },
       initial: 'listening',
-      calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => undefined }) }),
+      calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: () => undefined }) }),
       on: {
         BUMP: (_, { data }) => ({ data: { count: data.count + 1 } }),
         QUIET: () => ({ at: 'quiet' }),
@@ -651,7 +651,7 @@ await run([
           listen(scope) {
             strayFire = () => {
               strictEqual(scope.signal.aborted, true)
-              scope.send({ type: 'BUMP' })
+              scope.raise({ type: 'BUMP' })
               scope.tell('svc', { type: 'PING' })
               scope.broadcast('panel', { type: 'FLASH' })
               scope.call('save')
@@ -757,9 +757,9 @@ await run([
     // Without `failed`: rolls back DB/sayings/partial releases, skips run(), reports Defect.
     const flaky = netState<{ data: { count: number } }, { type: 'INC' }>()({
       data: { count: 0 },
-      listen({ send, tell, onExit }) {
+      listen({ raise, tell, onExit }) {
         committedRows.push('uncommitted-row')
-        send({ type: 'INC' })
+        raise({ type: 'INC' })
         tell('other', { type: 'PING' })
         tell({ peer: 'audit' }, { type: 'NOTE' })
         onExit(() => { unwound.push('partial-1') })
@@ -772,7 +772,7 @@ await run([
     })
 
     const sys = system({ side: 'backend', transact, onDefect: (d) => defects.push(d) })
-    sys.attach('audit', { tell: () => { peerHeard.push('NOTE') } })
+    sys.peer('audit', { tell: () => { peerHeard.push('NOTE') } })
     const hOther = sys.start('other', other)
     const hFlaky = sys.start('flaky', flaky)
     await rest()
@@ -833,9 +833,9 @@ await run([
       on: { BUMP: (_, { data }) => ({ data: { bumps: data.bumps + 1 } }) },
       states: {
         watching: {
-          listen({ send, tell, onExit }) {
+          listen({ raise, tell, onExit }) {
             committedRows.push('watching-uncommitted')
-            send({ type: 'BUMP' })
+            raise({ type: 'BUMP' })
             tell('other', { type: 'PING' })
             tell({ peer: 'audit' }, { type: 'NOTE' })
             onExit(() => { handledUnwound.push('h-1') })
@@ -1012,8 +1012,8 @@ await run([
 
     const makePack = (tag: string) => state<{ data: { tag: string; heard: string[] } }, { type: 'PUSH'; v: string }>()({
       data: { tag, heard: [] },
-      listen({ send }) {
-        return emitter.subscribe((v) => send({ type: 'PUSH', v }))
+      listen({ raise }) {
+        return emitter.subscribe((v) => raise({ type: 'PUSH', v }))
       },
       on: { PUSH: ({ v }) => ({ data: (d) => { d.heard.push(v) } }) },
     })

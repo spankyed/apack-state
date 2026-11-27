@@ -26,6 +26,8 @@ export interface StateGraph {
     // (undocumented)
     readonly answers: readonly string[];
     // (undocumented)
+    readonly arms: readonly string[];
+    // (undocumented)
     readonly calls: readonly string[];
     // (undocumented)
     readonly findings: readonly string[];

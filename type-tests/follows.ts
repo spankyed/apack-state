@@ -31,9 +31,18 @@ state<Shop, ShopEvent>()({
   follows: (follow) => ({
     // @ts-expect-error a price is a number, so it cannot be put where the note goes
     price: follow('shop', 'price', { each: 'watching', args: (id) => ({ id }), updated: (update) => (update.ok ? { data: { note: update.value } } : undefined) }),
-    // @ts-expect-error a view is followed from fields or for each key, not both at once
-    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id) => ({ id }), updated: () => {} }),
-    // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key
+    // One for each key, each followed again when a field it names changes: the key comes first, typed, and then those fields.
+    both: follow('shop', 'price', { from: ['currency'], each: 'watching', args: (id, { currency }) => ({ id: `${id} in ${currency.toLowerCase()}` }), updated: (_, { key }) => { key.toUpperCase() } }),
+    // @ts-expect-error one for each key is followed again from fields the shop has, and it has no locale
+    eachMissing: follow('shop', 'price', { each: 'watching', from: ['locale'], args: (id) => ({ id }), updated: () => {} }),
+    // @ts-expect-error one for each key reads the note, which it did not name
+    eachUnnamed: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id, { note }) => ({ id: id + note }), updated: () => {} }),
+    // @ts-expect-error one for each key that names no fields is given its key alone
+    eachAlone: follow('shop', 'price', { each: 'watching', args: (id, from) => ({ id: id + Object.keys(from).length }), updated: () => {} }),
+    // @ts-expect-error one for each key of a field is not also followed again from that same field
+    eachTwice: follow('shop', 'price', { each: 'watching', from: ['watching'], args: (id) => ({ id }), updated: () => {} }),
+    // A key there is nothing to follow for is skipped as a single view is: `args` returns nothing.
+    skippableBoth: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id) => (id ? { id } : null), updated: () => {} }),
     skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } : null), updated: () => {} }),
   }),
   states: { browsing: {}, away: {} },
@@ -56,6 +65,7 @@ type ListNet = {
   surfaces: {}
   views: { items: { list: { args: { ids: string[] }; result: number }; all: { args: {}; result: number } } }
 }
+declare const worked: readonly 'ids'[]
 forNet<ListNet>()<{ data: { ids: string[]; rev: number } }, never>()({
   data: { ids: [], rev: 0 },
   follows: (follow) => ({
@@ -64,5 +74,16 @@ forNet<ListNet>()<{ data: { ids: string[]; rev: number } }, never>()({
     allEach: follow('items', 'all', { each: 'ids', updated: () => {} }),
     // @ts-expect-error `args` is required because `list` expects `{ ids: string[] }`
     missingArgs: follow('items', 'list', { from: ['ids'], updated: () => {} }),
+    // One for each key that says it names fields, and names none, is given its key and then none of them: an empty object.
+    eachNone: follow('items', 'list', { each: 'ids', from: [], args: (id, from) => ({ ids: [id, ...Object.keys(from)] }), updated: () => {} }),
+    // @ts-expect-error one for each key that names none of its fields has none of them to read
+    eachNoneRead: follow('items', 'list', { each: 'ids', from: [], args: (id, { rev }) => ({ ids: [id, String(rev)] }), updated: () => {} }),
+    // @ts-expect-error given its type arguments outright, one for each key is still not given the field its keys come from
+    eachOutright: follow<'items', 'list', 'rev' | 'ids', 'ids'>('items', 'list', { each: 'ids', from: ['rev'], args: (id, { ids }) => ({ ids: [id, ...ids] }), updated: () => {} }),
+    eachOutrightNamed: follow<'items', 'list', 'rev' | 'ids', 'ids'>('items', 'list', { each: 'ids', from: ['rev'], args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), updated: () => {} }),
+    // @ts-expect-error a view has no such option, with fields named or with none
+    eachMisspelt: follow('items', 'all', { each: 'ids', from: [], udpated: () => {}, updated: () => {} }),
+    // @ts-expect-error one for each key of a field is not also followed again from that field, where the fields it names are worked out
+    eachTwiceWorkedOut: follow('items', 'list', { each: 'ids', from: worked, args: (id) => ({ ids: [id] }), updated: () => {} }),
   }),
 })

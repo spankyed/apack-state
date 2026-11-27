@@ -68,8 +68,8 @@ const panel = state<Panel, PanelEvent>()({
     idle: {},
     finding: {
       data: { count: 0 },
-      async run({ data, ask, send }) {
-        await ask('finder', 'FIND', { count: data.count }, (results) => send({ type: 'FOUND', results: [...results] }))
+      async run({ data, ask, raise }) {
+        await ask('finder', 'FIND', { count: data.count }, (results) => raise({ type: 'FOUND', results: [...results] }))
         return { at: 'idle' }
       },
       failed: () => ({ at: 'idle' }),

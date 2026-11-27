@@ -2,7 +2,7 @@
 //
 // `Port`, `Following`, `Failure` and `PortOutcome` match `@apackdev/link` structurally with no runtime dependency
 // between the two packages: a system's `port` passes straight to `join(link, system.port)`, and the port `join`
-// returns passes straight to `system.attach(peer)`, with no adapter and a single hold owned by the link.
+// returns passes straight to `system.attach(port)`, with no adapter and a single hold owned by the link.
 
 /** Why an ask or a view ended without a result. */
 export interface Failure { readonly kind: string; readonly message: string }

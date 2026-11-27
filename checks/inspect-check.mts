@@ -4,7 +4,7 @@
 //   npx vitest run inspect
 import { deepStrictEqual, ok, strictEqual } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
-import { forNet, given, type Defect, type StepLog, type ViewHost } from '../src/index.ts'
+import { forNet, given, type Clock, type Defect, type StepLog, type ViewHost } from '../src/index.ts'
 import type { StateGraph } from '../src/graph.ts'
 import { createInspector, formatCausalTrace, type InspectorUpdate } from '../src/inspect.ts'
 
@@ -69,20 +69,20 @@ const makeSvc = (holdGate: () => Promise<void>) => app<{
 const panel = app<{
   data: { saved: string; noted: string; count: number }
   states: { idle: {}; saving: { data: { text: string } }; done: {} }
-  calls: { save: { one: { text: string } }; hold: 'one' }
+  calls: { save: { single: { text: string } }; hold: 'single' }
 }, AppNet['surfaces']['panel']['events']>()({
   data: { saved: '', noted: '', count: 0 },
   initial: 'idle',
   follows: (follow) => ({
     docsCount: follow('docs', 'count', { updated: (u) => (u.ok ? { data: { count: u.value } } : undefined) }),
   }),
-  calls: ({ one }) => ({
-    save: one('svc', 'SAVE', {
+  calls: ({ single }) => ({
+    save: single('svc', 'SAVE', {
       args: ({ text }) => ({ text }),
       progress: () => undefined,
       done: (o) => (o.ok ? { at: 'done', data: { saved: o.value } } : { at: 'idle' }),
     }),
-    hold: one('svc', 'HOLD', { done: () => undefined }),
+    hold: single('svc', 'HOLD', { done: () => undefined }),
   }),
   on: {
     SEND: ({ text }, { call }) => { call('save', { text }); return { at: 'saving', data: { text } } },
@@ -110,6 +110,7 @@ const samplePanelGraph: StateGraph = {
   follows: ['docsCount: docs count, from nothing: once'],
   loads: [],
   calls: ['save: svc SAVE, one at a time'],
+  arms: [],
   reaches: ["tell 'svc'"],
   findings: [],
   text: 'Panel',
@@ -232,7 +233,7 @@ await run([
   ['records whyIgnored() for ignored events, dropped/failed peers, and defects with correlated step numbers', async () => {
     const inspector = createInspector()
     const backend = system({ side: 'backend', ...inspector.hooks('backend') })
-    backend.attach('audit', { tell: () => { throw new Error('audit-disk-full') } })
+    backend.peer('audit', { tell: () => { throw new Error('audit-disk-full') } })
     const svcH = backend.start('svc', makeSvc(() => Promise.resolve()))
 
     // Ignored events (wrong substate + internal from outside + ghost ref), throwing handler, and peer failure + dropped peer.
@@ -475,7 +476,7 @@ await run([
       title: 'Compound',
       states: ['idle', 'working', 'working.fetching', 'working.saving'],
       moves: [{ from: 'idle', on: 'GO', to: ['working'] }],
-      stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], reaches: [], findings: [], text: 'Compound',
+      stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: [], reaches: [], findings: [], text: 'Compound',
     }
     const sys = system({ side: 'backend', ...covInsp.hooks('be') })
     const plainH = sys.start('panel', compound)
@@ -498,6 +499,42 @@ await run([
     strictEqual(afterPlainMove.currentAt, 'working.fetching')
     ok(afterPlainMove.visitedStates.includes('working') && afterPlainMove.visitedStates.includes('working.fetching'))
     ok(afterPlainMove.declaredMoves.every((m) => m.hit === true))
+    sys.stop()
+  }],
+  ['a timer that expires is the trigger of the move it makes, and a step that arms or disarms one says so', async () => {
+    const insp = createInspector()
+    const due: Array<() => void> = []
+    const clock: Clock = { now: () => 0, after: (_ms, run) => { due.push(run); return () => {} } }
+    const timed = app<{
+      states: { idle: {}; waiting: {}; late: {} }
+      arms: { patience: 'single' }
+    }, { type: 'WAIT' }>()({
+      initial: 'idle',
+      arms: ({ single }) => ({ patience: single({ after: 50, expired: () => ({ at: 'late' }) }) }),
+      on: { WAIT: (_, { arm }) => { arm('patience'); return { at: 'waiting' } } },
+      states: { idle: {}, waiting: {}, late: {} },
+    })
+    const timedGraph: StateGraph = {
+      title: 'Timed',
+      states: ['idle', 'waiting', 'late'],
+      moves: [{ from: 'anywhere', on: 'WAIT', to: ['waiting'] }, { from: 'anywhere', on: 'patience (expired)', to: ['late'] }],
+      stays: [], answers: [], starts: [], follows: [], loads: [], calls: [], arms: ['patience: 50ms, one at a time'], reaches: [], findings: [], text: 'Timed',
+    }
+    const sys = system({ side: 'backend', clock, ...insp.hooks('be') })
+    const h = sys.start('timed', timed)
+    sys.send(h, { type: 'WAIT' })
+    await rest()
+    for (const run of due.splice(0)) run()
+    await rest()
+    strictEqual(sys.read(h).at, 'late')
+
+    const [cov] = insp.coverage({ timed: timedGraph })
+    deepStrictEqual(cov!.observedMoves, [{ from: 'idle', on: 'WAIT', to: 'waiting' }, { from: 'waiting', on: 'patience (expired)', to: 'late' }])
+    deepStrictEqual(cov!.declaredMoves.map((m) => m.hit), [true, true])
+
+    // The step that armed the timer and the step in which it expired each say its timers changed.
+    const lines = insp.format().split('\n').filter((line) => line.startsWith('  Δ timed'))
+    deepStrictEqual(lines, ['  Δ timed: at=waiting, armed', '  Δ timed: at=late, armed'])
     sys.stop()
   }],
 ])

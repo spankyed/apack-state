@@ -83,7 +83,7 @@ export interface Handled {
     readonly ignored?: true;
     readonly key?: string;
     // (undocumented)
-    readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'answer';
+    readonly kind: 'event' | 'ask' | 'result' | 'failure' | 'view' | 'done' | 'progress' | 'call' | 'cancel' | 'arm' | 'disarm' | 'expired' | 'answer';
     readonly name?: string;
     readonly own?: true;
     // (undocumented)
@@ -255,6 +255,8 @@ export interface StateGraph {
     // (undocumented)
     readonly answers: readonly string[];
     // (undocumented)
+    readonly arms: readonly string[];
+    // (undocumented)
     readonly calls: readonly string[];
     // (undocumented)
     readonly findings: readonly string[];
@@ -289,6 +291,7 @@ export interface StepLog {
         readonly moved: boolean;
         readonly at: string;
         readonly pending: boolean;
+        readonly armed: boolean;
     }>>;
     readonly handled: readonly Handled[];
     readonly now?: number;

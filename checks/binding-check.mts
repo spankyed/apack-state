@@ -316,7 +316,7 @@ const checks: Array<[string, () => void]> = [
           on: {
             MOVE_KID: (_, { tell, child: of }) => { tell(of('kid'), { type: 'TO_B' }) },
             REOPEN: ({ label }) => ({ at: 'open', data: { label } }),
-            REOPEN_AND_CLOSE: ({ label }, { send }) => { send({ type: 'CLOSE' }); return { at: 'open', data: { label } } },
+            REOPEN_AND_CLOSE: ({ label }, { raise }) => { raise({ type: 'CLOSE' }); return { at: 'open', data: { label } } },
             CLOSE: () => ({ at: 'closed' }),
           },
         },
@@ -354,9 +354,9 @@ const checks: Array<[string, () => void]> = [
 
     // Also verify a restarted child that declares `calls` updates `pending` in both mirror and StepLog.
     const svc = forNet<{ systems: { worker: { events: never; asks: { SAVE: { args: {}; answer: string } } } }; surfaces: {}; views: {} }>()
-    const maker = svc<{ data: { label: string }; calls: { save: 'one' } }, { type: 'GO' }>()({
+    const maker = svc<{ data: { label: string }; calls: { save: 'single' } }, { type: 'GO' }>()({
       data: { label: given },
-      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({}), done: () => undefined }) }),
+      calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({}), done: () => undefined }) }),
       on: { GO: (_, { call }) => { call('save') } },
     })
     const makerHost = svc<{ states: { open: { data: { label?: string }; starts: { kid: typeof maker } } } }, { type: 'GO' } | { type: 'REOPEN'; label: string }>()({

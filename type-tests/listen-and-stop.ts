@@ -22,11 +22,11 @@ type Event = { type: 'GO' }
 const validRoot = netState<Shape, Event, { READ: { args: {}; answer: number } }>()({
   data: { count: 0 },
   initial: 'a',
-  listen({ send, tell, broadcast, onExit, data, signal }) {
+  listen({ raise, tell, broadcast, onExit, data, signal }) {
     void data.count
     void signal.aborted
-    send({ type: 'TICK' })
-    send({ type: 'GO' })
+    raise({ type: 'TICK' })
+    raise({ type: 'GO' })
     tell('svc', { type: 'PING' })
     broadcast('panel', { type: 'FLASH' })
     onExit(() => {})
@@ -37,7 +37,7 @@ const validRoot = netState<Shape, Event, { READ: { args: {}; answer: number } }>
   answers: { READ: (_, { data }) => data.count },
   states: {
     a: {
-      listen: ({ send }) => { send({ type: 'TICK' }) },
+      listen: ({ raise }) => { raise({ type: 'TICK' }) },
       async run({ ask }) { await ask('svc', 'GET', {}) },
       failed: () => ({ at: 'b' }),
     },

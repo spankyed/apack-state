@@ -197,6 +197,7 @@ const graphTriggerOf = (h: Handled | undefined): string => {
     case 'done': return `${h.name ?? 'done'} (done)`
     case 'progress': return `${h.name ?? 'progress'} (progress)`
     case 'view': return `${h.name ?? 'view'} (updated)`
+    case 'expired': return `${h.name ?? 'timer'} (expired)`
     case 'result': return '(its work ends)'
     case 'failure': return '(its work fails)'
     case 'ask': case 'answer': return `${h.name ?? 'ask'} (answering)`
@@ -240,6 +241,7 @@ export function formatCausalTrace(steps: readonly InspectedStep[], defects: read
       if (change.moved) bits.push(`at=${change.at || '(stopped)'}`)
       if (change.fields.length) bits.push(`fields=[${change.fields.join(', ')}]`)
       if (change.pending) bits.push('pending')
+      if (change.armed) bits.push('armed')
       if (bits.length) lines.push(`  Δ ${ref}: ${bits.join(', ')}`)
     }
     for (const s of step.log.sent) lines.push(`  ▶ ${formatSent(s)}`)

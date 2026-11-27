@@ -52,9 +52,9 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
   initial: 'idle',
   on: {
     COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
-    SAY: ({ how }, { tell, send, broadcast }) => {
+    SAY: ({ how }, { tell, raise, broadcast }) => {
       tell('ear', { type: 'NOTE', text: 'said' })
-      send({ type: 'COUNT' })
+      raise({ type: 'COUNT' })
       broadcast('panel', { type: 'NOTED', text: 'said' })
       if (how === 'throws') throw new Error('the handler broke')
       if (how === 'stray') return { data: { nothing: 1 } } as never
@@ -64,9 +64,9 @@ const desk = (ended: (outcome: unknown) => void) => state<{ data: { count: numbe
     REST: () => ({ at: 'idle' }),
   },
   answers: {
-    DO: ({ how }, { tell, send, broadcast, progress, ask, refuse }) => {
+    DO: ({ how }, { tell, raise, broadcast, progress, ask, refuse }) => {
       tell('ear', { type: 'NOTE', text: 'doing' })
-      send({ type: 'COUNT' })
+      raise({ type: 'COUNT' })
       broadcast('panel', { type: 'NOTED', text: 'doing' })
       progress('half way')
       const echo = ask('ear', 'ECHO', { text: 'echo' })
@@ -298,9 +298,9 @@ await run([
   ['a handler that drops what is being made and then throws has dropped nothing', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const maker = state<{ data: { done: string[] }; calls: { work: 'one' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
+    const maker = state<{ data: { done: string[] }; calls: { work: 'single' } }, { type: 'START' } | { type: 'FAIL_DROP' }>()({
       data: { done: [] },
-      calls: ({ one }) => ({ work: one('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
+      calls: ({ single }) => ({ work: single('ear', 'SLOW', { args: () => ({ text: 'kept' }), done: (outcome) => (outcome.ok ? { data: (d) => { d.done.push(outcome.value) } } : undefined) }) }),
       on: {
         START: (_, { call }) => { call('work') },
         FAIL_DROP: (_, { cancel }) => { cancel('work'); throw new Error('drop broke') },
@@ -319,7 +319,7 @@ await run([
   }],
   ['a view, loaded read, or called ask handler that throws has said nothing', async () => {
     let deliverView!: (update: { ok: true; value: string }) => void
-    const reactor = state<{ data: { ready: boolean }; calls: { job: 'one' } }, { type: 'GO' }>()({
+    const reactor = state<{ data: { ready: boolean }; calls: { job: 'single' } }, { type: 'GO' }>()({
       data: { ready: true },
       follows: (follow) => ({
         list: follow('notes', 'list', {
@@ -334,8 +334,8 @@ await run([
           done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from await' }); throw new Error('await broke') },
         }),
       }),
-      calls: ({ one }) => ({
-        job: one('ear', 'ECHO', {
+      calls: ({ single }) => ({
+        job: single('ear', 'ECHO', {
           args: () => ({ text: 'job' }),
           done: (_, { tell }) => { tell('ear', { type: 'NOTE', text: 'from make' }); throw new Error('make broke') },
         }),

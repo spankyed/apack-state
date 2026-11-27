@@ -113,11 +113,44 @@ Either:
 ### What would make it worth starting
 
 Porting retry/backoff flows or brain step timeouts where pure timer states proliferate enough that dummy `failed`
-handlers become recurring noise or graph visibility of timeout edges matters.
+handlers become recurring noise or graph visibility of timeout edges matters. (Imperative debounces, throttles, TTL
+flags, and keyed timers are now handled by `Def.arms` without adding timer-only states.)
 
 ---
 
-## 4. Graph-level static checks and `fromEvents` state coverage
+## 4. Standing `loads` / `follows` `{ debounce?: number }`
+
+### What it is
+
+An optional `{ debounce?: number }` clause on `from`-based `loads` and `follows` entries so a standing read or view
+waits for rapid data changes (such as typing a search query) to settle before re-asking or re-following.
+
+### Why not yet
+
+- **Zero current `apack` call sites.** None of the ported or surveyed `apack` surfaces currently need debounced
+  `loads` or `follows` (debounced writes/flushes/pulses are imperative and covered by `Def.arms`).
+- Adding debounce timers to `settle()` before real call sites exist adds kernel complexity without deleting existing
+  boilerplate.
+
+### Settled invariants to preserve when built
+
+If `loads`/`follows` `{ debounce?: number }` is implemented later, preserve these three invariants:
+
+1. **Debounce every armed transition, including the first non-empty value** — e.g. `'' → 'a'` must debounce rather than
+   firing immediately on the first keystroke.
+2. **Cancel immediately at 0ms when `args` returns `false | null | undefined`** — clearing a query or unselecting an
+   item stops any pending debounce and any active read/view immediately without waiting for the debounce window.
+3. **Cancel any prior in-flight read or view immediately when `from` changes** — never let a stale result from the
+   previous arguments land during the debounce window while waiting to start the next read/view.
+
+### What would make it worth starting
+
+Two or three real `apack` surfaces hand-rolling a `debouncedQuery` shadow field + `Def.arms` timer purely to feed a
+standing `loads` or `follows` entry.
+
+---
+
+## 5. Graph-level static checks and `fromEvents` state coverage
 
 ### What it is
 
@@ -153,7 +186,7 @@ Recorded here so they are not re-proposed without new evidence:
 - **`reenter: true` (XState v6):** Unnecessary because `{ data }` updates in place while `{ at }` always enters the
   target state afresh.
 - **Standalone `peersFor<Net>()` curried helper (PR #63):** Declined to avoid `xxxFor<Net>()` export sprawl;
-  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.attach(name, peer)`
+  replaced by optionally generic `system<N extends Net = Net>(host)` (PR #70), which types `sys.peer(name, peer)`
   directly with zero new runtime exports.
 - **Runtime `(ref, askName)` membership banning for ask cycles (PR #64):** Declined because `answers` handlers are
   concurrent and reentrant rather than per-`(ref, askName)` mutexes; `chain.includes(edge)` falsely rejects finite

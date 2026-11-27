@@ -90,6 +90,21 @@
     "why": "follow writes only what differs, so running it on a step where what is under way did not change writes nothing; and a state either has pending on every value or on none, so into.pending and latest.pending are there together or not at all"
   },
   {
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | changes[ref]?.armed && into.armed || latest.armed",
+    "original": "changes[ref]?.armed && into.armed && latest.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
+  },
+  {
+    "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | true",
+    "original": "changes[ref]?.armed && into.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
+  },
+  {
+    "key": "src/mirror.ts | LogicalOperator | if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed) | changes[ref]?.armed || into.armed",
+    "original": "changes[ref]?.armed && into.armed",
+    "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
+  },
+  {
     "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",
     "original": "[]",
     "why": "With no fields replaced, the loop is over a field that is not in the data, so it deletes a key the mirror does not have, which writes nothing"
@@ -200,12 +215,12 @@
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.following, name, declared.each, from, 'follow')) followed(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'follow'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | \"\"",
+    "key": "src/kernel.ts | StringLiteral | for (const key of keysNow(at.awaiting, name, declared.each, from, 'await')) awaited(`${name}/${key}`, key, [key, ...read], () => (declared.args ? (declared.from ? declared.args(key, picked(from)) : declared.args(key)) : {})) | \"\"",
     "original": "'await'",
     "why": "A note in the trace, not a DEFECT: whether it is written and in what words is for a person reading the trace, and no behaviour follows from it"
   },
@@ -285,11 +300,6 @@
     "why": "A move's path is checked before it is made (cannotGo), and an initial names one of the states beside it, so the states a step enters are always there to read"
   },
   {
-    "key": "src/kernel.ts | StringLiteral | one: (of: string, ask: string, options: object) => ({ kind: 'one', of, ask, ...options }), | \"\"",
-    "original": "'one'",
-    "why": "A call declared one at a time is told from one for each key only by being each or not, so the name of its kind is never read"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (!found) { | true",
     "original": "!found",
     "why": "Declarations read afresh each time are the same ones, made by the same functions from the same definition: only what it costs differs"
@@ -315,11 +325,6 @@
     "why": "The values a view or read is compared with are taken from the same declared fields each time, so the two lists are always the same length"
   },
   {
-    "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.following, name, declared.each, 'follow') ?? []) followed(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | []",
-    "original": "[key]",
-    "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
-  },
-  {
     "key": "src/kernel.ts | ArrayDeclaration | const from = declared.from ?? [] | [\"Stryker was here\"]",
     "original": "[]",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
@@ -330,11 +335,6 @@
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
   },
   {
-    "key": "src/kernel.ts | ArrayDeclaration | for (const key of keysNow(at.awaiting, name, declared.each, 'await') ?? []) awaited(`${name}/${key}`, key, [key], () => (declared.args ? declared.args(key) : {})) | []",
-    "original": "[key]",
-    "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
-  },
-  {
     "key": "src/kernel.ts | ConditionalExpression | if (!from.some(looks) && at.awaiting.has(name)) continue | false",
     "original": "!from.some(looks) && at.awaiting.has(name)",
     "why": "Each of these only looks again, or delivers to, a view or read whose answer is turned away later anyway: a view's delivery is taken only while it is the one followed (the check where it arrives), and a read is asked again only when its fields' values differ, which settle compares itself"
@@ -342,42 +342,42 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
     "original": "at.awaiting.get(id) === live && !signal.aborted",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | true",
     "original": "at.awaiting.get(id) === live",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.awaiting.get(id) === live && !signal.aborted | at.awaiting.get(id) === live || !signal.aborted",
     "original": "at.awaiting.get(id) === live && !signal.aborted",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: false, of: at, name, id, key, live, updates, opId }) }) | true",
     "original": "mine()",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: false, of: at, name, id, key, live, outcome, opId }) }, () => {}) | true",
     "original": "mine()",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | true",
     "original": "at.pending.get(id) === live && !signal.aborted",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | true",
     "original": "at.pending.get(id) === live",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | LogicalOperator | const mine = (): boolean => at.pending.get(id) === live && !signal.aborted | at.pending.get(id) === live || !signal.aborted",
     "original": "at.pending.get(id) === live && !signal.aborted",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | UpdateOperator | const id = declared.kind === 'many' ? `${name}/${++manySeq}` : key === undefined ? name : `${name}/${key}` | --manySeq",
@@ -387,12 +387,12 @@
   {
     "key": "src/kernel.ts | ConditionalExpression | const hears = declared.progress && ((updates: unknown[]): void => { if (mine()) arrive({ kind: 'progress', made: true, of: at, name, id, key, hasInput, input, live, updates, opId }) }) | true",
     "original": "mine()",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ConditionalExpression | made.then((outcome) => { if (mine()) arrive({ kind: 'done', made: true, of: at, name, id, key, hasInput, input, live, outcome, opId }) }, () => {}) | true",
     "original": "mine()",
-    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when it is taken. Both are made outside a step and taken at once, so each check sees the same state, and either alone turns away the same deliveries"
+    "why": "What finishes or reports progress on a load or call is checked twice: when it arrives (mine()) and when its turn comes, in pump. Both are made outside a step, one straight after the other, so each check sees the same state, and either alone turns away the same deliveries"
   },
   {
     "key": "src/kernel.ts | ArrayDeclaration | for (const field of fields.get(top.ref) ?? []) large(top, field) | [\"Stryker was here\"]",

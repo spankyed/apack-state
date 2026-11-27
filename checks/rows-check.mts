@@ -54,14 +54,14 @@ const threads = (store: Rows, read: (path: string) => Promise<string> = async (p
     // Two rows, and then it throws.
     NOTE_THEN_BREAK: ({ id }) => { store.put('thread', id, { topic: 'first' }); store.put('link', id, { to: 'nowhere' }); throw new Error('broke after writing') },
     // Tells itself two things in one step: one that writes and stays, one that writes and throws.
-    BOTH: ({ kept, broken }, { send }) => { send({ type: 'NOTE', id: kept }); send({ type: 'NOTE_THEN_BREAK', id: broken }) },
+    BOTH: ({ kept, broken }, { raise }) => { raise({ type: 'NOTE', id: kept }); raise({ type: 'NOTE_THEN_BREAK', id: broken }) },
     TOUCH: (_, { data }) => ({ data: { touched: data.touched + 1 } }),
     LOAD: ({ id, how }) => ({ at: 'loading', data: { id, how } }),
     BACK: () => ({ at: 'idle' }),
     // A join, which both threads have to be there for.
     JOIN: ({ from, to }) => { store.join(from, to) },
     // In one step: the join first, and the thread it joins to after.
-    JOIN_AHEAD: ({ from, to }, { send }) => { send({ type: 'JOIN', from, to }); send({ type: 'NOTE', id: to }) },
+    JOIN_AHEAD: ({ from, to }, { raise }) => { raise({ type: 'JOIN', from, to }); raise({ type: 'NOTE', id: to }) },
   },
   answers: {
     // The thread and its parent's link, and then the refusal: the link is looked for after the thread is written.
@@ -159,7 +159,7 @@ const source = sourced<{}, never, SourceAsks>()({
   answers: { FIND: async ({ q }, { progress }) => { progress(`began ${q}`); await new Promise<void>((resolve) => { nextTurn(resolve) }); return `found ${q}` } },
 })
 type KeeperEvents = { type: 'SET'; query: string } | { type: 'SAVE' }
-type Keeper = { data: { query: string; got: string[] }; calls: { save: 'one' } }
+type Keeper = { data: { query: string; got: string[] }; calls: { save: 'single' } }
 /**
  * Loads a read of what its query names and calls a write when told to, and writes a row each time it hears from
  * either and each time one ends. A query that says so has it throw after writing, in the one place it names.
@@ -183,8 +183,8 @@ const keeper = (store: Rows) => {
         done: (_outcome, { data }) => { note('read ended', data.query); return { data: { got: [...data.got, data.query] } } },
       }),
     }),
-    calls: ({ one }) => ({
-      save: one('source', 'FIND', {
+    calls: ({ single }) => ({
+      save: single('source', 'FIND', {
         args: ({ query }) => ({ q: `save ${query}` }),
         progress: (_updates, { data }) => { note('write heard', data.query) },
         done: (_outcome, { data }) => { note('write ended', data.query) },

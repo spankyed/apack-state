@@ -24,8 +24,18 @@ state<Reader, ReaderEvent>()({
     unnamed: load('library', 'LOOKUP', { from: ['query'], args: ({ title }) => ({ query: title }), done: () => {} }),
     // @ts-expect-error what a lookup answers is a string, so it cannot be put where the list goes
     misplaced: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), done: (outcome) => (outcome.ok ? { data: { watched: outcome.value } } : undefined) }),
-    // @ts-expect-error an ask is loaded from fields or for each key, not both at once
-    both: load('library', 'LOOKUP', { from: ['query'], each: 'watched', args: (id) => ({ query: id }), done: () => {} }),
+    // @ts-expect-error one for each key is read again from fields the state has, and it has no revision
+    eachMissing: load('library', 'LOOKUP', { each: 'watched', from: ['revision'], args: (id) => ({ query: id }), done: () => {} }),
+    // @ts-expect-error one for each key reads the title, which it did not name
+    eachUnnamed: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: (id, { title }) => ({ query: `${id} ${title}` }), done: () => {} }),
+    // @ts-expect-error one for each key that names no fields is given its key alone
+    eachAlone: load('library', 'LOOKUP', { each: 'watched', args: (id, from) => ({ query: `${id} ${Object.keys(from).length}` }), done: () => {} }),
+    // @ts-expect-error one for each key of a field is not also read again from that same field
+    eachTwice: load('library', 'LOOKUP', { each: 'watched', from: ['watched'], args: (id) => ({ query: id }), done: () => {} }),
+    // @ts-expect-error one for each key is given its key first, which is a string, and the fields it named after it
+    eachKeyless: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: ({ again }) => ({ query: String(again) }), done: () => {} }),
+    // @ts-expect-error one read from fields alone is not one of many, so how it ended has no key
+    unkeyed: load('library', 'LOOKUP', { from: ['query'], args: ({ query }) => ({ query }), done: (_, { key }) => { void key } }),
   }),
   states: { on: {}, off: {} },
 })
@@ -37,17 +47,32 @@ type BatchNet = {
   surfaces: {}
   views: {}
 }
-forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'one'; each: 'each' } }, never>()({
+declare const worked: readonly 'ids'[]
+forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single'; each: 'each' } }, never>()({
   data: { ids: [], rev: 0 },
   loads: (load) => ({
     batch: load('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
     pingFrom: load('svc', 'PING', { from: ['rev'], done: () => {} }),
     pingEach: load('svc', 'PING', { each: 'ids', done: () => {} }),
+    // One for each key, each read again when a field it names changes: the key comes first, typed, and then those fields.
+    batchEach: load('svc', 'BATCH', { each: 'ids', from: ['rev'], args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: (_, { key }) => { key.toUpperCase() } }),
+    pingEachFrom: load('svc', 'PING', { each: 'ids', from: ['rev'], done: () => {} }),
     // @ts-expect-error `args` is required because BATCH expects `{ ids: string[] }`
     missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),
+    // One for each key that says it names fields, and names none, is given its key and then none of them: an empty object.
+    eachNone: load('svc', 'BATCH', { each: 'ids', from: [], args: (id, from) => ({ ids: [id, ...Object.keys(from)] }), done: () => {} }),
+    // @ts-expect-error one for each key that names none of its fields has none of them to read
+    eachNoneRead: load('svc', 'BATCH', { each: 'ids', from: [], args: (id, { rev }) => ({ ids: [id, String(rev)] }), done: () => {} }),
+    // @ts-expect-error given its type arguments outright, one for each key is still not given the field its keys come from
+    eachOutright: load<'svc', 'BATCH', 'rev' | 'ids', 'ids'>('svc', 'BATCH', { each: 'ids', from: ['rev'], args: (id, { ids }) => ({ ids: [id, ...ids] }), done: () => {} }),
+    eachOutrightNamed: load<'svc', 'BATCH', 'rev' | 'ids', 'ids'>('svc', 'BATCH', { each: 'ids', from: ['rev'], args: (id, { rev }) => ({ ids: [id, rev.toFixed()] }), done: () => {} }),
+    // @ts-expect-error a read has no such option, with fields named or with none
+    eachMisspelt: load('svc', 'PING', { each: 'ids', from: [], dnoe: () => {}, done: () => {} }),
+    // @ts-expect-error one for each key of a field is not also read again from that field, where the fields it names are worked out
+    eachTwiceWorkedOut: load('svc', 'BATCH', { each: 'ids', from: worked, args: (id) => ({ ids: [id] }), done: () => {} }),
   }),
-  calls: ({ one, each }) => ({
-    run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
+  calls: ({ single, each }) => ({
+    run: single('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
     each: each('svc', 'BATCH', { args: (_key, data) => ({ ids: data.ids }), done: () => {} }),
   }),
 })
