@@ -67,8 +67,9 @@ network) that already ran.
   because `pending` and `armed` are plain objects where `5` and `'5'` would coerce to one entry `'5'` while
   `scope.key` is typed `string` (and `undefined` would omit `'/'` and overwrite `{}` with `true`). Arming with a
   non-finite or negative `ms`, or without a `clock` on the system, likewise reports a structured `Defect`. A timer
-  declared with anything but an options object where its options go (a bare number, a function) is refused on
-  `start()`, saying what it was given; a throwing
+  declared with anything but an options object where its options go (a bare number, a function, `null`, an array),
+  or with a `whenArmed` that is neither `'restart'` nor `'ignore'`, is refused on `start()`, saying what it was given;
+  no options at all, `undefined`, and an object of them are taken as they are; a throwing
   `done` handler reports a `Defect` and rolls back its own sayings while still clearing the expired timer from
   `armed`.
 
