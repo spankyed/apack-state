@@ -59,6 +59,7 @@ export const branches = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
  */
 const entryFrom = (inOther: string): string => `
 const anyHandler: any = () => ({ at: 'box.dead' })
+declare const either: ((a: string) => void) | ((a: number, b: number) => { at: 'box.dead' })
 const quiet = (): void => {}
 function twice(): void
 function twice(event?: unknown): void
@@ -799,6 +800,18 @@ export const written = state<Waits, never>()({ waits: ({ one }) => ({ t: one(100
     deepStrictEqual(findingsIn(entryFrom(`on: { GO: (): any => undefined }`)), [['box.dead is never entered']])
     deepStrictEqual(findingsIn(entryFrom(`on: { GO: anyHandler }`)), [['box.dead is never entered']])
     deepStrictEqual(findingsIn(entryFrom(`on: { GO: twice }`)), [['box.dead is never entered']])
+    // A handler that is one of two, a table of handlers that is not written out, an answer whose change is not
+    // known, and what a read or a call hears when its options are spread in: each may enter it, unread.
+    const silent = (inOther: string): void => {
+      ok(!findingsIn(entryFrom(inOther))[0]!.some((finding) => finding.includes('nothing arms')), inOther)
+    }
+    silent(`on: { GO: Math.random() > 0.5 ? () => {} : () => ({ at: 'box.dead' as const }) }`)
+    silent(`on: anyHandler`)
+    silent(`on: { ...({} as Record<string, () => { at: 'box.dead' }>) }`)
+    silent(`on: { ['G' + 'O']: () => ({ at: 'box.dead' as const }) }`)
+    silent(`internal: anyHandler`)
+    silent(`on: { GO: either }`)
+    silent(`loads: (load: any) => ({ far: load('svc', 'X', { from: [], ...({} as { done: () => { at: 'box.dead' } }) }) })`)
     const startsAt = (initial: string): string[] => findingsIn(`
 declare const either: 'live' | 'dead'
 declare const some: any

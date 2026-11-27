@@ -344,7 +344,9 @@ points at.
     states around it declare, and no others, and hide nothing from a state never entered. What cannot be placed
     hides every wait: a definition, a spread, a state or a table of declarations that could not be read, and a move
     to a state that is not known. Where a way into a state could not be read (a handler that returns `any` or is not
-    one function, an `initial` that is not one name), an `arm` counts wherever it is written.
+    one function, one written as anything but a function or the name of one, handlers not each written out under a
+    name of their own, what a read or a call hears with where its options are spread in, an `initial` that is not
+    one name), an `arm` counts wherever it is written.
 
     Both are beside a state that asks from its `run`, not in place of it. A state is for something the surface is
     *in*, where what it takes changes, as `searching` is.

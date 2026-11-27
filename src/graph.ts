@@ -166,6 +166,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       if (signatures.length !== 1 || values!.some((value: Type) => value.flags & ts.TypeFlags.Any)) entryKnown = false
       return values
     }
+    /** The one function a handler is. One that may be either of two is read as its first, and the other may enter anything. */
+    const handlerOf = (property: any): Type | undefined => {
+      const kinds = real(typeOf(property))
+      if (kinds.length !== 1) entryKnown = false
+      return kinds[0]
+    }
     const where = (path: string, name: string): string => (path ? `${name} in ${path}` : name)
     const waitKey = (within: string, name: string): string => `${within}\n${name}`
 
@@ -259,14 +265,14 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         if (property.name === 'on' || property.name === 'internal') {
           for (const handler of type.getProperties()) {
             takes.add(handler.name)
-            const returned = returnedBy(real(typeOf(handler))[0])
+            const returned = returnedBy(handlerOf(handler))
             if (returned) read(returned, path, handler.name)
           }
         } else if (property.name === 'answers') {
           for (const handler of type.getProperties()) {
             takes.add(handler.name)
             answers.push(where(path, handler.name))
-            const changes = (returnedBy(real(typeOf(handler))[0]) ?? []).filter((value: Type) => value.getProperty?.('next') && value.getProperty?.('answer'))
+            const changes = (returnedBy(handlerOf(handler)) ?? []).filter((value: Type) => value.getProperty?.('next') && value.getProperty?.('answer'))
             if (changes.length) read(changes.flatMap((value: Type) => real(typeOf(value.getProperty('next')))), path, `${handler.name} (answering)`)
           }
         } else if (property.name === 'run') {
@@ -328,6 +334,12 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
         const made = ts.isPropertyAssignment(property) ? unwrapParens(property.initializer) : undefined
         if (name === 'on' || name === 'internal' || name === 'answers') {
           if (!made || !ts.isObjectLiteralExpression(made) || made.properties.some((p: any) => !isInlineHandlerProp(p))) unreadArms.add(path)
+          // Handlers that are not each written out under a name of their own are not all read, and one written as
+          // anything but a function or the name of one (either of two, what a call gives back) has a type that says
+          // less than it does: each may enter anything.
+          const named = (p: any): boolean => ts.isMethodDeclaration(p) || ts.isShorthandPropertyAssignment(p)
+            || (ts.isPropertyAssignment(p) && !ts.isComputedPropertyName(p.name) && (isInlineFn(p.initializer) || ts.isIdentifier(unwrapParens(p.initializer))))
+          if (!made || !ts.isObjectLiteralExpression(made) || !made.properties.every(named)) entryKnown = false
           scan(property, path)
           continue
         }
@@ -440,6 +452,8 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
             unread(`could not statically read ${where(path, `${name}.${entryName}`)}`)
             continue
           }
+          // What is spread into its options, or put there under a name worked out, may be what it hears with.
+          if (opts.properties.some((each: any) => ts.isSpreadAssignment(each) || (each.name && ts.isComputedPropertyName(each.name)))) { entryKnown = false; unreadArms.add(path) }
           const option = (key: string): any => opts.properties.find((each: any) => each.name && propName(each.name) === key)
           const valueOf = (prop: any): any => prop && (prop.initializer ?? prop.name)
           const each = valueOf(option('each'))
