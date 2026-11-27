@@ -59,7 +59,7 @@ export type JobsEvent =
 export type Jobs = {
   data: { text: string; saved: string | null; done: string[]; heard: string[]; tries: Record<string, number>; problem: string | null }
   states: {
-    on: { calls: { run: 'each'; save: 'one' } }
+    on: { calls: { run: 'each'; save: 'single' } }
     off: {}
   }
 }
@@ -75,7 +75,7 @@ const jobs = state<Jobs, JobsEvent>()({
 
   states: {
     on: {
-      calls: ({ one, each }) => ({
+      calls: ({ single, each }) => ({
         run: each('worker', 'RUN', {
           args: (id) => ({ id }),
           progress: (updates) => ({ data: (d) => { d.heard.push(updates.join('+')) } }),
@@ -89,7 +89,7 @@ const jobs = state<Jobs, JobsEvent>()({
         }),
 
         // What it saves is the text as it is when the save is called.
-        save: one('worker', 'SAVE', {
+        save: single('worker', 'SAVE', {
           args: (data) => ({ text: data.text }),
           done: (outcome) => (outcome.ok ? { data: { saved: outcome.value } } : { data: { problem: outcome.failure.message } }),
         }),
@@ -240,7 +240,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(defects.length, 1)
     deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: {}, save: false } })
   }],
-  ['typed calls (one, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
+  ['typed calls (single, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
     type SvcAsks = {
       PING: { args: {}; answer: string }
       COMMIT: { args: { message: string; amend?: boolean }; progress: string; answer: string }
@@ -294,10 +294,10 @@ const checks: Array<[string, () => Promise<void>]> = [
       states: {
         on: {
           calls: {
-            ping: 'one'
+            ping: 'single'
             pingMany: 'many'
             bareEach: 'each'
-            commit: { one: { message: string; amend?: boolean } }
+            commit: { single: { message: string; amend?: boolean } }
             hunk: { each: { hunk: number } }
             upload: { many: { file: string } }
             uploadMapped: { many: { name: string } }
@@ -322,9 +322,9 @@ const checks: Array<[string, () => Promise<void>]> = [
       initial: 'on',
       states: {
         on: {
-          calls: ({ one, each, many }) => ({
+          calls: ({ single, each, many }) => ({
             // Omitted args for asks accepting `{}`
-            ping: one('svc', 'PING', {
+            ping: single('svc', 'PING', {
               done: (o) => (o.ok ? { data: (d) => { d.log.push(`ping:${o.value}`) } } : undefined),
             }),
             pingMany: many('svc', 'PING', {
@@ -336,7 +336,7 @@ const checks: Array<[string, () => Promise<void>]> = [
               done: (o, { key }) => (o.ok ? { data: (d) => { d.log.push(`bare:${key}:${o.value}`) } } : undefined),
             }),
             // Direct input pass-through (args omitted) + frozen scope.input in progress & done
-            commit: one('svc', 'COMMIT', {
+            commit: single('svc', 'COMMIT', {
               progress: (u, { input }) => ({
                 data: (d) => {
                   d.log.push(`commit-p:${input.message}:${u.join(',')}`)
@@ -403,7 +403,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('panel', panel)
     const held = mirror(sys, h)
 
-    // Initial pending values: boolean for one, {} for each, 0 for many.
+    // Initial pending values: boolean for single, {} for each, 0 for many.
     deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: {}, commit: false, hunk: {}, upload: 0, uploadMapped: 0 })
 
     // Reactive mirror tracks `pending.upload` (number) independently of `pending.commit` (boolean).
@@ -412,7 +412,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     effect(() => { seen.commit++; void held.value.pending.commit })
     const baseline = { ...seen }
 
-    // 1. Omitted args (`one` and `many` for `{}` asks) and bare `each` with `(key, data)`
+    // 1. Omitted args (`single` and `many` for `{}` asks) and bare `each` with `(key, data)`
     sys.send(h, { type: 'PING' })
     sys.send(h, { type: 'PING_MANY' })
     sys.send(h, { type: 'PING_MANY' })
@@ -429,7 +429,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(sys.read(h).data.log.filter((l) => l.startsWith('ping')).sort(), ['ping:pong', 'pingMany:pong', 'pingMany:pong'])
     ok(sys.read(h).data.log.includes('bare:k.txt:uploaded:v1/k.txt'))
 
-    // 2. Typed `one` with direct pass-through + dedup + frozen input
+    // 2. Typed `single` with direct pass-through + dedup + frozen input
     const SECRET = 'SECRET_PAYLOAD_NEVER_IN_LOG'
     sys.send(h, { type: 'COMMIT', message: SECRET, amend: true })
     sys.send(h, { type: 'COMMIT', message: 'second-deduped' })
@@ -500,9 +500,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     ok(sys.read(h).data.log.includes('mapped-d:keep.md:uploaded:v1/keep.md'))
 
     // 6. Throwing in call `progress` and `done` reports descriptive defects.
-    const badCall = svcState<{ calls: { boom: { one: { file: string } } } }, { type: 'GO' }>()({
-      calls: ({ one }) => ({
-        boom: one('svc', 'UPLOAD', {
+    const badCall = svcState<{ calls: { boom: { single: { file: string } } } }, { type: 'GO' }>()({
+      calls: ({ single }) => ({
+        boom: single('svc', 'UPLOAD', {
           progress: () => { throw new Error('bad-progress') },
           done: () => { throw new Error('bad-done') },
         }),
@@ -539,11 +539,11 @@ const checks: Array<[string, () => Promise<void>]> = [
     const sys = system({ side: 'backend' })
 
     // Same kind across sibling states is allowed and runs normally.
-    const sameKind = state<{ states: { a: { calls: { save: 'one' } }; b: { calls: { save: 'one' } } } }>()({
+    const sameKind = state<{ states: { a: { calls: { save: 'single' } }; b: { calls: { save: 'single' } } } }>()({
       initial: 'a',
       states: {
-        a: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'a' }), done: () => {} }) }) },
-        b: { calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: 'b' }), done: () => {} }) }) },
+        a: { calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: 'a' }), done: () => {} }) }) },
+        b: { calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: 'b' }), done: () => {} }) }) },
       },
     })
     const okHandle = sys.start('same-kind', sameKind)
@@ -554,7 +554,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       def: {
         initial: 'a',
         states: {
-          a: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+          a: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
           outer: {
             initial: 'inner',
             states: {
@@ -566,15 +566,15 @@ const checks: Array<[string, () => Promise<void>]> = [
     }
     throws(
       () => sys.start('bad-calls', conflicting as never),
-      { message: 'bad-calls declares call save with conflicting kinds (one and each)' },
+      { message: 'bad-calls declares call save with conflicting kinds (single and each)' },
     )
 
     const directShadow = {
       def: {
         initial: 'a',
-        calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+        calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
         states: {
-          a: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+          a: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
         },
       },
     }
@@ -587,12 +587,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     const deepShadow = {
       def: {
         initial: 'mid',
-        calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+        calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
         states: {
           mid: {
             initial: 'leaf',
             states: {
-              leaf: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+              leaf: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
             },
           },
         },
@@ -610,9 +610,9 @@ const checks: Array<[string, () => Promise<void>]> = [
         states: {
           mid: {
             initial: 'leaf',
-            calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+            calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
             states: {
-              leaf: { calls: ({ one }: { one: Function }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
+              leaf: { calls: ({ single }: { single: Function }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }) },
             },
           },
         },
@@ -624,10 +624,10 @@ const checks: Array<[string, () => Promise<void>]> = [
     )
 
     // `calls` (`pending`) and `arms` (`armed`) are separate namespaces, so a child timer may share an enclosing call's name.
-    const crossNamespace = state<{ calls: { save: 'one' }; states: { a: { arms: { save: 'one' } } } }>()({
-      calls: ({ one }) => ({ save: one('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
+    const crossNamespace = state<{ calls: { save: 'single' }; states: { a: { arms: { save: 'single' } } } }>()({
+      calls: ({ single }) => ({ save: single('worker', 'SAVE', { args: () => ({ text: '' }), done: () => {} }) }),
       initial: 'a',
-      states: { a: { arms: ({ one }) => ({ save: one({ after: 100 }) }) } },
+      states: { a: { arms: ({ single }) => ({ save: single({ after: 100 }) }) } },
     })
     const crossHandle = sys.start('cross', crossNamespace)
     deepStrictEqual(sys.read(crossHandle).pending, { save: false })

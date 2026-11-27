@@ -414,7 +414,7 @@ export function analyseGraphs(files: readonly string[], options?: GraphOptions):
       if (moves && !saysItsReturn(symbol)) at.anywhere = true
     }
     /**
-     * Whether an entry of a table of declarations is made by what the table is handed: `one(...)` or `helpers.one(...)`
+     * Whether an entry of a table of declarations is made by what the table is handed: `single(...)` or `helpers.single(...)`
      * of the table's own parameter. One made by anything else holds what that made of it, which is not read.
      */
     const madeByHelper = (callee: any, table: any): boolean => {

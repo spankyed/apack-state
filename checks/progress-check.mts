@@ -63,8 +63,8 @@ const panel = (heard: string[]) => state<{ states: { idle: {}; streaming: { data
     idle: {},
     streaming: {
       data: { steps: given, burst: given },
-      async run({ data, ask, send }) {
-        const done = await ask('stream', 'STREAM', { steps: data.steps, burst: data.burst }, (pieces) => send({ type: 'HEARD', pieces: [...pieces] }))
+      async run({ data, ask, raise }) {
+        const done = await ask('stream', 'STREAM', { steps: data.steps, burst: data.burst }, (pieces) => raise({ type: 'HEARD', pieces: [...pieces] }))
         heard.push(done.ok ? `answer:stream:${done.value.sent}` : 'answer:failed')
         return { at: 'idle' }
       },

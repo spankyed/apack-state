@@ -77,7 +77,7 @@ Exactly one path is the case, so where a state is is one string, and its data is
 | `initial` | Which state inside it it is at when entered |
 | `states` | Every state inside it. Leaving one out does not compile |
 | `on` | The events others may send it. Synchronous. A handler returns what happens next |
-| `internal` | The events it sends itself, which nothing else may send it. The same handlers |
+| `internal` | The events it raises, which nothing else may send it. The same handlers |
 | `answers` | The asks it answers. May be async. A handler returns the answer, or `answered(answer, next)` to change something as it answers |
 | `run` | What it does while it is the case. May be async. What it returns happens only if the state still is the case |
 | `starts` | The states it starts, which run while it is the case |
@@ -303,13 +303,13 @@ points at.
 
     **A write is not standing, and is not declared as if it were.** The three above go on for as long as the data
     says so. A write is fired once, because a handler said so, and nothing in the data stands for it. So it is
-    declared apart, under `calls`, in three cardinalities (`one`, `each`, `many`), with an optional typed input
-    (`{ one: In }`, `{ each: In }`, `{ many: In }`), and fired with a verb, as a state tells or broadcasts:
+    declared apart, under `calls`, in three cardinalities (`single`, `each`, `many`), with an optional typed input
+    (`{ single: In }`, `{ each: In }`, `{ many: In }`), and fired with a verb, as a state tells or broadcasts:
 
     ```ts
-    calls: ({ one, each, many }) => ({
+    calls: ({ single, each, many }) => ({
       stage:  each('code', 'commit.STAGE_FILES', { args: (path) => ({ paths: [path] }), done: (outcome, { key }) => … }),
-      push:   one('code', 'commit.PUBLISH_BRANCH', { progress: (updates) => …, done: (outcome) => … }),
+      push:   single('code', 'commit.PUBLISH_BRANCH', { progress: (updates) => …, done: (outcome) => … }),
       revert: many('code', 'commit.REVERT_FILES', { done: (outcome, { input }) => … }),
     }),
     on: {
@@ -321,14 +321,14 @@ points at.
 
     It is fired when the step commits, with the data as the handler left it (and its frozen `input`, if declared, which
     is also passed as `scope.input` to `progress` and `done` and never logged in `StepLog`). When an ask accepts `{}` —
-    or, for `{ one: In }` / `{ many: In }`, when `Read<In>` is a plain object assignable to the ask's args — `args` may
-    be omitted. For `one` and `each`, one that is already in flight (or in flight for that key) is deduplicated and not
+    or, for `{ single: In }` / `{ many: In }`, when `Read<In>` is a plain object assignable to the ask's args — `args` may
+    be omitted. For `single` and `each`, one that is already in flight (or in flight for that key) is deduplicated and not
     started twice; for `many`, every call starts a new ask tracked under a kernel-assigned monotonic id. `cancel`
     cancels the in-flight call (or all in-flight calls for `many`): the one answering is told, and `done` is not called.
     Leaving the state that declares it cancels all of its in-flight calls.
 
     **Which writes are in flight is the kernel's to keep**, and is read beside `at` and `data`, as `pending`:
-    `pending.push` (`boolean`) for `one`, `pending.stage[path]` (`Readonly<Record<string, true>>`) for `each`, and
+    `pending.push` (`boolean`) for `single`, `pending.stage[path]` (`Readonly<Record<string, true>>`) for `each`, and
     `pending.revert` (`number` in-flight count) for `many`. Nothing else writes it. So the kernel
     never changes a state's data, the record has one writer, and a state that is restored reads again and does not
     write again, since what is pending is not data. There is no id for an ask, no list of what is in flight kept
@@ -336,14 +336,14 @@ points at.
 
     **Imperative timers follow the same split under `arms`.** The words are one family: a timer is declared under
     `arms`, armed with `arm`, cleared with `disarm`, read on `armed`, and logged as `arm`, `disarm` and `expired`. A
-    state declares them in `Shape.arms` (`'one'`, `'each'`, `{ one: 'at arm' }`, `{ each: 'at arm' }`) and builds them
-    in `arms: ({ one, each }) => ({ ... })`, each from one labelled object: `one({ after: 100, expired, whenArmed })`.
+    state declares them in `Shape.arms` (`'single'`, `'each'`, `{ single: 'at arm' }`, `{ each: 'at arm' }`) and builds them
+    in `arms: ({ single, each }) => ({ ... })`, each from one labelled object: `single({ after: 100, expired, whenArmed })`.
     `after` is how long it runs (overridable per `arm`), and is left out of a timer declared `'at arm'`, whose every
     `arm` gives the duration; `whenArmed` is `'restart'` (debounce, the default) or `'ignore'` (throttle); `expired` is the
     handler for its expiring (omitted for pure-TTL flags). A misspelled option does not compile. Handlers arm and disarm them transactionally
     with `arm(name, ...)` and `disarm(name, key?)` (payload-free: domain state stays in `data`; omitting `key` on `each`
     clears every active key). Which timers are armed lives on `armed` beside `at`, `data`, and `pending` (`boolean`
-    for `one`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
+    for `single`, `Readonly<Record<string, true>>` for `each`), disarms automatically when the declaring state exits, and
     never blocks `sys.idle()`.
 
     **A name under `calls` or `arms` stands for one thing.** `pending` and `armed` have one entry for a name,
@@ -378,7 +378,7 @@ points at.
     something whose type may say less than it returns (a `const` given a type, a function declared without its
     body), is under a name worked out, or moves to a state that is not known, may enter any state; an `initial` that
     is not one name enters each it may be. A table of handlers not written out, what a read, a view or a call hears
-    with where its options are not all read, and a declaration made by anything but what its table is handed (`one`,
+    with where its options are not all read, and a declaration made by anything but what its table is handed (`single`,
     `load`, `follow`), may do both. A state, or part of one, that could not be read may hold anything a state holds,
     in it and inside it, and a definition that could not be read may do anything. Each does so only once it can run:
     what is unread in a state never entered hides nothing, and the unread `expired` of a timer hides nothing until the
@@ -404,7 +404,7 @@ points at.
 
 | Verb | From | To | Waits |
 |---|---|---|---|
-| `send(event)` | A state | Itself: an event only it sends, or one others may send it too | No |
+| `raise(event)` | A state | Itself: an event only it raises, or one others may send it too | No |
 | `tell(name, event)` | Anywhere | A backend system, by name | No |
 | `tell({ surface }, event)` | A state in a window | Another surface in that window | No |
 | `ask(name, ask, args, progress?)` | A state's `run`, or an ask's handler | A backend system, by name | One answer, refusal or failure |
@@ -416,10 +416,10 @@ Names are typed by one declaration of what can be reached, which a pack's genera
 states it starts, and reaches each through `child`: rule 14.
 
 **Who may send a state what.** A state is declared with the events others may send it, and takes them under `on`.
-The events it sends itself as its own work goes on, a result found or a piece arrived, are declared apart, in its
+The events it raises as its own work goes on, a result found or a piece arrived, are declared apart, in its
 shape as `internal`, and taken under `internal`. Nothing outside a state reaches those: what is told, broadcast or
-sent to it from outside is looked for under `on` alone, and one that only the state sends itself is ignored and
-said to be. `send` takes both, so a state may send itself what others may send it. This is the app's own split of a
+sent to it from outside is looked for under `on` alone, and one that only the state raises is ignored and
+said to be. `raise` takes both, so a state may raise what others may send it. This is the app's own split of a
 contract into `incoming` and `internal`.
 
 **A write is told when losing it does not matter, and asked when it does.** There is no third way to make one. A
@@ -690,7 +690,7 @@ one inside it, and a repository's command, which is a `transact` of its own, joi
    calls to a command stay as they are.
 2. **A handler that changes nothing has written nothing, and said nothing.** One that threw, refused, or returned
    a change that could not be made has its rows taken back, its commands' included, and the rows of everything
-   else in the step are kept. What it said goes with its rows: what it told, sent itself, asked, had made or
+   else in the step are kept. What it said goes with its rows: what it told, raised, asked, had made or
    dropped, broadcast and reported as progress, with or without a database behind the system. An ask among it is
    ended, since nothing will now answer it. Whoever asked the handler is still told that it failed: that is the
    kernel's word and not the handler's, and so is the trace. What a handler said before it waited was said in the
@@ -882,7 +882,7 @@ thing declined here: one transaction over two stores.
 | A delivery that is stale when its turn comes takes no step | The same test made inside the step, once it was open, for a view, a read and a write, and before it only for a timer. A stale one then ran no handler but was still a step: logged as handled, numbered, and counted against a system's limit, for having done nothing. A log could not be read as what happened, and one rule was written four times, in two places |
 | A handler names the path to go to | `leave`, by which a state changed the state around it |
 | `answers` is a table of its own | One `on` table. An ask and an event follow different rules, and nothing marked which was which |
-| What a state sends itself is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
+| What a state raises is a table of its own, `internal` | One union of events and one `on` table, which is what there was. Anything that could reach a state could then tell it `FOUND` or `PIECES`, which only its own work should. And a list of which events are internal beside the one table, which says it twice and can disagree. Two tables need no list: what comes from outside is looked for in one of them, so the rule holds by where a handler is written. Effect's `Machine` has the split as public and private requests, and the app's contracts as `incoming` and `internal` |
 | A surface is told as `{ surface }`, with the verb a system is told with | A verb of its own, as the app's `sendToSurface` is beside `tell`. A feature's system and its surface share a name, so the name alone cannot say which. Naming the kind of thing in the address keeps one verb for telling, and is how a role is to be named too: `tell({ role: 'brain' }, …)` |
 | An ask changes data only together with its answer, as `answered(answer, next)` | An ask that could not change data at all, which was the first decision: to change data it sent its own state an event and returned the answer separately. The answer could then say "created" before the event that did the creating was handled, and still say it if that event's handler threw. The handler could not see the result of its own change. And each such ask needed an event that existed only for it, which anything could tell the state. Every system this was checked against joins the two: Erlang's `gen_statem` replies and moves in one handler, Effect's `Machine` handlers return `[reply, newState]`, and Temporal added Updates beside its read-only queries. They are safe because their handlers do not interleave; these do, at each `await`, which is why a change after one must be a draft edit. The graph stays complete: the extractor reads `next` as it reads any handler's return |
 | Handlers that wait let others through, and the change checks what must hold | One handler at a time, as Effect's `Machine` and Erlang's `gen_server` run them. A handler then sees the same data throughout, and a reply that streams for half a minute keeps every other window out of that system until it ends. Each of those systems has a way round it (`fork` and reply later; a worker that replies), which is interleaving again with less around it; a caller that leaves cannot stop a handler already running; and a cycle of asks is a deadlock. Here every write was already one step. What could go wrong was a decision: check, wait, then act on a check no longer true. That is a long transaction, and the answer where work is long and conflicts are rare is to hold nothing and validate at the write. Locks, which Temporal suggests for this, bring the blocking back. A declared policy per ask, one at a time under a key, is left until a port needs it |
@@ -893,7 +893,7 @@ thing declined here: one transaction over two stores.
 | Each of the three is a function of the helper its entries are made with | The helpers as imports, `follow(…)` called in an object. TypeScript then has to work out the state's types backwards from where the call's result is put, and while it is doing that it cannot type a draft edit nested in a handler: `(d) => { d.tabs[key] = … }` came out untyped. Handing the helper in already typed leaves nothing to work out |
 | A read that is not a state's work is loaded (`loads`), declared from the data | Spawning it and keeping the ids of what is under way, as the app does now. The commit surface declares 54 asks and invokes none from a state: 14 are reads and 40 are writes, and by how its machine spawns them 28 can be under way many at once and 26 one at a time. TanStack Query, SWR and RTK Query treat a read as a query keyed by its arguments for this reason |
 | A write is fired, with `call`, and the kernel keeps `pending` | Declaring it from the data as a read is, with one for each key of a field, which was built first. The kernel then had to take the key out when the write ended, the one place it changed a state's data; the field had two writers, the handler that put a key in and the kernel that took it out; and a state restored with a key in the field would have made the write again. A write is not something that holds for as long as the data says: it is fired once. Elm keeps the two apart as subscriptions and commands, and TanStack Query as queries and mutations |
-| `call` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `send` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `call` and not `ask` |
+| `call` is a verb a handler calls, not a part of what it returns | Returning it beside `at` and `data`. `tell`, `raise` and `broadcast` are already one-off things a handler says, carried out when the step commits, and a write is one more. A verb that gives nothing back leaves no promise to drop, which is why an event's handler has `call` and not `ask` |
 | What runs is matched once, when a step has handled everything | Matching after each thing handled, which was built first so that a state started part-way through a step would be there for what came next. It made what ran depend on the route: a key taken out and put back by one handler kept its state, and by two events in one step lost it. Holding what is sent to a state that is not running, until the match, keeps the one thing the first way was for |
 | A started state is given its data once | Data that follows the starter's as it changes. That keeps one fact in two states and needs a rule for which of them may write it |
 | A started state reports to its starter with one verb, into the starter's own events | A table of handlers per started state, which would have been a fourth beside `on`, `answers` and `follows` |
@@ -971,11 +971,11 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   busy by the thread itself, whose `writing` state answers the same ask its `idle` state accepts; accepting and
   starting to write are one step. The threads system takes no events: the two it had existed so that two asks could
   change data, and went when those asks returned `answered`.
-- **Only a state sends itself what is its own** (`checks/internal-check.mts`, 7 checks). What a state sends itself is taken
+- **Only a state raises what is its own** (`checks/internal-check.mts`, 7 checks). What a state raises is taken
   by its internal handler; the same event from outside is not taken, and that is said; what others may send a state
-  it may send itself too; one surface tells another in its own window with no backend there to go through; a surface
+  it may raise too; one surface tells another in its own window with no backend there to go through; a surface
   and a backend system called the same are told apart by how each is named; and the backend telling a surface is
-  reported and sends nothing. Six mistakes do not compile: sending a state from outside what only it sends itself,
+  reported and sends nothing. Six mistakes do not compile: sending a state from outside what only it raises,
   taking an internal event under `on` or an incoming one under `internal`, telling a surface an event it does not
   take, telling a surface there is not, and a state sending itself an event it does not declare. `examples/search.mts` runs
   on it: what its search found is the search's own to say.
@@ -1042,7 +1042,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   waits. **One after another**, ten to a run, each run is held against a model of a few lines that knows nothing of
   the kernel and says the order as well: the rows kept, the count, whether each ask was answered as made, and that
   nobody was told of a step while it was still writing. 1,500 runs hold in memory and 150 on elmdb. Its first two
-  failures were the model's, which had the events a handler sends itself handled before its change and depth first:
+  failures were the model's, which had the events a handler raises handled before its change and depth first:
   they are handled after, in the order they were sent. **Under way together**, six to a run from two windows, each
   ask that waits waiting on work a schedule ends when it chooses: the order is then the schedule's, so the model
   follows what was handled in the order it was, and says what the rule makes of each. 200 runs under 25 orderings
@@ -1134,7 +1134,7 @@ Six examples sit beside them: five run and compare what each step leaves (`examp
   afterwards; and an async `run` without `failed` does not compile. Before this a `run` or a handler that threw at once escaped the step
   and left the kernel refusing everything after it.
 - **What was not made has said nothing** (`checks/unsaid-check.mts`, 27 checks): a handler that throws, or whose
-  change cannot be made, has told no state, sent itself nothing and broadcast to no window, and what was said before
+  change cannot be made, has told no state, raised nothing and broadcast to no window, and what was said before
   and after it keeps its order; an ask whose handler throws or refuses, or whose change throws, refuses or cannot be
   made, has also reported no progress and asked nothing, the ask it made is ended so that nothing waits on it, and
   what leaves its step is its answer alone; work that fails at once and a `failed` that throws have said nothing; and
@@ -1300,11 +1300,11 @@ projects. Each would loosen the fit to this app.
   an agent's loop is one thing leading to the next for as long as it runs, and so is reading results a page at a
   time, so a limit would stop what the app is for. A circle of views is different, and is refused (rule 14), because
   what a view is asked for is declared and a circle among declarations is a mistake whatever its length.
-- **A peer that is not a window.** Built: any system can attach a named tell-only peer via
-  `attach(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
+- **A peer that is not a window.** Built: any system can name a tell-only peer with
+  `peer(name, peer)` (`PeerPort = Pick<Port, 'tell'>`, matching both a full `@apackdev/link` `Port` and a
   one-method sink), declare optional `peers` on `Net`, and send to it via `tell({ peer: name }, event)`. Tells
   deliver `peer.tell(name, event)` after the step commits with no view hold (or record `outcome: 'dropped'` in
-  `StepLog.sent` if unattached).
+  `StepLog.sent` if no peer has the name).
 - **Field names unique along a path** are enforced at compile time (`NoShadowedData`) and at runtime (`cannotBegin()`).
 - **A field with a default still has to be given** when entering its state, because the types cannot see the default.
 - **A state that is kept.** A flow that goes on after the app starts again is expected, so a state has to be
@@ -1377,7 +1377,7 @@ projects. Each would loosen the fit to this app.
    checks as specs, run in Node and in a browser, type tests held to TypeScript 5.7, an API report, mutation testing,
    a release of each commit as `pkg-<commit>`, and a kit for packs' checks (`@apackdev/state/testing`).
 3. **The kernel on a link.** Done. Each system exposes `port` (matching `@apackdev/link`'s `Port` structurally with
-   no runtime dependency) and `attach(peer)` (returning a detach callback), with no in-memory `connect(System)` or
+   no runtime dependency) and `attach(port)` (returning a detach callback), with no in-memory `connect(System)` or
    kernel-side hold. A backend's `port` passes straight to `join(link, backend.port)` with its views' `caughtUp`, and
    `@apackdev/link` owns the single per-connection hold. `@apackdev/state/testing` exports `connect(window, backend,
    schedule?)` over `@apackdev/link`'s `memoryPair`, `dial`, `listen` and `join`, so every check exercises the real

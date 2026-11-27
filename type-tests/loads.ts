@@ -47,7 +47,7 @@ type BatchNet = {
   surfaces: {}
   views: {}
 }
-forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'one'; each: 'each' } }, never>()({
+forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'single'; each: 'each' } }, never>()({
   data: { ids: [], rev: 0 },
   loads: (load) => ({
     batch: load('svc', 'BATCH', { from: ['ids'], args: ({ ids }) => ({ ids }), done: () => {} }),
@@ -59,8 +59,8 @@ forNet<BatchNet>()<{ data: { ids: string[]; rev: number }; calls: { run: 'one'; 
     // @ts-expect-error `args` is required because BATCH expects `{ ids: string[] }`
     missingArgs: load('svc', 'BATCH', { from: ['ids'], done: () => {} }),
   }),
-  calls: ({ one, each }) => ({
-    run: one('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
+  calls: ({ single, each }) => ({
+    run: single('svc', 'BATCH', { args: (data) => ({ ids: data.ids }), done: () => {} }),
     each: each('svc', 'BATCH', { args: (_key, data) => ({ ids: data.ids }), done: () => {} }),
   }),
 })

@@ -48,9 +48,9 @@ const panel = (released: string[]) => state<Panel, PanelEvent>()({
     LEAVE: () => ({ at: 'idle' }),
     COUNT: (_, { data }) => ({ data: { count: data.count + 1 } }),
     // Tells itself to count, and then throws: it is not made, so it has told itself nothing.
-    BREAK: (_, { send }) => { send({ type: 'COUNT' }); throw new Error('the handler broke') },
+    BREAK: (_, { raise }) => { raise({ type: 'COUNT' }); throw new Error('the handler broke') },
     // Counts, and tells itself to do it again, without end.
-    SPIN: (_, { data, send }) => { send({ type: 'SPIN' }); return { data: { count: data.count + 1 } } },
+    SPIN: (_, { data, raise }) => { raise({ type: 'SPIN' }); return { data: { count: data.count + 1 } } },
   },
   states: {
     idle: {},
@@ -98,7 +98,7 @@ const helper = state<{ data: { title: string } }, never>()({ data: { title: give
 type Odd = {
   data: { count: number; id: string | null; waited: string | null }
   starts: { helper: typeof helper }
-  calls: { save: 'one' }
+  calls: { save: 'single' }
 }
 type OddEvent = { type: 'THROWS_A_STRING' } | { type: 'SET'; id: string } | { type: 'SAVE' }
 type OddAsks = { THROWS: { args: {}; answer: string } }
@@ -108,7 +108,7 @@ const oddState = state<Odd, OddEvent, OddAsks>()({
   starts: (start) => ({ helper: start(helper, { given: () => { throw new Error('no title yet') } }) }),
   follows: (follow) => ({ detail: follow('threads', 'detail', { from: ['id'], args: ({ id }) => ({ id: noId(id) }), updated: () => {} }) }),
   loads: (load) => ({ wait: load('slow', 'WAIT', { from: ['id'], args: ({ id }) => ({ turns: noId(id).length }), done: (outcome) => ({ data: { waited: outcome.ok ? outcome.value : null } }) }) }),
-  calls: ({ one }) => ({ save: one('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
+  calls: ({ single }) => ({ save: single('slow', 'WAIT', { args: (data) => ({ turns: noId(data.id).length }), done: () => {} }) }),
   on: {
     THROWS_A_STRING: () => ({ data: (d) => { d.count++; throw 'not an error' } }),
     SET: ({ id }) => ({ data: { id } }),
@@ -180,7 +180,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(it.at(), 'idle')
     ok(it.traced.some((line) => line.includes('threw handling BREAK')))
     it.send({ type: 'COUNT' })
-    // Two counts of its own. The one the broken handler sent itself before it threw was never sent.
+    // Two counts of its own. The one the broken handler raised before it threw was never sent.
     strictEqual(it.count(), 2)
     it.stop()
   }],
@@ -274,8 +274,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     const spinner = localState<{ data: { n: number } }, { type: 'SPIN' }, { PING: { args: {}; answer: string } }>()({
       data: { n: 0 },
       on: {
-        SPIN: (_, { data, send }) => {
-          send({ type: 'SPIN' })
+        SPIN: (_, { data, raise }) => {
+          raise({ type: 'SPIN' })
           return { data: { n: data.n + 1 } }
         },
       },
@@ -310,8 +310,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       on: { STEP: (_, { data }) => ({ data: { n: data.n + 1 } }) },
       answers: {
         PING: () => 'pong',
-        FLOOD: async (_, { ask, send }) => {
-          for (let i = 0; i < 10_000; i++) send({ type: 'STEP' })
+        FLOOD: async (_, { ask, raise }) => {
+          for (let i = 0; i < 10_000; i++) raise({ type: 'STEP' })
           const [a, b] = await Promise.all([ask('spinAsk', 'PING', {}), ask('spinAsk', 'PING', {})])
           askOutcomes.push(a, b)
           return 'ok'
@@ -343,8 +343,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       data: { kids: [] },
       starts: (start) => ({ kid: start(postRunawayChild, { each: 'kids', given: () => ({}) }) }),
       on: {
-        GO: (_, { send }) => {
-          for (let i = 0; i < 10_005; i++) send({ type: 'NOOP' })
+        GO: (_, { raise }) => {
+          for (let i = 0; i < 10_005; i++) raise({ type: 'NOOP' })
           return { data: { kids: ['a'] } }
         },
         NOOP: () => undefined,
@@ -504,8 +504,8 @@ const checks: Array<[string, () => Promise<void>]> = [
       onDefect: (d) => { defects.push(d) },
       log: (step) => { logs.push(step) },
     })
-    sys.attach('first', { tell: () => { peerEvents.push('first'); throw new Error('first peer broke') } })
-    sys.attach('second', { tell: () => { peerEvents.push('second') } })
+    sys.peer('first', { tell: () => { peerEvents.push('first'); throw new Error('first peer broke') } })
+    sys.peer('second', { tell: () => { peerEvents.push('second') } })
     const h = sys.start('svc', svc)
     sys.subscribe(() => { throw new Error('first sub broke') })
     sys.subscribe(() => { subSeen.push(sys.read(h).data.n) })

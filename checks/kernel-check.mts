@@ -672,12 +672,12 @@ const moves: Array<[string, () => void]> = [
     const sys = system({ side: 'backend' })
     const actor = state<{}, { type: 'START' } | { type: 'FAIL_AND_QUEUE' } | { type: 'NOTE'; tag: string }>()({
       on: {
-        START: (_, { send }) => {
-          send({ type: 'FAIL_AND_QUEUE' })
-          send({ type: 'NOTE', tag: 'after-fail' })
+        START: (_, { raise }) => {
+          raise({ type: 'FAIL_AND_QUEUE' })
+          raise({ type: 'NOTE', tag: 'after-fail' })
         },
-        FAIL_AND_QUEUE: (_, { send }) => {
-          send({ type: 'NOTE', tag: 'rolled-back' })
+        FAIL_AND_QUEUE: (_, { raise }) => {
+          raise({ type: 'NOTE', tag: 'rolled-back' })
           throw new Error('undo me')
         },
         NOTE: ({ tag }) => { seen.push(tag) },
@@ -853,7 +853,7 @@ const moves: Array<[string, () => void]> = [
     const panel = stateA<{
       data: { keys: string[]; loaded: string; called: string; asked: string; childAsked: string; viewVal: string; bcast: string[] }
       starts: { bareB: typeof bareChildB; oneB: typeof givenChildB; eachB: Each<typeof givenChildB> }
-      calls: { save: 'one' }
+      calls: { save: 'single' }
     }, { type: 'GO' } | { type: 'BCAST'; text: string }>()({
       data: { keys: ['k1'], loaded: '', called: '', asked: '', childAsked: '', viewVal: '', bcast: [] },
       starts: (start) => ({
@@ -871,8 +871,8 @@ const moves: Array<[string, () => void]> = [
           done: (o) => (o.ok ? { data: { loaded: o.value } } : undefined),
         }),
       }),
-      calls: ({ one }) => ({
-        save: one('svc', 'SAVE', {
+      calls: ({ single }) => ({
+        save: single('svc', 'SAVE', {
           done: (o) => (o.ok ? { data: { called: o.value } } : undefined),
         }),
       }),
@@ -913,7 +913,7 @@ const moves: Array<[string, () => void]> = [
     backend.start('packB/svc', svcB)
 
     const win = system({ side: 'window' })
-    win.attach('role:brain', { tell: (to, event) => { peerEvents.push({ to, event }) } })
+    win.peer('role:brain', { tell: (to, event) => { peerEvents.push({ to, event }) } })
     connect(win, backend)
     const panelH = win.start('packA/panel', panel)
     win.start('packA/other', other)
@@ -997,7 +997,7 @@ const moves: Array<[string, () => void]> = [
     let brokenLoadDone = 0
     const panel = netState<{
       data: { goodView: string; goodLoad: string; goodCall: string; rev: number }
-      calls: { badCall: 'one'; emptyCall: 'one'; goodCall: 'one' }
+      calls: { badCall: 'single'; emptyCall: 'single'; goodCall: 'single' }
     }, { type: 'FIRE' } | { type: 'BUMP' }>()({
       data: { goodView: '', goodLoad: '', goodCall: '', rev: 0 },
       follows: (follow) => ({
@@ -1009,10 +1009,10 @@ const moves: Array<[string, () => void]> = [
         empty: load('badEmpty', 'PING', { from: ['rev'], args: () => { brokenLoadArgs += 1; return {} }, done: () => { brokenLoadDone += 1; return undefined } }),
         healthy: load('good', 'PING', { from: ['rev'], done: (o) => (o.ok ? { data: { goodLoad: o.value } } : undefined) }),
       }),
-      calls: ({ one }) => ({
-        badCall: one('badThrow', 'SAVE', { done: () => undefined }),
-        emptyCall: one('badEmpty', 'SAVE', { done: () => undefined }),
-        goodCall: one('good', 'SAVE', { done: (o) => (o.ok ? { data: { goodCall: o.value } } : undefined) }),
+      calls: ({ single }) => ({
+        badCall: single('badThrow', 'SAVE', { done: () => undefined }),
+        emptyCall: single('badEmpty', 'SAVE', { done: () => undefined }),
+        goodCall: single('good', 'SAVE', { done: (o) => (o.ok ? { data: { goodCall: o.value } } : undefined) }),
       }),
       run: async ({ ask }) => {
         capturedAsk = ask as typeof capturedAsk

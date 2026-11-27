@@ -1,4 +1,4 @@
-// Non-window peers: named tell-only ports attached via `system.attach(name, peer)` and reached with
+// Non-window peers: tell-only ports named with `system.peer(name, peer)` and reached with
 // `tell({ peer: name }, event)`. Delivered after the step commits with no view hold, passing `name` as `to`.
 //
 //   npx vitest run peers
@@ -58,7 +58,7 @@ await run([
     const sink: PeerPort = { tell: (to, event) => { received.push({ to, event }) } }
     const logs: StepLog[] = []
     const backend = system({ side: 'backend', log: (step) => logs.push(step) })
-    backend.attach('runHistory', sink)
+    backend.peer('runHistory', sink)
     const h = backend.start('runner', runner)
 
     backend.send(h, { type: 'RECORD', id: 'r1', detail: 'first' })
@@ -75,7 +75,7 @@ await run([
     // Named peers also work on a window system.
     const winReceived: Array<{ to: string; event: unknown }> = []
     const win = system({ side: 'window' })
-    win.attach('audit', { tell: (to, event) => { winReceived.push({ to, event }) } })
+    win.peer('audit', { tell: (to, event) => { winReceived.push({ to, event }) } })
     const surface = state<{}, { type: 'LOG'; text: string }>()({
       on: { LOG: ({ text }, { tell }) => { tell({ peer: 'audit' }, { type: 'NOTE', text }) } },
     })
@@ -98,7 +98,7 @@ await run([
     deepStrictEqual(logs.at(-1)!.sent, [])
 
     // With a peer attached, a handler that throws still sends nothing.
-    backend.attach('runHistory', { tell: (_to, event) => { received.push(event) } })
+    backend.peer('runHistory', { tell: (_to, event) => { received.push(event) } })
     backend.send(h, { type: 'FAIL', id: 'f2' })
     await rest()
     deepStrictEqual(received, [])
@@ -119,7 +119,7 @@ await run([
     })
     const lostReceived: unknown[] = []
     const fh = flaky.start('runner', runner)
-    flaky.attach('runHistory', { tell: (_to, event) => { lostReceived.push(event) } })
+    flaky.peer('runHistory', { tell: (_to, event) => { lostReceived.push(event) } })
     failCommit = true
     flaky.send(fh, { type: 'RECORD', id: 'r-lost', detail: 'never' })
     await rest()
@@ -145,7 +145,7 @@ await run([
     const logs: StepLog[] = []
     const notified: string[] = []
     const backend = system({ side: 'backend', trace: (line) => traces.push(line), log: (step) => logs.push(step) })
-    backend.attach('runHistory', { tell: () => { throw new Error('sink exploded') } })
+    backend.peer('runHistory', { tell: () => { throw new Error('sink exploded') } })
     backend.subscribe((changed) => { notified.push(...changed) })
     const h = backend.start('runner', runner)
 
@@ -159,17 +159,17 @@ await run([
     ])
   }],
 
-  ['duplicate attach throws, and a stale detach does not remove a newly attached peer under the same name', async () => {
+  ['naming a peer twice throws, and a stale removal does not remove a peer newly given the same name', async () => {
     const seenA: unknown[] = []
     const seenB: unknown[] = []
     const backend = system({ side: 'backend' })
     const h = backend.start('runner', runner)
 
-    const detachA = backend.attach('runHistory', { tell: (_to, event) => { seenA.push(event) } })
-    throws(() => backend.attach('runHistory', { tell: () => {} }), /already has a peer named runHistory/)
+    const detachA = backend.peer('runHistory', { tell: (_to, event) => { seenA.push(event) } })
+    throws(() => backend.peer('runHistory', { tell: () => {} }), /already has a peer named runHistory/)
 
     detachA()
-    backend.attach('runHistory', { tell: (_to, event) => { seenB.push(event) } })
+    backend.peer('runHistory', { tell: (_to, event) => { seenB.push(event) } })
     // Calling stale detachA again must NOT detach B.
     detachA()
 
@@ -194,7 +194,7 @@ await run([
     })
     const h = backend.start('double', doubleTeller)
     let detach!: () => void
-    detach = backend.attach('runHistory', {
+    detach = backend.peer('runHistory', {
       tell: (_to, event) => {
         received.push(event)
         detach()
@@ -216,7 +216,7 @@ await run([
     let spawnedHandle: unknown
     let readInCallback: unknown
     let idleInCallback: boolean | undefined
-    sys2.attach('runHistory', {
+    sys2.peer('runHistory', {
       tell: (_to, event) => {
         const id = (event as { id: string }).id
         flushOrder.push(`peer:${id}`)
@@ -253,7 +253,7 @@ await run([
     // 3. Re-entrant stop() from inside peer.tell() AND from inside a handler ends all states cleanly and drains outside.
     const sys3 = system({ side: 'backend' })
     const r3 = sys3.start('runner', runner)
-    sys3.attach('runHistory', {
+    sys3.peer('runHistory', {
       tell: () => {
         sys3.send(r3, { type: 'RECORD', id: 'queued-before-stop', detail: 'x' })
         sys3.stop()
@@ -281,7 +281,7 @@ await run([
     const seen: unknown[] = []
     const logs: StepLog[] = []
     const backend = system({ side: 'backend', log: (step) => logs.push(step) })
-    backend.attach('runHistory', { tell: (_to, event) => { seen.push(event) } })
+    backend.peer('runHistory', { tell: (_to, event) => { seen.push(event) } })
     const h = backend.start('runner', runner)
 
     backend.send(h, { type: 'ASYNC_RECORD', id: 'async-1' })
@@ -319,7 +319,7 @@ await run([
     const backendPeerLink = dial(backendSide)
     const peerLink = listen(peerSide)
     const toPeer = join(backendPeerLink, backend.port)
-    const detachPeer = backend.attach('runHistory', toPeer)
+    const detachPeer = backend.peer('runHistory', toPeer)
     join(peerLink, peerSystem.port)
     backendPeerLink.onEnd(detachPeer)
 
@@ -368,7 +368,7 @@ await run([
     backendPeerLink.close()
   }],
 
-  ['one port attached under two peer names receives each name as to, and detaching one leaves the other attached', async () => {
+  ['one port given two peer names receives each name as to, and removing one leaves the other', async () => {
     const historySeen: HistoryEvent[] = []
     const auditSeen: Array<{ type: 'NOTE'; text: string }> = []
     const remote = system({ side: 'backend' })
@@ -384,8 +384,8 @@ await run([
     const sharedPort = join(localLink, backend.port)
     join(remoteLink, remote.port)
 
-    const detachHistory = backend.attach('runHistory', sharedPort)
-    const detachAudit = backend.attach('audit', sharedPort)
+    const detachHistory = backend.peer('runHistory', sharedPort)
+    const detachAudit = backend.peer('audit', sharedPort)
     localLink.onEnd(() => { detachHistory(); detachAudit() })
 
     const sender = state<{}, { type: 'BOTH'; id: string }>()({
@@ -498,14 +498,14 @@ await run([
     })
     const backend = system({ side: 'backend', log: (step) => { order.push(`log:${step.number}`); logs.push(step) } })
     const h = backend.start('svc', svc)
-    backend.attach('primary', {
+    backend.peer('primary', {
       tell: () => {
         order.push('peer:primary')
         backend.send(h, { type: 'FOLLOW_UP' })
         void backend.ask(h, 'STATUS', {}).then((outcome) => { askOutcome = outcome })
       },
     })
-    backend.attach('secondary', {
+    backend.peer('secondary', {
       tell: () => { order.push('peer:secondary') },
     })
 
@@ -524,13 +524,13 @@ await run([
     const historyEvents: HistoryEvent[] = []
     const auditNotes: Array<{ peer: string; text: string }> = []
     const backend = system<AppNet>({ side: 'backend' })
-    const detachHistory = backend.attach('runHistory', (event) => {
+    const detachHistory = backend.peer('runHistory', (event) => {
       historyEvents.push(event)
     })
-    const detachAudit = backend.attach('audit', {
+    const detachAudit = backend.peer('audit', {
       tell: (peer, event) => { auditNotes.push({ peer, text: event.text }) },
     })
-    throws(() => backend.attach('runHistory', () => {}), /already has a peer named runHistory/)
+    throws(() => backend.peer('runHistory', () => {}), /already has a peer named runHistory/)
 
     const emitter = state<{}, { type: 'GO'; id: string; text: string }>()({
       on: {
@@ -549,7 +549,7 @@ await run([
     // Detaching a callback peer stops delivery; a stale detach does not remove a newly attached callback peer.
     detachHistory()
     const replacement: HistoryEvent[] = []
-    backend.attach('runHistory', (event) => { replacement.push(event) })
+    backend.peer('runHistory', (event) => { replacement.push(event) })
     detachHistory()
     detachAudit()
     backend.send(h, { type: 'GO', id: 'g2', text: 'after-detach' })
@@ -601,7 +601,7 @@ await run([
       const backendPeerLink = dial(backendSide)
       const peerLink = listen(peerSide)
       const toPeer = join(backendPeerLink, backend.port)
-      const detachPeer = backend.attach('runHistory', toPeer)
+      const detachPeer = backend.peer('runHistory', toPeer)
       join(peerLink, peerSystem.port)
       backendPeerLink.onEnd(detachPeer)
 

@@ -11,7 +11,7 @@ The kernel tracks four distinct lifetimes. They nest, but they are **not** inter
 |---|---|---|---|
 | **System** | `system(...)` | `stop()` / `[Symbol.dispose]()` or a lost transaction | Stops all running states, cancels all work and asks, detaches ports |
 | **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, `arms`, and runs `onExit` releases (LIFO) |
-| **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `send`/`tell`/`progress` calls are ignored |
+| **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `raise`/`tell`/`progress` calls are ignored |
 | **Transactional step** | One outside arrival (`send`, `ask`, view update, work result) | `transact` returns and `flush()` runs | Data updates, database rows written via `transact`, and managed outgoing sends (`tell`, `broadcast`, `ask`, `answer`, `peer`) commit or roll back together |
 
 **A multi-step async `run()` is not one transaction.** Each synchronous phase (entering the state, handling an event,
@@ -48,7 +48,7 @@ network) that already ran.
   work lifetime: when `run()` returns or throws (for example, when one branch of `Promise.race()` wins), unfinished losing
   `ask()` / `sleep()` calls reject with `Cancelled`.
 - **Detached external promises.** JavaScript cannot forcibly cancel arbitrary non-kernel promises. If a losing branch of
-  `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `send`, `tell`, `progress`, and
+  `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `raise`, `tell`, `progress`, and
   `onExit` calls from that closed scope are ignored, and cooperative code should check `scope.signal.aborted`.
 - **Late `onExit()` while work is still in flight.** If the state is left *while* async `run()` is still running (before
   `run()` returns), any subsequent `onExit(release)` registered before `run()` exits executes `release()` immediately under
@@ -56,7 +56,7 @@ network) that already ran.
 - **`listen` vs. `run()`.** `listen` runs synchronously on entry (before `run()`) with a state-lifetime `EventScope` (no
   `ask` or `sleep`) and does not block `sys.idle()`. If it returns a cleanup function, that function is registered with
   `onExit` and runs LIFO on exit (returning a non-function non-`undefined` value reports a `Defect`). Any late callback
-  firing after the state exits ignores `send`, `tell`, `broadcast`, `call`, `cancel`, `arm`, `disarm`, and `report`, while a late
+  firing after the state exits ignores `raise`, `tell`, `broadcast`, `call`, `cancel`, `arm`, `disarm`, and `report`, while a late
   `onExit(release)` runs `release()` immediately under exception isolation so resources never leak (consistent with
   `run()`). Throwing synchronously inside `listen` rolls back its writes, sayings (`unsay`), and any `onExit` releases it
   registered before throwing, skips `run()`, and routes the failure to `failed` (or reports a `Defect` if `failed` is
@@ -64,7 +64,7 @@ network) that already ran.
 - **Imperative calls (`calls`) and timers (`arms`).** Each projects into one flat namespace per machine (`pending` and
   `armed`). Because an active child and its enclosing ancestors run simultaneously and share one snapshot map, a
   nested state may not redeclare a call or timer name already declared by an enclosing state; sibling states may
-  share a name provided their kinds match, while conflicting kinds (`one` vs `each` vs `many`) across states of one
+  share a name provided their kinds match, while conflicting kinds (`single` vs `each` vs `many`) across states of one
   machine are refused at compile time and on `start()`. `arm` and `disarm` enqueue onto the step's internal queue so
   they obey exact FIFO ordering within a step (`disarm; arm`, `arm; disarm`) and roll back whole under `unsay` if the
   handler throws or returns a refused edit. Armed timers belong to the active state instance that declared them

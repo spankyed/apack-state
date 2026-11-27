@@ -248,8 +248,8 @@ export const makeFlowState = (
             },
           }),
         }),
-        run({ data, send }) {
-          if (!data.isRoot) send({ type: 'TRIGGER', eventType: 'flow.entry', payload: undefined, targetFlowId: data.runNodeId })
+        run({ data, raise }) {
+          if (!data.isRoot) raise({ type: 'TRIGGER', eventType: 'flow.entry', payload: undefined, targetFlowId: data.runNodeId })
         },
         on: {
           TRIGGER: (event, { data, now, tell, child }) => {
@@ -461,7 +461,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('brain.mts')) {
   await everyOrder((schedule) => {
     const history = makeRunHistory()
     const backend = system({ side: 'backend', ...onSchedule(schedule, 'brain') })
-    backend.attach('runHistory', history.peer)
+    backend.peer('runHistory', history.peer)
     const brain = backend.start('brain', makeBrainState(blueprints, execute))
 
     schedule.does('app',
@@ -502,7 +502,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('brain.mts')) {
   }
   const history = makeRunHistory()
   const backend = system({ side: 'backend', clock })
-  backend.attach('runHistory', history.peer)
+  backend.peer('runHistory', history.peer)
   const brain = backend.start('brain', makeBrainState(blueprints, killExecute))
   backend.send(brain, { type: 'START_BRAIN', rootFlowId: 'root' })
   backend.send(brain, { type: 'TRIGGER_BRAIN_EVENT', eventType: 'threads.user_msg', payload: { threadId: 't1' } })

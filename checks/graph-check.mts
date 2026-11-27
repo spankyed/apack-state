@@ -43,14 +43,14 @@ const twoBranches = (inA: string, moves = `NEXT: () => ({ at: 'b' })`, inB = '')
 const anyName = (): any => 't'
 const quiet = (): void => {}
 function hand(_: unknown): void {}
-type Shape = { arms: { top: 'one' }; states: { a: { arms: { mine: 'one' } }; b: { arms: { side: 'one' } } } }
+type Shape = { arms: { top: 'single' }; states: { a: { arms: { mine: 'single' } }; b: { arms: { side: 'single' } } } }
 export const branches = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'a',
-  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  arms: ({ single }) => ({ top: single({ after: 100 }) }),
   on: { ${moves} },
   states: {
-    a: { arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${inA} },
-    b: { arms: ({ one }) => ({ side: one({ after: 100 }) }), ${inB} },
+    a: { arms: ({ single }) => ({ mine: single({ after: 100 }) }), ${inA} },
+    b: { arms: ({ single }) => ({ side: single({ after: 100 }) }), ${inB} },
   },
 })
 `
@@ -65,14 +65,14 @@ const quiet = (): void => {}
 function twice(): void
 function twice(event?: unknown): void
 function twice(): void {}
-type Shape = { states: { box: { arms: { keep: 'one' }; states: { live: {}; dead: {} } }; other: {} } }
+type Shape = { states: { box: { arms: { keep: 'single' }; states: { live: {}; dead: {} } }; other: {} } }
 export const entry = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'box',
   on: { NEXT: () => ({ at: 'other' }) },
   states: {
     box: {
       initial: 'live',
-      arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+      arms: ({ single }) => ({ keep: single({ after: 100 }) }),
       states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } } },
     },
     other: { ${inOther} },
@@ -92,15 +92,15 @@ const placed = (at: string, what: string, name: string): string => {
   return `
 export const ${name} = forNet<PlacedNet>()<Placed, PlacedEvent, { GET: { args: {}; answer: number } }>()({
   initial: 'start',
-  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  arms: ({ single }) => ({ top: single({ after: 100 }) }),
   ${put('')}
   states: {
     start: { on: { A: () => ({ at: 'a' }), X: () => ({ at: 'a.x' }), Y: () => ({ at: 'a.y' }), B: () => ({ at: 'b' }) } },
-    a: { initial: 'x', arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${put('a')} states: {
-      x: { arms: ({ one }) => ({ deep: one({ after: 100 }) }), ${put('a.x')} },
-      y: { arms: ({ one }) => ({ other: one({ after: 100 }) }) },
+    a: { initial: 'x', arms: ({ single }) => ({ mine: single({ after: 100 }) }), ${put('a')} states: {
+      x: { arms: ({ single }) => ({ deep: single({ after: 100 }) }), ${put('a.x')} },
+      y: { arms: ({ single }) => ({ other: single({ after: 100 }) }) },
     } },
-    b: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    b: { arms: ({ single }) => ({ side: single({ after: 100 }) }) },
     far: { initial: 'in', ${put('far')} states: { in: { on: { GO: (_, { arm }) => { arm('top') } } } } },
   },
 })
@@ -128,11 +128,11 @@ const other = (..._: any[]): any => ({ of: 'svc', ask: 'X', from: [], done: () =
 type PlacedNet = { systems: { svc: { events: never; asks: { X: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
 type Placed = {
   internal: { type: 'GO' }
-  arms: { top: 'one' }
+  arms: { top: 'single' }
   states: {
     start: {}
-    a: { arms: { mine: 'one' }; states: { x: { arms: { deep: 'one' } }; y: { arms: { other: 'one' } } } }
-    b: { arms: { side: 'one' } }
+    a: { arms: { mine: 'single' }; states: { x: { arms: { deep: 'single' } }; y: { arms: { other: 'single' } } } }
+    b: { arms: { side: 'single' } }
     far: { states: { in: {} } }
   }
 }
@@ -295,13 +295,13 @@ const kid = state<{}, { type: 'HI' }>()({ on: { HI: () => {} } })
 type PanelShape = {
   data: { flag: boolean }
   starts: { kid: typeof kid }
-  calls: { save: 'one' }
+  calls: { save: 'single' }
 }
 export const panel = state<PanelShape, { type: 'GO' } | { type: 'STOP' }>()({
   data: { flag: false },
   starts: () => ({ kid }),
-  calls: ({ one }) => ({
-    save: one('svc', 'SAVE', { done: () => undefined }),
+  calls: ({ single }) => ({
+    save: single('svc', 'SAVE', { done: () => undefined }),
   }),
   async run(scope) {
     await scope.ask('svc', 'GET', {})
@@ -354,12 +354,12 @@ type Net = {
 }
 const state = forNet<Net>()
 
-type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'one' } }
+type DynShape = { states: { a: {}; b: {}; c: {} }; calls: { save: 'single' } }
 const nextTarget = (): string => 'b'
 const dynSys = (): string => 'svc'
 const dynPeer = (): string => 'audit'
 const buildFollows = (follow: any) => ({ docs: follow('docs', 'all', { updated: () => undefined }) })
-const calls = ({ one }: any) => ({ save: one('svc', 'GET', { done: () => undefined }) })
+const calls = ({ single }: any) => ({ save: single('svc', 'GET', { done: () => undefined }) })
 const loadOpts = { done: () => undefined }
 const extraLoads = {}
 const subB = {}
@@ -432,12 +432,12 @@ type Net = {
 }
 const state = forNet<Net>()
 type WatcherShape = {
-  calls: { save: 'one' }
+  calls: { save: 'single' }
   states: { active: {}; paused: {} }
 }
 export const watcher = state<WatcherShape, { type: 'PAUSE' } | { type: 'RESUME' }>()({
   initial: 'active',
-  calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => undefined }) }),
+  calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: () => undefined }) }),
   listen({ tell, broadcast }) {
     tell('svc', { type: 'PING' })
     broadcast('panel', { type: 'UPDATED' })
@@ -486,23 +486,23 @@ import { state } from '${stateIndex}'
 type Shape = {
   data: { count: number }
   arms: {
-    pulse: 'one'
-    timeout: 'one'
-    backoff: { one: 'at arm' }
+    pulse: 'single'
+    timeout: 'single'
+    backoff: { single: 'at arm' }
     flash: 'each'
-    unused: 'one'
+    unused: 'single'
   }
   states: { active: {}; timedOut: {} }
 }
 export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
   data: { count: 0 },
   initial: 'active',
-  arms: ({ one, each }) => ({
-    pulse: one({ after: 300 }),
-    timeout: one({ after: 5000, expired: () => ({ at: 'timedOut' }) }),
-    backoff: one({ whenArmed: 'ignore', expired: ({ data }) => ({ data: { count: data.count + 1 } }) }),
+  arms: ({ single, each }) => ({
+    pulse: single({ after: 300 }),
+    timeout: single({ after: 5000, expired: () => ({ at: 'timedOut' }) }),
+    backoff: single({ whenArmed: 'ignore', expired: ({ data }) => ({ data: { count: data.count + 1 } }) }),
     flash: each({ after: 200, expired: ({ data }) => ({ data: { count: data.count + 1 } }) }),
-    unused: one({ after: 100 }),
+    unused: single({ after: 100 }),
   }),
   on: {
     GO: (_, { arm }) => {
@@ -558,12 +558,12 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'STOP' }>()({
       const file = join(work, 'arms.ts')
       writeFileSync(file, `
 import { state } from '${stateIndex}'
-export const none = state<{ arms: { bare: { one: 'at arm' }; dead: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ bare: one(undefined), dead: one({ after: 100 }) }),
+export const none = state<{ arms: { bare: { single: 'at arm' }; dead: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ bare: single(undefined), dead: single({ after: 100 }) }),
   on: { GO: (_, { arm }) => { arm('bare', 10) } },
 })
-export const wrapped = state<{ arms: { inParens: 'one'; twice: { each: 'at arm' }; dead: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one, each }) => ({ inParens: one(({ after: 100 })), twice: each((({ whenArmed: 'ignore' }))), dead: one({ after: 100 }) }),
+export const wrapped = state<{ arms: { inParens: 'single'; twice: { each: 'at arm' }; dead: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single, each }) => ({ inParens: single(({ after: 100 })), twice: each((({ whenArmed: 'ignore' }))), dead: single({ after: 100 }) }),
   on: { GO: (_, { arm }) => { arm('inParens'); arm('twice', 'k', 10) } },
 })
 `)
@@ -585,13 +585,13 @@ export const wrapped = state<{ arms: { inParens: 'one'; twice: { each: 'at arm' 
       writeFileSync(file, `
 import { state } from '${stateIndex}'
 declare const flag: boolean
-type Shape = { arms: { retry: 'one'; flash: 'each'; either: 'one' }; states: { idle: {}; next: {}; last: {}; left: {}; right: {} } }
+type Shape = { arms: { retry: 'single'; flash: 'each'; either: 'single' }; states: { idle: {}; next: {}; last: {}; left: {}; right: {} } }
 export const maybe = state<Shape, { type: 'GO' }>()({
   initial: 'idle',
-  arms: ({ one, each }) => ({
-    retry: one({ after: 100, expired: flag ? () => ({ at: 'next' }) : undefined }),
+  arms: ({ single, each }) => ({
+    retry: single({ after: 100, expired: flag ? () => ({ at: 'next' }) : undefined }),
     flash: each({ after: 100, expired: flag ? undefined : () => ({ at: 'last' }) }),
-    either: one({ after: 100, expired: flag ? () => ({ at: 'left' }) : () => ({ at: 'right' }) }),
+    either: single({ after: 100, expired: flag ? () => ({ at: 'left' }) : () => ({ at: 'right' }) }),
   }),
   on: { GO: (_, { arm }) => { arm('retry'); arm('flash', 'k'); arm('either') } },
   states: { idle: {}, next: {}, last: {}, left: {}, right: {} },
@@ -620,14 +620,14 @@ const whenArmed = 'ignore'
 const after = undefined
 declare const flag: boolean
 const restarting = { whenArmed: 'restart' as const }
-export const short = state<{ arms: { quiet: 'one'; loud: 'one'; maybeQuiet: 'one'; later: { one: 'at arm' }; laterShort: { each: 'at arm' }; laterVoid: { one: 'at arm' } } }, { type: 'GO' }>()({
-  arms: ({ one, each }) => ({
-    quiet: one({ after: 100, whenArmed }),
-    loud: one({ after: 100, whenArmed: restarting.whenArmed }),
-    maybeQuiet: one({ after: 100, whenArmed: flag ? 'ignore' : undefined }),
-    later: one({ after: undefined }),
+export const short = state<{ arms: { quiet: 'single'; loud: 'single'; maybeQuiet: 'single'; later: { single: 'at arm' }; laterShort: { each: 'at arm' }; laterVoid: { single: 'at arm' } } }, { type: 'GO' }>()({
+  arms: ({ single, each }) => ({
+    quiet: single({ after: 100, whenArmed }),
+    loud: single({ after: 100, whenArmed: restarting.whenArmed }),
+    maybeQuiet: single({ after: 100, whenArmed: flag ? 'ignore' : undefined }),
+    later: single({ after: undefined }),
     laterShort: each({ after }),
-    laterVoid: one({ after: void 0 }),
+    laterVoid: single({ after: void 0 }),
   }),
   on: { GO: (_, { arm }) => { arm('quiet'); arm('loud'); arm('maybeQuiet'); arm('later', 10); arm('laterShort', 'k', 10); arm('laterVoid', 10) } },
 })
@@ -647,8 +647,8 @@ export const short = state<{ arms: { quiet: 'one'; loud: 'one'; maybeQuiet: 'one
       writeFileSync(held, `
 import { state } from '${stateIndex}'
 const after = 250
-export const heldShort = state<{ arms: { held: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ held: one({ after }) }),
+export const heldShort = state<{ arms: { held: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ held: single({ after }) }),
   on: { GO: (_, { arm }) => { arm('held') } },
 })
 `)
@@ -666,39 +666,39 @@ export const heldShort = state<{ arms: { held: 'one' } }, { type: 'GO' }>()({
 import { state, type EventScope, type Net } from '${stateIndex}'
 
 type AliasShape = {
-  arms: { viaAlias: 'one'; dead: 'one' }
+  arms: { viaAlias: 'single'; dead: 'single' }
 }
 export const withAlias = state<AliasShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaAlias: one({ after: 100 }), dead: one({ after: 200 }) }),
+  arms: ({ single }) => ({ viaAlias: single({ after: 100 }), dead: single({ after: 200 }) }),
   on: {
     GO: (_, { arm: startTimer }) => { startTimer('viaAlias') },
   },
 })
 
 function armViaHelper(schedule: (name: 'viaArm') => void) { schedule('viaArm') }
-export const withArmEscape = state<{ arms: { viaArm: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaArm: one({ after: 50 }) }),
+export const withArmEscape = state<{ arms: { viaArm: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ viaArm: single({ after: 50 }) }),
   on: { GO: (_, { arm }) => { armViaHelper(arm) } },
 })
 
-type ScopeShape = { arms: { viaScope: 'one' } }
+type ScopeShape = { arms: { viaScope: 'single' } }
 type ScopeEv = { type: 'GO' }
 const armViaScope = (s: Pick<EventScope<ScopeShape, '', ScopeEv, Net>, 'arm'>) => { s.arm('viaScope') }
 export const withScopeEscape = state<ScopeShape, ScopeEv>()({
-  arms: ({ one }) => ({ viaScope: one({ after: 50 }) }),
+  arms: ({ single }) => ({ viaScope: single({ after: 50 }) }),
   on: { GO: (_, scope) => { armViaScope(scope) } },
 })
 
-type HandlerShape = { arms: { t: 'one' } }
+type HandlerShape = { arms: { t: 'single' } }
 const onGo = (_: { type: 'GO' }, { arm }: EventScope<HandlerShape, '', { type: 'GO' }, Net>) => { arm('t') }
 export const withExternalHandler = state<HandlerShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ t: one({ after: 50 }) }),
+  arms: ({ single }) => ({ t: single({ after: 50 }) }),
   on: { GO: onGo },
 })
 
 const onTable = { GO: onGo }
 export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({ t: one({ after: 50 }) }),
+  arms: ({ single }) => ({ t: single({ after: 50 }) }),
   on: onTable,
 })
 `)
@@ -724,63 +724,63 @@ export const withExternalOnTable = state<HandlerShape, { type: 'GO' }>()({
       writeFileSync(file, `
 import { state } from '${stateIndex}'
 
-type SelfLoopShape = { arms: { loop: 'one' } }
+type SelfLoopShape = { arms: { loop: 'single' } }
 export const selfLoop = state<SelfLoopShape, never>()({
-  arms: ({ one }) => ({
-    loop: one({ after: 100, expired: ({ arm }) => { arm('loop') } }),
+  arms: ({ single }) => ({
+    loop: single({ after: 100, expired: ({ arm }) => { arm('loop') } }),
   }),
 })
 
-type DeadChainShape = { arms: { first: 'one'; second: 'one'; ping: 'one'; pong: 'one' } }
+type DeadChainShape = { arms: { first: 'single'; second: 'single'; ping: 'single'; pong: 'single' } }
 export const deadChain = state<DeadChainShape, never>()({
-  arms: ({ one }) => ({
-    first: one({ after: 100, expired: ({ arm }) => { arm('second') } }),
-    second: one({ after: 100, expired: ({ arm }) => { arm('second') } }),
-    ping: one({ after: 100, expired: ({ arm }) => { arm('pong') } }),
-    pong: one({ after: 100, expired: ({ arm }) => { arm('ping') } }),
+  arms: ({ single }) => ({
+    first: single({ after: 100, expired: ({ arm }) => { arm('second') } }),
+    second: single({ after: 100, expired: ({ arm }) => { arm('second') } }),
+    ping: single({ after: 100, expired: ({ arm }) => { arm('pong') } }),
+    pong: single({ after: 100, expired: ({ arm }) => { arm('ping') } }),
   }),
 })
 
-type LiveChainShape = { arms: { step2: 'one'; step1: 'one'; step3: 'one' } }
+type LiveChainShape = { arms: { step2: 'single'; step1: 'single'; step3: 'single' } }
 export const liveChain = state<LiveChainShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({
+  arms: ({ single }) => ({
     // Declared out of topological order so reachability must propagate across multiple hops (step1 -> step2 -> step3).
-    step2: one({ after: 100, expired: ({ arm }) => { arm('step3') } }),
-    step1: one({ after: 100, expired: ({ arm }) => { arm('step2') } }),
-    step3: one({ after: 100, expired: ({ arm }) => { arm('step3') } }),
+    step2: single({ after: 100, expired: ({ arm }) => { arm('step3') } }),
+    step1: single({ after: 100, expired: ({ arm }) => { arm('step2') } }),
+    step3: single({ after: 100, expired: ({ arm }) => { arm('step3') } }),
   }),
   on: { GO: (_, { arm }) => { arm('step1') } },
 })
 
 type SiblingsShape = {
   states: {
-    a: { arms: { t: 'one' } }
-    b: { arms: { t: 'one' } }
+    a: { arms: { t: 'single' } }
+    b: { arms: { t: 'single' } }
   }
 }
 export const siblingTimers = state<SiblingsShape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'a',
   states: {
     a: {
-      arms: ({ one }) => ({ t: one({ after: 100 }) }),
+      arms: ({ single }) => ({ t: single({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm('t') },
         NEXT: () => ({ at: 'b' }),
       },
     },
     b: {
-      arms: ({ one }) => ({ t: one({ after: 100 }) }),
+      arms: ({ single }) => ({ t: single({ after: 100 }) }),
     },
   },
 })
 
 type ParentArmedFromChildShape = {
-  arms: { keepalive: 'one' }
+  arms: { keepalive: 'single' }
   states: { active: {}; idle: {} }
 }
 export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO' } | { type: 'STOP' }>()({
   initial: 'active',
-  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keepalive: single({ after: 100 }) }),
   states: {
     active: {
       on: {
@@ -794,18 +794,18 @@ export const parentArmedFromChild = state<ParentArmedFromChildShape, { type: 'GO
 
 type QuotedTimersShape = {
   arms: {
-    'live-first': 'one'
-    'live-next': 'one'
-    'dead-first': 'one'
-    'dead-next': 'one'
+    'live-first': 'single'
+    'live-next': 'single'
+    'dead-first': 'single'
+    'dead-next': 'single'
   }
 }
 export const quotedTimers = state<QuotedTimersShape, { type: 'GO' }>()({
-  arms: ({ one }) => ({
-    'live-first': one({ after: 100, expired: ({ arm }) => { arm('live-next') } }),
-    'live-next': one({ after: 100 }),
-    'dead-first': one({ after: 100, expired: ({ arm }) => { arm('dead-next') } }),
-    'dead-next': one({ after: 100 }),
+  arms: ({ single }) => ({
+    'live-first': single({ after: 100, expired: ({ arm }) => { arm('live-next') } }),
+    'live-next': single({ after: 100 }),
+    'dead-first': single({ after: 100, expired: ({ arm }) => { arm('dead-next') } }),
+    'dead-next': single({ after: 100 }),
   }),
   on: { GO: (_, { arm }) => { arm('live-first') } },
 })
@@ -814,7 +814,7 @@ const SUB = 'active' as const
 const W = 'pulse' as const
 type ComputedNamesShape = {
   states: {
-    [SUB]: { arms: { [W]: 'one' } }
+    [SUB]: { arms: { [W]: 'single' } }
     idle: {}
   }
 }
@@ -822,7 +822,7 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
   initial: SUB,
   states: {
     [SUB]: {
-      arms: ({ one }) => ({ [W]: one({ after: 100 }) }),
+      arms: ({ single }) => ({ [W]: single({ after: 100 }) }),
       on: {
         GO: (_, { arm }) => { arm(W) },
         STOP: () => ({ at: 'idle' }),
@@ -833,16 +833,16 @@ export const computedNames = state<ComputedNamesShape, { type: 'GO' } | { type: 
 })
 
 type UnenteredArmShape = {
-  arms: { keepalive: 'one' }
-  states: { live: {}; dead: { arms: { inner: 'one' } } }
+  arms: { keepalive: 'single' }
+  states: { live: {}; dead: { arms: { inner: 'single' } } }
 }
 export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
   initial: 'live',
-  arms: ({ one }) => ({ keepalive: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keepalive: single({ after: 100 }) }),
   states: {
     live: ({ on: { GO: () => {} } }),
     dead: ({
-      arms: ({ one }) => ({ inner: one({ after: 50 }) }),
+      arms: ({ single }) => ({ inner: single({ after: 50 }) }),
       on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
     }),
   },
@@ -850,19 +850,19 @@ export const unenteredArm = state<UnenteredArmShape, { type: 'GO' }>()({
 
 type LocalArmVarShape = {
   data: { arm: number }
-  arms: { dead: 'one' }
+  arms: { dead: 'single' }
 }
 export const localArmVar = state<LocalArmVarShape, { type: 'SET'; arm: number }>()({
   data: { arm: 0 },
-  arms: ({ one }) => ({ dead: one({ after: 100 }) }),
+  arms: ({ single }) => ({ dead: single({ after: 100 }) }),
   on: {
     SET: ({ arm }) => ({ data: { arm } }),
   },
 })
 
 function armFromBox(box: { arm: (name: 'viaBox') => void }) { box.arm('viaBox') }
-export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type: 'GO' }>()({
-  arms: ({ one }) => ({ viaBox: one({ after: 100 }) }),
+export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'single' } }, { type: 'GO' }>()({
+  arms: ({ single }) => ({ viaBox: single({ after: 100 }) }),
   on: {
     GO: (_, { arm }) => { armFromBox({ arm }) },
   },
@@ -894,37 +894,37 @@ export const shorthandScopeArmEscape = state<{ arms: { viaBox: 'one' } }, { type
   }],
   ['an arm counts only in a state that can be entered, and a timer armed only where none can is said by that state', () => {
     const [deadOnly, alsoLive, fromDeadExpired, mixed] = findingsIn(`
-type Shape = { arms: { t: 'one' }; states: { live: {}; dead: {} } }
+type Shape = { arms: { t: 'single' }; states: { live: {}; dead: {} } }
 export const deadOnly = state<Shape, { type: 'GO' }>()({
   initial: 'live',
-  arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('t') } } } },
 })
 export const alsoLive = state<Shape, { type: 'GO' }>()({
   initial: 'live',
-  arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: {
     live: { on: { GO: (_, { arm }) => { arm('t') } } },
     dead: { on: { GO: (_, { arm }) => { arm('t') } } },
   },
 })
 
-type ExpiredShape = { arms: { keep: 'one' }; states: { live: {}; dead: { arms: { b: 'one' } } } }
+type ExpiredShape = { arms: { keep: 'single' }; states: { live: {}; dead: { arms: { b: 'single' } } } }
 export const fromDeadExpired = state<ExpiredShape, never>()({
   initial: 'live',
-  arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keep: single({ after: 100 }) }),
   states: {
     live: {},
-    dead: { arms: ({ one }) => ({ b: one({ after: 100, expired: ({ arm }) => { arm('keep') } }) }) },
+    dead: { arms: ({ single }) => ({ b: single({ after: 100, expired: ({ arm }) => { arm('keep') } }) }) },
   },
 })
 
-type MixedShape = { arms: { t: 'one'; u: 'one' }; states: { live: {}; dead: {}; gone: {} } }
+type MixedShape = { arms: { t: 'single'; u: 'single' }; states: { live: {}; dead: {}; gone: {} } }
 export const mixed = state<MixedShape, { type: 'GO' }>()({
   initial: 'live',
-  arms: ({ one }) => ({
-    t: one({ after: 100, expired: ({ arm }) => { arm('t'); arm('u') } }),
-    u: one({ after: 100 }),
+  arms: ({ single }) => ({
+    t: single({ after: 100, expired: ({ arm }) => { arm('t'); arm('u') } }),
+    u: single({ after: 100 }),
   }),
   states: {
     live: {},
@@ -943,35 +943,35 @@ export const mixed = state<MixedShape, { type: 'GO' }>()({
     const [found] = findingsIn(`
 const quiet = (): void => {}
 type Shape = {
-  arms: { top: 'one' }
+  arms: { top: 'single' }
   states: {
-    a: { arms: { side: 'one' } }
+    a: { arms: { side: 'single' } }
     ab: {
-      arms: { mid: 'one' }
+      arms: { mid: 'single' }
       states: {
-        sub: { arms: { own: 'one' }; states: { deep: { arms: { below: 'one' } }; rest: {} } }
-        other: { arms: { beside: 'one' } }
+        sub: { arms: { own: 'single' }; states: { deep: { arms: { below: 'single' } }; rest: {} } }
+        other: { arms: { beside: 'single' } }
       }
     }
   }
 }
 export const branch = state<Shape, { type: 'GO' } | { type: 'A' } | { type: 'DEEP' } | { type: 'OTHER' }>()({
   initial: 'ab',
-  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  arms: ({ single }) => ({ top: single({ after: 100 }) }),
   on: { A: () => ({ at: 'a' }), DEEP: () => ({ at: 'ab.sub.deep' }), OTHER: () => ({ at: 'ab.other' }) },
   states: {
-    a: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    a: { arms: ({ single }) => ({ side: single({ after: 100 }) }) },
     ab: {
       initial: 'sub',
-      arms: ({ one }) => ({ mid: one({ after: 100 }) }),
+      arms: ({ single }) => ({ mid: single({ after: 100 }) }),
       states: {
         sub: {
           initial: 'rest',
-          arms: ({ one }) => ({ own: one({ after: 100 }) }),
+          arms: ({ single }) => ({ own: single({ after: 100 }) }),
           on: { GO: quiet },
-          states: { deep: { arms: ({ one }) => ({ below: one({ after: 100 }) }) }, rest: {} },
+          states: { deep: { arms: ({ single }) => ({ below: single({ after: 100 }) }) }, rest: {} },
         },
-        other: { arms: ({ one }) => ({ beside: one({ after: 100 }) }) },
+        other: { arms: ({ single }) => ({ beside: single({ after: 100 }) }) },
       },
     },
   },
@@ -989,78 +989,78 @@ export const branch = state<Shape, { type: 'GO' } | { type: 'A' } | { type: 'DEE
     deepStrictEqual(findingsIn(`
 const quiet = (): void => {}
 const heard = () => (): void => {}
-type Timed = { arms: { t: 'one' } }
-export const byListen = state<Timed, never>()({ arms: ({ one }) => ({ t: one({ after: 100 }) }), listen: heard })
+type Timed = { arms: { t: 'single' } }
+export const byListen = state<Timed, never>()({ arms: ({ single }) => ({ t: single({ after: 100 }) }), listen: heard })
 type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: {} }
-export const byCallDone = forNet<Net>()<Timed & { calls: { save: 'one' } }, never>()({
-  arms: ({ one }) => ({ t: one({ after: 100 }) }),
-  calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: quiet }) }),
+export const byCallDone = forNet<Net>()<Timed & { calls: { save: 'single' } }, never>()({
+  arms: ({ single }) => ({ t: single({ after: 100 }) }),
+  calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: quiet }) }),
 })
-export const written = state<Timed, never>()({ arms: ({ one }) => ({ t: one({ after: 100, expired: () => {} }) }), listen: () => () => {} })
+export const written = state<Timed, never>()({ arms: ({ single }) => ({ t: single({ after: 100, expired: () => {} }) }), listen: () => () => {} })
 // The expired of a timer runs once the timer is armed: written elsewhere, it hides nothing until then.
-type Two = { arms: { t: 'one'; u: 'one' } }
-export const byExpired = state<Two, { type: 'GO' }>()({ arms: ({ one }) => ({ t: one(({ after: 100, expired: (quiet) })), u: one({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
-export const byExpiredOption = state<Two, { type: 'GO' }>()({ arms: ({ one }) => ({ t: one({ after: 100, expired: quiet }), u: one({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
-export const byExpiredUnarmed = state<Two, never>()({ arms: ({ one }) => ({ t: one(({ after: 100, expired: (quiet) })), u: one({ after: 100 }) }) })
-export const byExpiredOptionUnarmed = state<Two, never>()({ arms: ({ one }) => ({ t: one({ after: 100, expired: quiet }), u: one({ after: 100 }) }) })
+type Two = { arms: { t: 'single'; u: 'single' } }
+export const byExpired = state<Two, { type: 'GO' }>()({ arms: ({ single }) => ({ t: single(({ after: 100, expired: (quiet) })), u: single({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
+export const byExpiredOption = state<Two, { type: 'GO' }>()({ arms: ({ single }) => ({ t: single({ after: 100, expired: quiet }), u: single({ after: 100 }) }), on: { GO: (_, { arm }) => { arm('t') } } })
+export const byExpiredUnarmed = state<Two, never>()({ arms: ({ single }) => ({ t: single(({ after: 100, expired: (quiet) })), u: single({ after: 100 }) }) })
+export const byExpiredOptionUnarmed = state<Two, never>()({ arms: ({ single }) => ({ t: single({ after: 100, expired: quiet }), u: single({ after: 100 }) }) })
 `), [[], [], ['nothing arms t'], [], [], ['nothing arms t', 'nothing arms u'], ['nothing arms t', 'nothing arms u']])
   }],
   ['what only a handler that cannot run enters or arms is dead, and is said by what stops the handler', () => {
     const found = findingsIn(`
 type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
 const net = forNet<Net>()
-type Three = { arms: { t: 'one' }; states: { live: {}; dead: {}; beyond: {} } }
+type Three = { arms: { t: 'single' }; states: { live: {}; dead: {}; beyond: {} } }
 type Event = { type: 'GO' }
 export const byHandler = state<Three, Event>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { on: { GO: () => {} } }, dead: { on: { GO: () => ({ at: 'beyond' }) } }, beyond: { on: { GO: (_, { arm }) => { arm('t') } } } },
 })
 export const byInternal = state<Three & { internal: Event }, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100, expired: () => {} }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100, expired: () => {} }) }),
   states: { live: {}, dead: { internal: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
 })
 export const byAnswer = state<Three, never, { GET: { args: {}; answer: number } }>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100, expired: () => {} }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100, expired: () => {} }) }),
   states: { live: { answers: { GET: () => 1 } }, dead: { answers: { GET: (_, { arm }) => { arm('t'); return answered(1, { at: 'beyond' }) } } }, beyond: {} },
 })
-type Late = { arms: { never: 'one'; then: 'one' }; states: { live: {}; late: {} } }
+type Late = { arms: { never: 'single'; then: 'single' }; states: { live: {}; late: {} } }
 export const byExpired = state<Late, never>()({
   initial: 'live',
-  arms: ({ one }) => ({ never: one({ after: 100, expired({ arm }) { arm('then'); return { at: 'late' } } }), then: one({ after: 100 }) }),
+  arms: ({ single }) => ({ never: single({ after: 100, expired({ arm }) { arm('then'); return { at: 'late' } } }), then: single({ after: 100 }) }),
   states: { live: {}, late: {} },
 })
 export const byExpiredOption = state<Late, never>()({
   initial: 'live',
-  arms: ({ one }) => ({ never: one({ after: 100, expired: ({ arm }) => { arm('then'); return { at: 'late' } } }), then: one({ after: 100 }) }),
+  arms: ({ single }) => ({ never: single({ after: 100, expired: ({ arm }) => { arm('then'); return { at: 'late' } } }), then: single({ after: 100 }) }),
   states: { live: {}, late: {} },
 })
 export const byRun = state<Three, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { run: ({ arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
 export const byFailed = state<Three, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { run: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
 export const byListen = state<Three, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { listen: ({ arm }) => { arm('t') } }, beyond: {} },
 })
-type Calling = { arms: { t: 'one' }; states: { live: {}; dead: { calls: { save: 'one' } }; beyond: {} } }
+type Calling = { arms: { t: 'single' }; states: { live: {}; dead: { calls: { save: 'single' } }; beyond: {} } }
 export const byCall = net<Calling, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
-  states: { live: {}, dead: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
+  states: { live: {}, dead: { calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byProgress = net<Calling, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
-  states: { live: {}, dead: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
+  states: { live: {}, dead: { calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byLoad = net<Three, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { loads: (load) => ({ got: load('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byFollow = net<Three, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: {}, dead: { follows: (follow) => ({ docs: follow('docs', 'all', { updated: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 `)
@@ -1078,65 +1078,65 @@ export const byFollow = net<Three, never>()({
     const found = findingsIn(`
 type Net = { systems: { svc: { events: never; asks: { SAVE: { args: {}; answer: void } } } }; surfaces: {}; views: { docs: { all: { args: {}; result: string } } } }
 const net = forNet<Net>()
-type Two = { arms: { t: 'one' }; states: { live: {}; beyond: {} } }
+type Two = { arms: { t: 'single' }; states: { live: {}; beyond: {} } }
 type Event = { type: 'GO' }
 export const byHandler = state<Two, Event>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { on: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
 })
 export const byInternal = state<Two & { internal: Event }, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { internal: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } } }, beyond: {} },
 })
 export const byAnswer = state<Two, never, { GET: { args: {}; answer: number } }>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { answers: { GET: (_, { arm }) => { arm('t'); return answered(1, { at: 'beyond' }) } } }, beyond: {} },
 })
-type Then = { arms: { first: 'one'; then: 'one' }; states: { live: {}; beyond: {} } }
+type Then = { arms: { first: 'single'; then: 'single' }; states: { live: {}; beyond: {} } }
 export const byExpired = state<Then, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ first: one({ after: 100, expired: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: one({ after: 100 }) }),
+  arms: ({ single }) => ({ first: single({ after: 100, expired: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: single({ after: 100 }) }),
   states: { live: { on: { GO: (_, { arm }) => { arm('first') } } }, beyond: {} },
 })
-export const byExpiredOption = state<{ arms: { first: { one: 'at arm' }; then: 'one' }; states: { live: {}; beyond: {} } }, Event>()({
+export const byExpiredOption = state<{ arms: { first: { single: 'at arm' }; then: 'single' }; states: { live: {}; beyond: {} } }, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ first: one({ expired: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: one({ after: 100 }) }),
+  arms: ({ single }) => ({ first: single({ expired: ({ arm }) => { arm('then'); return { at: 'beyond' } } }), then: single({ after: 100 }) }),
   states: { live: { on: { GO: (_, { arm }) => { arm('first', 10) } } }, beyond: {} },
 })
 export const byRun = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { run: ({ arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
 export const byFailed = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { run: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
 export const byFailedListening = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { listen: () => {}, failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
-export const byListen = state<{ arms: { t: 'one' } }, never>()({ arms: ({ one }) => ({ t: one({ after: 100 }) }), listen: ({ arm }) => { arm('t') } })
-type Calling = { arms: { t: 'one' }; states: { live: { calls: { save: 'one' } }; beyond: {} } }
+export const byListen = state<{ arms: { t: 'single' } }, never>()({ arms: ({ single }) => ({ t: single({ after: 100 }) }), listen: ({ arm }) => { arm('t') } })
+type Calling = { arms: { t: 'single' }; states: { live: { calls: { save: 'single' } }; beyond: {} } }
 export const byCall = net<Calling, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
-  states: { live: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
+  states: { live: { calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byProgress = net<Calling, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
-  states: { live: { calls: ({ one }) => ({ save: one('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
+  states: { live: { calls: ({ single }) => ({ save: single('svc', 'SAVE', { done: () => {}, progress: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byLoad = net<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { loads: (load) => ({ got: load('svc', 'SAVE', { done: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 export const byFollow = net<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { follows: (follow) => ({ docs: follow('docs', 'all', { updated: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }) }) }, beyond: {} },
 })
 // A state inside one that can be the case is under the handlers of that one.
-type Under = { arms: { t: 'one' }; states: { box: { states: { in: {} } }; beyond: {} } }
+type Under = { arms: { t: 'single' }; states: { box: { states: { in: {} } }; beyond: {} } }
 export const byAround = state<Under, Event>()({
-  initial: 'box', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'box', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { box: { initial: 'in', on: { GO: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, states: { in: {} } }, beyond: {} },
 })
 `)
@@ -1145,18 +1145,18 @@ export const byAround = state<Under, Event>()({
   }],
   ['a failed runs only where there is work to fail', () => {
     deepStrictEqual(findingsIn(`
-type Two = { arms: { t: 'one' }; states: { live: {}; beyond: {} } }
+type Two = { arms: { t: 'single' }; states: { live: {}; beyond: {} } }
 export const noWork = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { failed: (_, { arm }) => { arm('t'); return { at: 'beyond' } } }, beyond: {} },
 })
 const quiet = (): void => {}
 export const noWorkUnread = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { failed: Math.random() > 0.5 ? quiet : quiet }, beyond: {} },
 })
 export const workUnread = state<Two, never>()({
-  initial: 'live', arms: ({ one }) => ({ t: one({ after: 100 }) }),
+  initial: 'live', arms: ({ single }) => ({ t: single({ after: 100 }) }),
   states: { live: { run: () => {}, failed: Math.random() > 0.5 ? quiet : quiet }, beyond: {} },
 })
 `), [
@@ -1167,15 +1167,15 @@ export const workUnread = state<Two, never>()({
   }],
   ['a chain of states and timers, each reached from the one before, can all happen, and none of it without its first link', () => {
     const chain = (first: string): string => `
-type Chain = { arms: { first: 'one' }; states: { a: {}; b: { arms: { second: 'one' } }; c: { arms: { third: 'one' } }; d: {} } }
+type Chain = { arms: { first: 'single' }; states: { a: {}; b: { arms: { second: 'single' } }; c: { arms: { third: 'single' } }; d: {} } }
 export const chain = state<Chain, { type: 'GO' }>()({
   initial: 'a',
   // Declared against the order they happen in, so each is found from the one before whatever is read first.
-  arms: ({ one }) => ({ first: one({ after: 100, expired: () => ({ at: 'b' }) }) }),
+  arms: ({ single }) => ({ first: single({ after: 100, expired: () => ({ at: 'b' }) }) }),
   states: {
     d: {},
-    c: { arms: ({ one }) => ({ third: one({ after: 100, expired: () => ({ at: 'd' }) }) }), run: ({ arm }) => { arm('third') } },
-    b: { arms: ({ one }) => ({ second: one({ after: 100, expired: () => ({ at: 'c' }) }) }), on: { GO: (_, { arm }) => { arm('second') } } },
+    c: { arms: ({ single }) => ({ third: single({ after: 100, expired: () => ({ at: 'd' }) }) }), run: ({ arm }) => { arm('third') } },
+    b: { arms: ({ single }) => ({ second: single({ after: 100, expired: () => ({ at: 'c' }) }) }), on: { GO: (_, { arm }) => { arm('second') } } },
     a: { on: { GO: ${first} } },
   },
 })
@@ -1186,24 +1186,24 @@ export const chain = state<Chain, { type: 'GO' }>()({
   ['what is dead is said once, by its cause, with what is dead because of it', () => {
     const [whole, apart, circle, between, ownAndOther, inside, shared, into] = findingsIn(`
 type Event = { type: 'GO' }
-type Whole = { arms: { keepalive: 'one'; unused: 'one' }; states: { live: {}; dead: { arms: { inner: 'one' }; states: { sub: { arms: { own: 'one' } }; side: {} } } } }
+type Whole = { arms: { keepalive: 'single'; unused: 'single' }; states: { live: {}; dead: { arms: { inner: 'single' }; states: { sub: { arms: { own: 'single' } }; side: {} } } } }
 export const whole = state<Whole, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ keepalive: one({ after: 100 }), unused: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keepalive: single({ after: 100 }), unused: single({ after: 100 }) }),
   states: {
     live: { on: { GO: () => {} } },
     dead: {
       initial: 'sub',
-      arms: ({ one }) => ({ inner: one({ after: 100 }) }),
+      arms: ({ single }) => ({ inner: single({ after: 100 }) }),
       on: { GO: (_, { arm }) => { arm('keepalive'); arm('inner') } },
-      states: { sub: { arms: ({ one }) => ({ own: one({ after: 100 }) }) }, side: {} },
+      states: { sub: { arms: ({ single }) => ({ own: single({ after: 100 }) }) }, side: {} },
     },
   },
 })
-type Apart = { arms: { wy: 'one'; wx: 'one' }; states: { live: {}; x: {}; y: {} } }
+type Apart = { arms: { wy: 'single'; wx: 'single' }; states: { live: {}; x: {}; y: {} } }
 export const apart = state<Apart, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ wy: one({ after: 100 }), wx: one({ after: 100 }) }),
+  arms: ({ single }) => ({ wy: single({ after: 100 }), wx: single({ after: 100 }) }),
   states: { live: { on: { GO: () => {} } }, x: { on: { GO: (_, { arm }) => { arm('wx') } } }, y: { on: { GO: (_, { arm }) => { arm('wy') } } } },
 })
 type Circle = { states: { live: {}; a: {}; b: {}; c: {} } }
@@ -1211,18 +1211,18 @@ export const circle = state<Circle, Event>()({
   initial: 'live',
   states: { live: { on: { GO: () => {} } }, a: { on: { GO: () => ({ at: 'b' }) } }, b: { on: { GO: () => ({ at: 'c' }) } }, c: { on: { GO: () => ({ at: 'a' }) } } },
 })
-type Between = { arms: { w: 'one' }; states: { live: {}; s: {} } }
+type Between = { arms: { w: 'single' }; states: { live: {}; s: {} } }
 export const between = state<Between, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ w: one({ after: 100, expired: () => ({ at: 's' }) }) }),
+  arms: ({ single }) => ({ w: single({ after: 100, expired: () => ({ at: 's' }) }) }),
   states: { live: { on: { GO: () => {} } }, s: { on: { GO: (_, { arm }) => { arm('w') } } } },
 })
-type OwnAndOther = { arms: { p: 'one'; q: 'one'; r: 'one' } }
+type OwnAndOther = { arms: { p: 'single'; q: 'single'; r: 'single' } }
 export const ownAndOther = state<OwnAndOther, never>()({
-  arms: ({ one }) => ({
-    p: one({ after: 100, expired: ({ arm }) => { arm('p'); arm('q') } }),
-    q: one({ after: 100, expired: ({ arm }) => { arm('p'); arm('r') } }),
-    r: one({ after: 100 }),
+  arms: ({ single }) => ({
+    p: single({ after: 100, expired: ({ arm }) => { arm('p'); arm('q') } }),
+    q: single({ after: 100, expired: ({ arm }) => { arm('p'); arm('r') } }),
+    r: single({ after: 100 }),
   }),
 })
 // A move from inside a state to it, or to another inside it, is no way into it.
@@ -1235,13 +1235,13 @@ export const inside = state<Inside, Event>()({
   },
 })
 // What the expired of a timer in a state never entered leads to is said by that state, as the timer is.
-type Shared = { arms: { keep: 'one' }; states: { live: {}; dead: { arms: { b: 'one' } }; late: {}; gone: {} } }
+type Shared = { arms: { keep: 'single' }; states: { live: {}; dead: { arms: { b: 'single' } }; late: {}; gone: {} } }
 export const shared = state<Shared, Event>()({
   initial: 'live',
-  arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  arms: ({ single }) => ({ keep: single({ after: 100 }) }),
   states: {
     live: { on: { GO: () => {} } },
-    dead: { arms: ({ one }) => ({ b: one({ after: 100, expired: ({ arm }) => { arm('keep'); return { at: 'late' } } }) }) },
+    dead: { arms: ({ single }) => ({ b: single({ after: 100, expired: ({ arm }) => { arm('keep'); return { at: 'late' } } }) }) },
     late: {},
     gone: { on: { GO: () => ({ at: 'late' }) } },
   },
@@ -1303,22 +1303,22 @@ export const begins = state<Shape, { type: 'GO' }>()({
     const held = (inP: string, before = ''): string[] => dead(findingsIn(`
 ${before}
 type Shape = {
-  arms: { top: 'one' }
-  states: { start: {}; p: { arms: { mine: 'one' }; states: { c: { arms: { deep: 'one' } }; d: { arms: { other: 'one' } } } }; q: { arms: { side: 'one' } }; far: {} }
+  arms: { top: 'single' }
+  states: { start: {}; p: { arms: { mine: 'single' }; states: { c: { arms: { deep: 'single' } }; d: { arms: { other: 'single' } } } }; q: { arms: { side: 'single' } }; far: {} }
 }
 export const held = state<Shape, { type: 'P' } | { type: 'C' } | { type: 'D' } | { type: 'Q' }>()({
   initial: 'start',
-  arms: ({ one }) => ({ top: one({ after: 100 }) }),
+  arms: ({ single }) => ({ top: single({ after: 100 }) }),
   states: {
     start: { on: { P: () => ({ at: 'p' }), C: () => ({ at: 'p.c' }), D: () => ({ at: 'p.d' }), Q: () => ({ at: 'q' }) } },
-    p: { initial: 'c', arms: ({ one }) => ({ mine: one({ after: 100 }) }), ${inP} },
-    q: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    p: { initial: 'c', arms: ({ single }) => ({ mine: single({ after: 100 }) }), ${inP} },
+    q: { arms: ({ single }) => ({ side: single({ after: 100 }) }) },
     far: { on: { P: (_, { arm }) => { arm('top') } } },
   },
 })
 `)[0]!)
-    const c = `c: { arms: ({ one }: any) => ({ deep: one({ after: 100 }) }) }`
-    const d = `d: { arms: ({ one }: any) => ({ other: one({ after: 100 }) }) }`
+    const c = `c: { arms: ({ single }: any) => ({ deep: single({ after: 100 }) }) }`
+    const d = `d: { arms: ({ single }: any) => ({ other: single({ after: 100 }) }) }`
     const [M, D, O, S] = ['nothing arms mine in p', 'nothing arms deep in p.c', 'nothing arms other in p.d', 'nothing arms side in q']
     deepStrictEqual(held(`states: { ${c}, ${d} }`), ['far is never entered, so nothing arms top', M, D, O, S])
     // One state not written out holds what is in it and inside it, and what it could arm around it.
@@ -1343,8 +1343,8 @@ export const read = forNet<Net>()<Two, never>()({
 })
 `).flat()), ['far is never entered'])
     const whole = findingsIn(`
-type Shape = { arms: { t: 'one' }; states: { live: {}; dead: {} } }
-const made = { initial: 'live', arms: ({ one }: any) => ({ t: one({ after: 100 }) }), states: { live: {}, dead: {} } } as const
+type Shape = { arms: { t: 'single' }; states: { live: {}; dead: {} } }
+const made = { initial: 'live', arms: ({ single }: any) => ({ t: single({ after: 100 }) }), states: { live: {}, dead: {} } } as const
 export const elsewhere = state<Shape, never>()(made as never)
 `)[0]!
     deepStrictEqual(whole, ['definition is not an inline object literal; reaches, follows, loads, calls, and arms could not be scanned'])
@@ -1356,38 +1356,38 @@ const quiet = (): void => {}
 const typedVoid: () => void = () => ({ at: 'far' })
 const options = { after: 100, expired: quiet }
 const optionsFar = { after: 100, expired: () => ({ at: 'far' as const }) }
-const buildArms = ({ one }: any) => ({ t: one({ after: 100 }), u: one({ after: 100 }) })
+const buildArms = ({ single }: any) => ({ t: single({ after: 100 }), u: single({ after: 100 }) })
 const more = {} as {}
-const other = (ms: number): any => ({ kind: 'one', ms, expired: () => ({ at: 'far' }) })
-type Shape = { arms: { u: 'one' }; states: { live: { arms: { t: 'one'; v: 'one' } }; beside: { arms: { side: 'one' } }; far: {} } }
+const other = (ms: number): any => ({ kind: 'single', ms, expired: () => ({ at: 'far' }) })
+type Shape = { arms: { u: 'single' }; states: { live: { arms: { t: 'single'; v: 'single' } }; beside: { arms: { side: 'single' } }; far: {} } }
 export const timed = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
   initial: 'live',
-  arms: ({ one }) => ({ u: one({ after: 100 }) }),
+  arms: ({ single }) => ({ u: single({ after: 100 }) }),
   states: {
     live: { arms: ${written}, on: { GO: (_, { arm }) => { ${armed && `arm('${armed}')`} }, NEXT: () => ({ at: 'beside' }) } },
-    beside: { arms: ({ one }) => ({ side: one({ after: 100 }) }) },
+    beside: { arms: ({ single }) => ({ side: single({ after: 100 }) }) },
     far: {},
   },
 })
 `)[0]!)
     const [U, T, V, S] = ['nothing arms u', 'nothing arms t in live', 'nothing arms v in live', 'nothing arms side in beside']
     const far = 'far is never entered'
-    const table = (t: string): string => `({ one }) => ({ t: ${t}, v: one({ after: 100 }) })`
+    const table = (t: string): string => `({ single }) => ({ t: ${t}, v: single({ after: 100 }) })`
     const each: Array<[string, string[]]> = [
       // Written here, it is read: it arms nothing and goes nowhere.
-      [table(`one({ after: 100, expired: () => {} })`), [far, U, V, S]],
-      [`(arms) => ({ t: arms.one({ after: 100, expired: () => {} }), v: arms.one({ after: 100 }) })`, [far, U, V, S]],
+      [table(`single({ after: 100, expired: () => {} })`), [far, U, V, S]],
+      [`(arms) => ({ t: arms.single({ after: 100, expired: () => {} }), v: arms.single({ after: 100 }) })`, [far, U, V, S]],
       // The name of a function leaves what it arms unread: the timers of its state and the states around it.
-      [table(`one(({ after: 100, expired: (quiet) }))`), [far, S]],
-      [table(`one({ after: 100, expired: quiet })`), [far, S]],
-      [table(`one({ expired: quiet })`), [far, S]],
+      [table(`single(({ after: 100, expired: (quiet) }))`), [far, S]],
+      [table(`single({ after: 100, expired: quiet })`), [far, S]],
+      [table(`single({ expired: quiet })`), [far, S]],
       // What may be either of two, or says less than it does, leaves where it goes unread too.
-      [table(`one({ after: 100, expired: flag ? quiet : quiet })`), [S]],
-      [table(`one({ after: 100, expired: typedVoid })`), [S]],
-      [table(`one({ after: 100, ...more })`), [S]],
-      [table(`one({ after: 100, [String(flag)]: 1 })`), [S]],
-      [table(`one(options)`), [S]],
-      [`({ one }) => ({ t: flag ? one({ after: 100 }) : one({ after: 200 }), v: one({ after: 100 }) })`, [S]],
+      [table(`single({ after: 100, expired: flag ? quiet : quiet })`), [S]],
+      [table(`single({ after: 100, expired: typedVoid })`), [S]],
+      [table(`single({ after: 100, ...more })`), [S]],
+      [table(`single({ after: 100, [String(flag)]: 1 })`), [S]],
+      [table(`single(options)`), [S]],
+      [`({ single }) => ({ t: flag ? single({ after: 100 }) : single({ after: 200 }), v: single({ after: 100 }) })`, [S]],
       // One made by anything but what the table is handed holds what that made of it.
       [table(`other(100)`), [S]],
     ]
@@ -1396,12 +1396,12 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
       deepStrictEqual(expired(written, ''), [far, U, T, V, S], written)
     }
     // Options written elsewhere are read by their type for where the expired goes, and it goes there once armed.
-    deepStrictEqual(expired(table(`one(optionsFar)`), 't'), [S])
-    deepStrictEqual(expired(table(`one(optionsFar)`), ''), [U, 'nothing arms t in live, so nothing enters far', V, S])
+    deepStrictEqual(expired(table(`single(optionsFar)`), 't'), [S])
+    deepStrictEqual(expired(table(`single(optionsFar)`), ''), [U, 'nothing arms t in live, so nothing enters far', V, S])
     // One entry that is not read leaves the expired of the others in its table as they are written.
-    deepStrictEqual(expired(`({ one }) => ({ t: flag ? one({ after: 100 }) : one({ after: 200 }), v: one({ after: 100 }) })`, 'v'), [far, U, T, S])
+    deepStrictEqual(expired(`({ single }) => ({ t: flag ? single({ after: 100 }) : single({ after: 200 }), v: single({ after: 100 }) })`, 'v'), [far, U, T, S])
     // A table of timers that is not written out, or not all: the expired of each timer there is unread, armed or not.
-    for (const written of [`buildArms`, `({ one }) => ({ ...more, t: one({ after: 100 }), v: one({ after: 100 }) })`, `({ one }) => ({ [String(flag)]: one({ after: 100 }), t: one({ after: 100 }), v: one({ after: 100 }) })`, `({ one }) => { return { t: one({ after: 100 }), v: one({ after: 100 }) } }`]) {
+    for (const written of [`buildArms`, `({ single }) => ({ ...more, t: single({ after: 100 }), v: single({ after: 100 }) })`, `({ single }) => ({ [String(flag)]: single({ after: 100 }), t: single({ after: 100 }), v: single({ after: 100 }) })`, `({ single }) => { return { t: single({ after: 100 }), v: single({ after: 100 }) } }`]) {
       deepStrictEqual(expired(written, 't'), [S], written)
       deepStrictEqual(expired(written, ''), [far, U, T, V, S], written)
       // And of no timer another state declares, whose expired is read where it is written.
@@ -1454,10 +1454,10 @@ export const timed = state<Shape, { type: 'GO' } | { type: 'NEXT' }>()({
     const startsAt = (initial: string): string[] => findingsIn(`
 declare const either: 'live' | 'dead'
 declare const some: any
-type Shape = { arms: { one: 'one'; two: 'one' }; states: { live: {}; dead: {} } }
+type Shape = { arms: { one: 'single'; two: 'single' }; states: { live: {}; dead: {} } }
 export const begins = state<Shape, { type: 'GO' }>()({
   initial: ${initial},
-  arms: ({ one }) => ({ one: one({ after: 100 }), two: one({ after: 100 }) }),
+  arms: ({ single }) => ({ one: single({ after: 100 }), two: single({ after: 100 }) }),
   states: {
     live: { on: { GO: (_, { arm }) => { arm('one') } } },
     dead: { on: { GO: (_, { arm }) => { arm('two') } } },
@@ -1472,10 +1472,10 @@ export const begins = state<Shape, { type: 'GO' }>()({
     const hidden = (handler: string): string[] => findingsIn(`
 declare const anyValue: any
 declare const somewhere: string
-type Shape = { data: { n: number }; arms: { keep: 'one' }; states: { live: {}; dead: {}; gone: {} } }
+type Shape = { data: { n: number }; arms: { keep: 'single' }; states: { live: {}; dead: {}; gone: {} } }
 const going = { data: { n: 1 }, at: 'dead' as const }
 export const hides = state<Shape, { type: 'GO' }>()({
-  data: { n: 0 }, initial: 'live', arms: ({ one }) => ({ keep: one({ after: 100 }) }),
+  data: { n: 0 }, initial: 'live', arms: ({ single }) => ({ keep: single({ after: 100 }) }),
   on: { GO: ${handler} },
   states: { live: {}, dead: { on: { GO: (_, { arm }) => { arm('keep') } } }, gone: {} },
 })

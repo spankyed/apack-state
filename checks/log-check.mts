@@ -48,9 +48,9 @@ const panel = state<{ data: { draft: string; seen: string[] }; states: { idle: {
     idle: {},
     sending: {
       data: { text: given },
-      async run({ data, ask, send }) {
+      async run({ data, ask, raise }) {
         const done = await ask('notes', 'WRITE', { text: data.text })
-        send({ type: 'SENT', text: done.ok ? done.value.text : '' })
+        raise({ type: 'SENT', text: done.ok ? done.value.text : '' })
       },
       failed: () => ({ at: 'idle' }),
     },
@@ -96,12 +96,12 @@ const shuttable = (letGo: (id: string) => Promise<void>) => kinds<{ states: { op
   },
 })
 /** Calls one save at a time, of the id it was told. */
-const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'one' } } } }, { type: 'SAVE'; id: string }>()({
+const saver = kinds<{ data: { id: string }; states: { on: { calls: { save: 'single' } } } }, { type: 'SAVE'; id: string }>()({
   data: { id: '' },
   initial: 'on',
   states: {
     on: {
-      calls: ({ one }) => ({ save: one('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
+      calls: ({ single }) => ({ save: single('worker', 'RUN', { args: (data) => ({ id: data.id }), done: () => undefined }) }),
       on: { SAVE: ({ id }, { call }) => { call('save'); return { data: { id } } } },
     },
   },
@@ -122,7 +122,7 @@ const asker = kinds<{ states: { asking: {}; asked: {} } }, never>()({
   states: { asking: { async run({ ask }) { await ask('worker', 'RUN', { id: 'never' }) }, failed: () => ({ at: 'asked' }) }, asked: {} },
 })
 /** Sends itself the same event as it handles it, without end. */
-const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { send }) => { send({ type: 'AGAIN' }) } } })
+const runaway = kinds<{}, { type: 'AGAIN' }>()({ on: { AGAIN: (_, { raise }) => { raise({ type: 'AGAIN' }) } } })
 /** Follows how many threads there are. */
 const watcher = kinds<{ data: { count: number } }, never>()({
   data: { count: 0 },
@@ -188,7 +188,7 @@ await run([
     deepStrictEqual(answered.sent.map((sent) => sent.kind).sort(), ['answer', 'broadcast', 'progress'])
     deepStrictEqual(answered.sent.find((sent) => sent.kind === 'answer'), { kind: 'answer', to: 'notes', name: 'WRITE', outcome: 'ok' })
     deepStrictEqual(answered.sent.find((sent) => sent.kind === 'broadcast'), { kind: 'broadcast', to: 'panel', name: 'NOTED' })
-    // The window's state sent itself what its work found: an event of its own.
+    // The window's state raised what its work found: an event of its own.
     ok(logs.window.some((step) => step.handled.some((one) => one.kind === 'event' && one.name === 'SENT' && one.own === true)))
   }],
   ['an answer that is a refusal is logged with its kind', async () => {

@@ -64,7 +64,7 @@ export interface ArmedEach<R, H extends string, E extends AnyEvent, N extends Ne
 }
 
 // @public
-export interface ArmedOne<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
+export interface ArmedSingle<R, H extends string, E extends AnyEvent, N extends Net, NeedsMs extends boolean = boolean> {
     // (undocumented)
     readonly _?: {
         r: R;
@@ -78,15 +78,15 @@ export interface ArmedOne<R, H extends string, E extends AnyEvent, N extends Net
     // (undocumented)
     readonly expired?: Function;
     // (undocumented)
-    readonly kind: 'one';
+    readonly kind: 'single';
     // (undocumented)
     readonly whenArmed?: 'restart' | 'ignore';
 }
 
 // @public
-export type ArmOne<R, H extends string, E extends AnyEvent, N extends Net> = {
-    (): ArmedOne<R, H, E, N, true>;
-    <O extends ArmRead<ArmExpired<R, H, E, N>>>(options: StrictArmOptions<O, ArmExpired<R, H, E, N>>): ArmedOne<R, H, E, N, ArmGivesNoDuration<O>>;
+export type ArmSingle<R, H extends string, E extends AnyEvent, N extends Net> = {
+    (): ArmedSingle<R, H, E, N, true>;
+    <O extends ArmRead<ArmExpired<R, H, E, N>>>(options: StrictArmOptions<O, ArmExpired<R, H, E, N>>): ArmedSingle<R, H, E, N, ArmGivesNoDuration<O>>;
 };
 
 // @public (undocumented)
@@ -191,7 +191,7 @@ export interface CalledMany<R, H extends string, E extends AnyEvent, N extends N
 }
 
 // @public
-export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Net, I = never> {
+export interface CalledSingle<R, H extends string, E extends AnyEvent, N extends Net, I = never> {
     // (undocumented)
     readonly _?: {
         r: R;
@@ -207,26 +207,26 @@ export interface CalledOne<R, H extends string, E extends AnyEvent, N extends Ne
     // (undocumented)
     readonly done: Function;
     // (undocumented)
-    readonly kind: 'one';
+    readonly kind: 'single';
     // (undocumented)
     readonly of: string;
     // (undocumented)
     readonly progress?: Function;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OneArgsOpt" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "UnkeyedArgsOpt" needs to be exported by the entry point index.d.ts
 //
 // @public
-export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+export type CallMany<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: UnkeyedArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
     done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void;
     progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void;
 }) => CalledMany<R, H, E, N, I>;
 
 // @public
-export type CallOne<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: OneArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
+export type CallSingle<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, I = never>(of: S, ask: Q, options: UnkeyedArgsOpt<DataAt<R, H>, AskOf<N, S, Q>['args'], NoInfer<I>> & {
     done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void;
     progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & InputScope<NoInfer<I>>) => Next<R, H> | void;
-}) => CalledOne<R, H, E, N, I>;
+}) => CalledSingle<R, H, E, N, I>;
 
 // @public
 export class Cancelled extends Error {
@@ -276,20 +276,20 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
     calls?: never;
 } : {
     calls: (calls: {
-        one: CallOne<R, H, E, N>;
+        single: CallSingle<R, H, E, N>;
         each: CallEach<R, H, E, N>;
         many: CallMany<R, H, E, N>;
     }) => {
-        [K in keyof CallsOf<S>]: CallKind<CallsOf<S>[K]> extends 'each' ? CalledEach<R, H, E, N, CallInput<CallsOf<S>[K]>> : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>> : CalledOne<R, H, E, N, CallInput<CallsOf<S>[K]>>;
+        [K in keyof CallsOf<S>]: CallKind<CallsOf<S>[K]> extends 'each' ? CalledEach<R, H, E, N, CallInput<CallsOf<S>[K]>> : CallKind<CallsOf<S>[K]> extends 'many' ? CalledMany<R, H, E, N, CallInput<CallsOf<S>[K]>> : CalledSingle<R, H, E, N, CallInput<CallsOf<S>[K]>>;
     };
 }) & ([keyof ArmsOf<S>] extends [never] ? {
     arms?: never;
 } : {
     arms: (arms: {
-        one: ArmOne<R, H, E, N>;
+        single: ArmSingle<R, H, E, N>;
         each: ArmEach<R, H, E, N>;
     }) => {
-        [K in keyof ArmsOf<S>]: ArmKind<ArmsOf<S>[K]> extends 'each' ? ArmedEach<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>> : ArmedOne<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>;
+        [K in keyof ArmsOf<S>]: ArmKind<ArmsOf<S>[K]> extends 'each' ? ArmedEach<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>> : ArmedSingle<R, H, E, N, ArmNeedsMs<ArmsOf<S>[K]>>;
     };
 }) & ([Names<S>] extends [never] ? {
     initial?: never;
@@ -553,11 +553,11 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
     disarm<K extends keyof ArmsAt<R, H> & string>(name: K, ...key: DisarmParams<ArmsAt<R, H>[K]>): void;
     readonly now: number;
     onExit(release: () => void): void;
+    raise(event: Read<E | InternalOf<R>>): void;
     read<V2>(of: Started<V2, never, Asks, any>): V2 | undefined;
     read<V2>(of: Handle<V2, never, Asks>): V2;
     // Warning: (ae-forgotten-export) The symbol "ReportsOf" needs to be exported by the entry point index.d.ts
     report(event: Read<ReportsOf<R>>): void;
-    send(event: Read<E | InternalOf<R>>): void;
     readonly signal: AbortSignal;
     sleep(ms: number): Promise<void>;
     readonly snapshot: Value<R>;
@@ -592,15 +592,15 @@ export type Shape = {
     starts?: Record<string, AnyState | Each<AnyState>>;
     reports?: AnyEvent;
     internal?: AnyEvent;
-    calls?: Record<string, 'one' | 'each' | 'many' | {
-        readonly one: unknown;
+    calls?: Record<string, 'single' | 'each' | 'many' | {
+        readonly single: unknown;
     } | {
         readonly each: unknown;
     } | {
         readonly many: unknown;
     }>;
-    arms?: Record<string, 'one' | 'each' | {
-        readonly one: 'at arm';
+    arms?: Record<string, 'single' | 'each' | {
+        readonly single: 'at arm';
     } | {
         readonly each: 'at arm';
     }>;
@@ -667,14 +667,14 @@ export interface System<N extends Net = Net> {
     [Symbol.dispose](): void;
     // (undocumented)
     ask<A extends Asks, Q extends keyof A & string>(of: Handle<unknown, never, A>, name: Q, args: Read<A[Q]['args']>, progress?: (updates: ReadonlyArray<ProgressOf<A[Q]>>) => void): Promise<OutcomeOf<A[Q]>>;
-    attach(peer: Port): () => void;
-    attach<K extends NonNullable<N['peers']> extends Record<string, {
+    attach(port: Port): () => void;
+    child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
+    idle(): boolean;
+    peer<K extends NonNullable<N['peers']> extends Record<string, {
         events: AnyEvent;
     }> ? keyof NonNullable<N['peers']> & string : never>(name: K, peer: TypedPeer<NonNullable<N['peers']> extends Record<string, {
         events: AnyEvent;
     }> ? NonNullable<N['peers']>[K]['events'] : never>): () => void;
-    child<C, K extends keyof C & string>(of: Handle<unknown, any, any, C>, name: K, ...key: C[K] extends Each<any> ? [key: string] : []): HandleOf<C[K]>;
-    idle(): boolean;
     readonly port: Port;
     // (undocumented)
     read<V>(of: Started<V, never, Asks, any>): V | undefined;

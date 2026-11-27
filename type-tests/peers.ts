@@ -25,8 +25,8 @@ void asSystem
 void connect(typedWin, typedSys)
 
 // Default system() stays 100% unchanged and accepts arbitrary peer names with callbacks or PeerPorts.
-untypedSys.attach('anything', (event) => { const raw: unknown = event; void raw })
-untypedSys.attach('anything', { tell: (_peer, event) => { const raw: unknown = event; void raw } })
+untypedSys.peer('anything', (event) => { const raw: unknown = event; void raw })
+untypedSys.peer('anything', { tell: (_peer, event) => { const raw: unknown = event; void raw } })
 
 state<{}, { type: 'GO' }>()({
   on: {
@@ -50,8 +50,8 @@ noPeers<{}, { type: 'GO' }>()({
   },
 })
 
-// Valid typed peer attachments compile and narrow event payloads as readonly.
-typedSys.attach('runHistory', (event) => {
+// Valid typed peers compile and narrow event payloads as readonly.
+typedSys.peer('runHistory', (event) => {
   if (event.type === 'STEP_RECORDED') {
     const detail: string = event.detail
     void detail
@@ -59,24 +59,24 @@ typedSys.attach('runHistory', (event) => {
     event.detail = 'mutated'
   }
 })
-typedSys.attach('audit', {
+typedSys.peer('audit', {
   tell: (_peer, event) => {
     const text: string = event.text
     void text
   },
 })
 
-// @ts-expect-error unknown peer name is rejected at attach time
-typedSys.attach('unknown', () => {})
+// @ts-expect-error unknown peer name is rejected where the peer is named
+typedSys.peer('unknown', () => {})
 // @ts-expect-error wrong event union for the named peer
-typedSys.attach('audit', (_event: { type: 'STEP_RECORDED'; id: string; detail: string }) => {})
+typedSys.peer('audit', (_event: { type: 'STEP_RECORDED'; id: string; detail: string }) => {})
 // @ts-expect-error Net with no peers rejects every peer name
-noPeersSys.attach('runHistory', () => {})
+noPeersSys.peer('runHistory', () => {})
 
 // Optional `peers?: ...` on a Net still resolves its peer names and event unions cleanly.
-optionalPeersSys.attach('audit', (event) => {
+optionalPeersSys.peer('audit', (event) => {
   const text: string = event.text
   void text
 })
 // @ts-expect-error optional peers still reject unknown peer names
-optionalPeersSys.attach('unknown', () => {})
+optionalPeersSys.peer('unknown', () => {})
