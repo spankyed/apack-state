@@ -395,6 +395,13 @@ export type Def<R, S, H extends string, E extends AnyEvent, A extends Asks, N ex
   internal?: On<R, H, InternalOf<R>, E, N>
   /** The asks it answers while it is the case. An ask goes to the innermost state that answers it. */
   answers?: Answering<R, H, E, A, N>
+  /**
+   * External push subscriptions held for as long as this state is the case (e.g. event emitters, watchers, DOM
+   * listeners). Runs synchronously on entry with a state-lifetime scope (so `send`/`tell`/`broadcast` stay live
+   * until the state exits) without blocking `sys.idle()`. Returning a cleanup function registers it with `onExit`
+   * automatically.
+   */
+  listen?: (scope: EventScope<R, H, E, N>) => (() => void) | void
 } & Work<R, H, E, N> & ([keyof DataOf<S>] extends [never] ? { data?: never } : {
   /** Its own data: each field's starting value, or `given` for one whoever enters it has to give. */
   data: { [K in keyof DataOf<S>]-?: DataOf<S>[K] | Given }

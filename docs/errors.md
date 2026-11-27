@@ -120,6 +120,18 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 |---|---|---|
 | `START: (_, { ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope&lt;Panel, "", PanelEvent, App>'. | asking is for `run` and for an ask's handler |
 
+## `listen` takes a state-lifetime `EventScope` (no `ask` or `sleep`) and returns cleanup or nothing; `stop(handle)` accepts any top-level handle and refuses child handles.
+
+`type-tests/listen-and-stop.ts`
+
+| What was written | What TypeScript says | Why |
+|---|---|---|
+| `sys.stop(hChild)` | TS2345: Argument of type 'Started&lt;{ readonly data: { readonly id: string; }; }, never, {}, {}>' is not assignable to parameter of type 'Handle&lt;unknown, never, Asks, any> &amp; { readonly _s… | child handles belong to their starter; change the starter's data to stop them |
+| `listen: ({ ask }) => { void ask },` | TS2339: Property 'ask' does not exist on type 'EventScope&lt;Shape, "", Event, Net>'. | asking is for `run` and for an ask's handler, not `listen` |
+| `listen: ({ sleep }) => { void sleep },` | TS2339: Property 'sleep' does not exist on type 'EventScope&lt;Shape, "", Event, Net>'. | sleeping is for `run` and for an ask's handler, not `listen` |
+| `listen: () => ({ at: 'b' }),` | TS2322: Type '() => { at: string; }' is not assignable to type '(scope: EventScope&lt;Shape, "", Event, Net>) => void \| (() => void)'. | `listen` returns a cleanup function or nothing, never a transition |
+| `async listen() {},` | TS2322: Type '() => Promise&lt;void>' is not assignable to type '(scope: EventScope&lt;Shape, "", Event, Net>) => void \| (() => void)'. | `listen` must be synchronous (a Promise is not a cleanup function) |
+
 ## The reads a state loads: what can be asked, and what it is asked from.
 
 `type-tests/loads.ts`
