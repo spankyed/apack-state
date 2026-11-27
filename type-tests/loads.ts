@@ -30,6 +30,8 @@ state<Reader, ReaderEvent>()({
     eachUnnamed: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: (id, { title }) => ({ query: `${id} ${title}` }), done: () => {} }),
     // @ts-expect-error one for each key that names no fields is given its key alone
     eachAlone: load('library', 'LOOKUP', { each: 'watched', args: (id, from) => ({ query: `${id} ${Object.keys(from).length}` }), done: () => {} }),
+    // @ts-expect-error one for each key of a field is not also read again from that same field
+    eachTwice: load('library', 'LOOKUP', { each: 'watched', from: ['watched'], args: (id) => ({ query: id }), done: () => {} }),
     // @ts-expect-error one for each key is given its key first, which is a string, and the fields it named after it
     eachKeyless: load('library', 'LOOKUP', { each: 'watched', from: ['again'], args: ({ again }) => ({ query: String(again) }), done: () => {} }),
     // @ts-expect-error one read from fields alone is not one of many, so how it ended has no key

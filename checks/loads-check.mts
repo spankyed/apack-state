@@ -2,7 +2,7 @@
 // the fields it reads, the field with one for each of its keys, or both, and which are asked follows from the data.
 //
 //   npx vitest run loads
-import { deepStrictEqual, ok, strictEqual } from 'node:assert'
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert'
 import { connect, rest, run, system } from './checks.mts'
 import { commit, git, type CommitEvent } from '../examples/commit.mts'
 import { explore, sample, type Schedule } from '@apackdev/orderings'
@@ -352,6 +352,44 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(defects.length, 3)
     ok(defects.some((line) => line.includes('what diffs#diff/b delivered changed a field diffs#diff/a is asked from, and diffs#diff/a is what led to diffs#diff/b being asked')), defects.join('\n'))
     ok(defects.some((line) => line.includes('diffs#diff/b delivered changed a field it is itself asked from')), defects.join('\n'))
+    // One that was refused has seen what it was refused for: another key coming reads that key, and neither of these.
+    send({ type: 'OPEN', paths: ['a', 'b', 'c'] })
+    await turns(8)
+    deepStrictEqual(did, ['read a@0', 'read b@0', 'gave up b@0', 'read b@1', 'read c@2'])
+    strictEqual(defects.length, 3)
+  }],
+  ['a key there is nothing to ask for is not read, the others are, and it is read once there is', async () => {
+    type FileAsks = { READ: { args: { path: string; repo: string }; answer: string } }
+    const fileState = forNet<{ systems: { files: { events: never; asks: FileAsks } }; surfaces: {}; views: {} }>()
+    const asked: string[] = []
+    const sys = system({ side: 'backend' })
+    sys.start('files', fileState<{}, never, FileAsks>()({ answers: { READ: ({ path, repo }) => { asked.push(`${repo}:${path}`); return path } } }))
+    const it = sys.start('reader', fileState<{ data: { open: Record<string, true>; repo: string | null } }, { type: 'REPO'; repo: string | null }>()({
+      data: { open: { 'a.ts': true, 'skip.ts': true }, repo: null },
+      on: { REPO: ({ repo }) => ({ data: { repo } }) },
+      loads: (load) => ({
+        // With no repository there is nothing to read, and one file is never read.
+        file: load('files', 'READ', { each: 'open', from: ['repo'], args: (path, { repo }) => (repo && path !== 'skip.ts' ? { path, repo } : null), done: () => {} }),
+      }),
+    }))
+    await rest()
+    deepStrictEqual(asked, [])
+    sys.send(it, { type: 'REPO', repo: 'one' })
+    await rest()
+    deepStrictEqual(asked, ['one:a.ts'])
+    sys.send(it, { type: 'REPO', repo: null })
+    sys.send(it, { type: 'REPO', repo: 'two' })
+    await rest()
+    deepStrictEqual(asked, ['one:a.ts', 'two:a.ts'])
+    sys.stop()
+  }],
+  ['one for each key of a field that is also asked again from that field is refused where it starts', async () => {
+    const sys = system({ side: 'backend' })
+    const twice = { def: { data: { open: {} }, loads: (load: Function) => ({ diff: load('git', 'DIFF', { each: 'open', from: ['open'], done: () => {} }) }) } }
+    throws(() => sys.start('twice', twice as never), { message: 'twice loads diff for each key of open and again from open: name it once' })
+    const inner = { def: { data: { open: {} }, initial: 'a', states: { a: { follows: (follow: Function) => ({ price: follow('shop', 'price', { each: 'open', from: ['open'], updated: () => {} }) }) } } } }
+    throws(() => sys.start('inner', inner as never), { message: 'inner follows price at a for each key of open and again from open: name it once' })
+    sys.stop()
   }],
   ['loads may omit args when the ask accepts {}, for both from and each', async () => {
     type PingAsks = { PING: { args: {}; answer: string } }

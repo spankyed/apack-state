@@ -126,7 +126,7 @@ interface Active {
  * One view being followed or one ask loaded: the values of the fields it named when it was asked, how to stop it,
  * and which deliveries led to it being asked.
  */
-interface Live { readonly seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
+interface Live { seen: readonly unknown[]; readonly because: ReadonlySet<string>; stop: () => void }
 interface Running {
   /** Every imperative ask it can call, whichever of its states declares it, and which kind each is. */
   calls: Map<string, 'one' | 'each' | 'many'>
@@ -973,6 +973,8 @@ export function system<N extends Net = Net>(host: {
           defect(hearing.id === here
             ? `what ${here} delivered changed a field it is itself asked from. It goes on as it was`
             : `what ${hearing.id} delivered changed a field ${here} is asked from, and ${here} is what led to ${hearing.id} being asked. ${here} goes on as it was`, top.ref)
+          // What it was refused for is what it has now seen: it is not asked again for these values at some later look.
+          now.seen = seen
           return
         }
         now?.stop()
@@ -1170,6 +1172,22 @@ export function system<N extends Net = Net>(host: {
       }
       return undefined
     }
+    // One for each key of a field is not also asked again from that field: each key there would give up and ask again
+    // whenever another came or went.
+    const twice = (node: LooseDef, path: string): string | undefined => {
+      for (const [kind, table] of [['follows', declaredBy(node).follows], ['loads', declaredBy(node).loads]] as const) {
+        for (const [name, entry] of Object.entries(table)) {
+          if (entry.each !== undefined && entry.from?.includes(entry.each)) return `${kind} ${name}${path ? ` at ${path}` : ''} for each key of ${entry.each} and again from ${entry.each}: name it once`
+        }
+      }
+      for (const [name, inner] of Object.entries(node.states ?? {})) {
+        const problem = twice(inner, path ? `${path}.${name}` : name)
+        if (problem) return problem
+      }
+      return undefined
+    }
+    const named = twice(def, '')
+    if (named) return named
     const conflict = conflicts(def)
     if (conflict) return conflict
     for (let cur = def, path = ''; cur.initial !== undefined; ) {

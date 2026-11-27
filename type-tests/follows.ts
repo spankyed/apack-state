@@ -39,9 +39,10 @@ state<Shop, ShopEvent>()({
     eachUnnamed: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id, { note }) => ({ id: id + note }), updated: () => {} }),
     // @ts-expect-error one for each key that names no fields is given its key alone
     eachAlone: follow('shop', 'price', { each: 'watching', args: (id, from) => ({ id: id + Object.keys(from).length }), updated: () => {} }),
-    // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key, whatever else it names
+    // @ts-expect-error one for each key of a field is not also followed again from that same field
+    eachTwice: follow('shop', 'price', { each: 'watching', from: ['watching'], args: (id) => ({ id }), updated: () => {} }),
+    // A key there is nothing to follow for is skipped as a single view is: `args` returns nothing.
     skippableBoth: follow('shop', 'price', { each: 'watching', from: ['currency'], args: (id) => (id ? { id } : null), updated: () => {} }),
-    // @ts-expect-error an `each` view is keyed by a field, so `args` cannot return null to skip a key
     skippableEach: follow('shop', 'price', { each: 'watching', args: (id) => (id ? { id } : null), updated: () => {} }),
   }),
   states: { browsing: {}, away: {} },

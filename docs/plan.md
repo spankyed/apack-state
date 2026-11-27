@@ -239,7 +239,11 @@ points at.
     changes, the one before for that key stopped. A key that appears or goes starts or stops its own alone, whatever
     `from` did in the same step: one that appears as a field changes is asked once, and one that goes is not asked.
     `args` is given the key and then the fields named, `(path, { statusRev }) => …`, and the key alone where it names
-    none. What a state starts is given
+    none. It may return nothing for a key, as it may for one alone, and that key is then not read until
+    there is something to ask for. The field its keys come from is not among the fields it names: each key would
+    give up and ask again whenever another came or went, so that is refused where the definition is written and
+    where it starts. One refused for leading round to itself has seen the values it was refused for, and is not
+    asked again for them at some later look. What a state starts is given
     its data once, so it has no `from`.
 
     ```ts

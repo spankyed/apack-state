@@ -296,7 +296,7 @@ export interface Failure {
 //
 // @public
 export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <F extends keyof N['views'] & string, V extends keyof N['views'][F] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
-    from?: readonly K[];
+    from?: readonly Exclude<K, Many>[];
     each?: Many;
     updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
 }) => Followed<R, H, E, N>;
@@ -378,7 +378,7 @@ export interface Lane {
 
 // @public
 export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string, K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined>(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
-    from?: readonly K[];
+    from?: readonly Exclude<K, Many>[];
     each?: Many;
     done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;
     progress?: (updates: ReadonlyArray<ProgressOf<AskOf<N, S, Q>>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void;

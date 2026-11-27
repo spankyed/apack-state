@@ -544,8 +544,8 @@ type Named<R, H extends string, K extends string> = Read<Pick<DataAt<R, H>, K & 
 type Keyed<Many> = [Many] extends [string] ? { readonly key: string } : {}
 type StandingArgsOpt<R, H extends string, K extends string, Many, A> =
   {} extends Read<A>
-    ? { args?: (...given: Given_<R, H, K, Many>) => Read<A> | ([Many] extends [string] ? never : null | undefined | false) }
-    : { args: (...given: Given_<R, H, K, Many>) => Read<A> | ([Many] extends [string] ? never : null | undefined | false) }
+    ? { args?: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
+    : { args: (...given: Given_<R, H, K, Many>) => Read<A> | null | undefined | false }
 
 /** A view a state follows, as `follow` makes it. */
 export interface Followed<R, H extends string, E extends AnyEvent, N extends Net> {
@@ -566,8 +566,8 @@ export type Follow<R, H extends string, E extends AnyEvent, N extends Net> = <
   F extends keyof N['views'] & string, V extends keyof N['views'][F] & string,
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(feature: F, view: V, options: StandingArgsOpt<R, H, K, Many, N['views'][F][V]['args']> & {
-  /** The fields one reads. It is followed again when one of them changes: every key's, where there is `each`. */
-  from?: readonly K[]
+  /** The fields one reads. It is followed again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
+  from?: readonly Exclude<K, Many>[]
   /** A field with one to follow for each of its keys. */
   each?: Many
   updated: (update: ViewUpdate<N['views'][F][V]['result']>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
@@ -668,8 +668,8 @@ export type Load<R, H extends string, E extends AnyEvent, N extends Net> = <
   S extends SystemsOf<N>, Q extends keyof N['systems'][S]['asks'] & string,
   K extends keyof DataAt<R, H> & string = never, Many extends KeysField<DataAt<R, H>> | undefined = undefined,
 >(of: S, ask: Q, options: StandingArgsOpt<R, H, K, Many, AskOf<N, S, Q>['args']> & {
-  /** The fields one reads. It is asked again when one of them changes: every key's, where there is `each`. */
-  from?: readonly K[]
+  /** The fields one reads. It is asked again when one of them changes: every key's, where there is `each`, whose own field is not among them. */
+  from?: readonly Exclude<K, Many>[]
   /** A field with one ask for each of its keys. */
   each?: Many
   done: (outcome: OutcomeOf<AskOf<N, S, Q>>, scope: EventScope<R, H, E, N> & Keyed<Many>) => Next<R, H> | void
