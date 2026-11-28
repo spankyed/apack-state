@@ -1228,7 +1228,7 @@ const moves: Array<[string, () => void]> = [
       },
     })
     const aliasedSaw: boolean[] = []
-    const aliased = state<{ data: { a: { x: { n: number } }; b: unknown } }, { type: 'GO' } | { type: 'CHECK' }>()({
+    const aliased = state<{ data: { a: { x: { n: number } }; b: unknown } }, { type: 'GO' } | { type: 'SHALLOW'; box: unknown } | { type: 'CHECK' }>()({
       data: { a: { x: { n: 1 } }, b: null },
       on: {
         GO: () => ({
@@ -1239,6 +1239,7 @@ const moves: Array<[string, () => void]> = [
             void d.a.x.n
           },
         }),
+        SHALLOW: ({ box }) => ({ data: (d) => { d.b = box } }),
         CHECK: (_, { data }) => {
           aliasedSaw.push(Object.isFrozen(data), Object.isFrozen(data.a), Object.isFrozen(data.a.x))
         },
@@ -1255,12 +1256,17 @@ const moves: Array<[string, () => void]> = [
     ok(checksSaw.length === 8 && checksSaw.every(Boolean), String(checksSaw))
     const ah = sys.start('aliased', aliased)
     sys.send(ah, { type: 'GO' })
-    // Observe committed state directly inside a handler before sys.read() (which calls valueOf/frozen).
+    // Observe committed state directly inside a handler before sys.read() (which calls valueOf/freeze).
     sys.send(ah, { type: 'CHECK' })
     ok(aliasedSaw.length === 3 && aliasedSaw.every(Boolean), String(aliasedSaw))
     const snap = sys.read(ah)
     ok(Object.isFrozen(snap.data) && Object.isFrozen(snap.data.a) && Object.isFrozen(snap.data.a.x))
     throws(() => { (snap.data.a.x as { n: number }).n = 999 }, TypeError)
+    // A shallowly-frozen external object assigned whole still has its nested plain values frozen.
+    const shallowInner = { k: 1 }
+    sys.send(ah, { type: 'SHALLOW', box: Object.freeze({ inner: shallowInner }) })
+    ok(Object.isFrozen(shallowInner))
+    throws(() => { shallowInner.k = 2 }, TypeError)
     sys.stop()
   }],
 ]

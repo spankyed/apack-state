@@ -30,6 +30,33 @@ const isPlain = (value: unknown): value is object => {
 }
 
 /**
+ * Plain objects and arrays this package has frozen all the way down. Trusting only this set (rather than
+ * `Object.isFrozen`) ensures a shallowly-frozen object handed in from outside still has its nested plain values frozen.
+ */
+const deeplyFrozen = new WeakSet<object>()
+
+const freezeInner = (current: unknown, copies?: Map<object, Set<string>>): void => {
+  if (!isPlain(current) || deeplyFrozen.has(current)) return
+  const dirty = copies?.get(current)
+  deeplyFrozen.add(current)
+  Object.freeze(current)
+  if (dirty) {
+    for (const key of dirty) {
+      if (Object.hasOwn(current, key)) freezeInner((current as Record<string, unknown>)[key], copies)
+    }
+  } else {
+    for (const inner of Array.isArray(current) ? current : Object.values(current)) freezeInner(inner, copies)
+  }
+}
+
+/**
+ * Freezes a plain object or array all the way down, stopping at anything already frozen by this package and leaving
+ * what is not plain data (a class instance, a component, a map) alone.
+ * @internal
+ */
+export const freeze = <T,>(value: T): T => { freezeInner(value); return value }
+
+/**
  * `fixed` says the outermost object's keys are not the edit's to change: its values can be edited and replaced, and
  * a key can be neither added nor removed. The write that tries is the one that throws, so the error is on its line.
  * When `freeze` is true (and `base` is already deeply frozen), only newly assigned plain values and copied containers
@@ -190,7 +217,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     })
   }
 
-  const draft = draftOf(base, undefined, [], Object.isFrozen(base))
+  const draft = draftOf(base, undefined, [], deeplyFrozen.has(base))
   let returned: unknown
   try { returned = edit(draft as T) } finally { open = false }
   // Both would otherwise do nothing and say nothing.
@@ -201,21 +228,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   }
   if (returned !== undefined) throw new Error('An edit changes its draft and returns nothing. To replace a field, give the field')
   const value = settle((draft as { [NODE]: Node })[NODE]) as T
-  if (copies) {
-    const freezeTree = (current: unknown): void => {
-      if (!isPlain(current) || Object.isFrozen(current)) return
-      const dirty = copies.get(current)
-      Object.freeze(current)
-      if (dirty) {
-        for (const key of dirty) {
-          if (Object.hasOwn(current, key)) freezeTree((current as Record<string, unknown>)[key])
-        }
-      } else {
-        for (const inner of Array.isArray(current) ? current : Object.values(current)) freezeTree(inner)
-      }
-    }
-    freezeTree(value)
-  }
+  if (copies) freezeInner(value, copies)
   return {
     value,
     touched: options.topLevel ? [...touchedTop].map((field) => [field]) : [...touched.values()],
