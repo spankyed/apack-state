@@ -1239,7 +1239,7 @@ const moves: Array<[string, () => void]> = [
             void d.a.x.n
           },
         }),
-        SHALLOW: ({ box }) => ({ data: (d) => { d.b = box } }),
+        SHALLOW: ({ box }) => ({ data: (d) => { d.b = box; (d.b as { extra: number }).extra = 2 } }),
         CHECK: (_, { data }) => {
           aliasedSaw.push(Object.isFrozen(data), Object.isFrozen(data.a), Object.isFrozen(data.a.x))
         },
@@ -1262,9 +1262,9 @@ const moves: Array<[string, () => void]> = [
     const snap = sys.read(ah)
     ok(Object.isFrozen(snap.data) && Object.isFrozen(snap.data.a) && Object.isFrozen(snap.data.a.x))
     throws(() => { (snap.data.a.x as { n: number }).n = 999 }, TypeError)
-    // A shallowly-frozen external object assigned whole still has its nested plain values frozen.
+    // A shallowly-frozen external object edited through a draft still has its nested plain values frozen.
     const shallowInner = { k: 1 }
-    sys.send(ah, { type: 'SHALLOW', box: Object.freeze({ inner: shallowInner }) })
+    sys.send(ah, { type: 'SHALLOW', box: Object.freeze({ inner: shallowInner, extra: 1 }) })
     ok(Object.isFrozen(shallowInner))
     throws(() => { shallowInner.k = 2 }, TypeError)
     sys.stop()

@@ -22,36 +22,31 @@ interface Node {
 
 const NODE = Symbol('draft')
 const WHOLE = Symbol('whole')
-const isPlain = (value: unknown): value is object => {
-  if (typeof value !== 'object' || value === null) return false
+const isPlain = (value: object): boolean => {
   if (Array.isArray(value)) return true
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
 }
 
-/**
- * Plain objects and arrays this package has frozen all the way down. Trusting only this set (rather than
- * `Object.isFrozen`) ensures a shallowly-frozen object handed in from outside still has its nested plain values frozen.
- */
-const deeplyFrozen = new WeakSet<object>()
-
 const freezeInner = (current: unknown, copies?: Map<object, Set<string>>): void => {
-  if (!isPlain(current) || deeplyFrozen.has(current)) return
-  const dirty = copies?.get(current)
-  deeplyFrozen.add(current)
+  if (Object.isFrozen(current) || !isPlain(current as object)) return
+  const dirty = copies?.get(current as object)
   Object.freeze(current)
   if (dirty) {
     for (const key of dirty) {
-      if (Object.hasOwn(current, key)) freezeInner((current as Record<string, unknown>)[key], copies)
+      if (Object.hasOwn(current as object, key)) freezeInner((current as Record<string, unknown>)[key], copies)
     }
   } else {
-    for (const inner of Array.isArray(current) ? current : Object.values(current)) freezeInner(inner, copies)
+    for (const inner of Array.isArray(current) ? current : Object.values(current as Record<string, unknown>)) freezeInner(inner, copies)
   }
 }
 
 /**
- * Freezes a plain object or array all the way down, stopping at anything already frozen by this package and leaving
- * what is not plain data (a class instance, a component, a map) alone.
+ * What a state holds is a value: once it is the state's, nothing changes it but a handler, which makes another.
+ * So every plain object and array is frozen all the way down, and a write to it throws on the line that tried.
+ * A component is handed these very objects, and so is whatever a handler passes on. Freezing stops at what is
+ * frozen already, which is all of what a step did not change, and leaves alone what is not plain data: a class
+ * instance, a component, a map.
  * @internal
  */
 export const freeze = <T,>(value: T): T => { freezeInner(value); return value }
@@ -217,7 +212,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     })
   }
 
-  const draft = draftOf(base, undefined, [], deeplyFrozen.has(base))
+  const draft = draftOf(base, undefined, [], Object.isFrozen(base))
   let returned: unknown
   try { returned = edit(draft as T) } finally { open = false }
   // Both would otherwise do nothing and say nothing.

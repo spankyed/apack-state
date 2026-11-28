@@ -837,7 +837,7 @@ export function system<N extends Net = Net>(host: {
     for (const release of active.releases.splice(0).reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
-    active.top.data = freeze(rest)
+    active.top.data = Object.freeze(rest)
     if (active.around) active.around.inside = undefined
   }
 
@@ -1216,7 +1216,7 @@ export function system<N extends Net = Net>(host: {
     survey(def)
     restarted.add(ref)
     mark(ref)
-    const top: Running = { ref, data: freeze({}), root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
+    const top: Running = { ref, data: Object.freeze({}), root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
   }
