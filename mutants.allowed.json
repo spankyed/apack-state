@@ -75,7 +75,7 @@
     "why": "follow writes only what differs, so running it on a step where armed timers did not change writes nothing; and a state either has armed on every value or on none, so into.armed and latest.armed are there together or not at all"
   },
   {
-    "key": "src/mirror.ts | ArrayDeclaration | for (const field of fields[ref] ?? []) { | [\"Stryker was here\"]",
+    "key": "src/mirror.ts | ArrayDeclaration | for (const field of Object.hasOwn(fields, ref) ? fields[ref]! : []) { | [\"Stryker was here\"]",
     "original": "[]",
     "why": "With no fields replaced, the loop is over a field that is not in the data, so it deletes a key the mirror does not have, which writes nothing"
   },

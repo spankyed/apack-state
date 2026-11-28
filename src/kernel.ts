@@ -20,7 +20,7 @@
 // it depends on. Which of them are live follows from the data, and is looked at again only when one of those changes.
 // Those are standing: while the data says so, they go on. An imperative call is not, and is fired by saying so.
 
-import { freeze, produce, put } from './draft.ts'
+import { freeze, produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
@@ -453,7 +453,7 @@ export function system<N extends Net = Net>(host: {
     const value: Plain = at ? { at, data } : { data }
     if (top.calls.size) {
       // Which of the imperative asks it declares are currently in flight, in the active states.
-      const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? {} : kind === 'many' ? 0 : false]))
+      const pending: Plain = Object.fromEntries([...top.calls].map(([name, kind]) => [name, kind === 'each' ? Object.create(null) : kind === 'many' ? 0 : false]))
       for (let active: Active | undefined = top.root; active; active = active.inside) {
         for (const id of active.pending.keys()) {
           const cut = id.indexOf('/')
@@ -461,7 +461,7 @@ export function system<N extends Net = Net>(host: {
           else {
             const name = id.slice(0, cut)
             if (top.calls.get(name) === 'many') pending[name] = (pending[name] as number) + 1
-            else put(pending[name] as Plain, id.slice(cut + 1), true)
+            else (pending[name] as Plain)[id.slice(cut + 1)] = true
           }
         }
       }
@@ -469,12 +469,12 @@ export function system<N extends Net = Net>(host: {
     }
     if (top.arms.size) {
       // Which of the imperative timers it declares are currently armed, in the active states.
-      const armed: Plain = Object.fromEntries([...top.arms].map(([name, kind]) => [name, kind === 'each' ? {} : false]))
+      const armed: Plain = Object.fromEntries([...top.arms].map(([name, kind]) => [name, kind === 'each' ? Object.create(null) : false]))
       for (let active: Active | undefined = top.root; active; active = active.inside) {
         for (const id of active.armed.keys()) {
           const cut = id.indexOf('/')
           if (cut === -1) armed[id] = true
-          else put(armed[id.slice(0, cut)] as Plain, id.slice(cut + 1), true)
+          else (armed[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true
         }
       }
       value.armed = freeze(armed)
@@ -1667,13 +1667,13 @@ export function system<N extends Net = Net>(host: {
       }
       restarted.clear()
       const which = Object.fromEntries([...fields].map(([ref, touched]) => [ref, [...touched]]))
-      fields.clear()
       const where = Object.fromEntries(places)
-      places.clear()
       if (told) told.changed = Object.fromEntries(refs.map((ref) => [ref, {
-        fields: which[ref] ?? [], moved: where[ref]?.moved ?? false, pending: where[ref]?.pending ?? false, armed: where[ref]?.armed ?? false,
+        fields: fields.has(ref) ? which[ref]! : [], moved: places.get(ref)?.moved ?? false, pending: places.get(ref)?.pending ?? false, armed: places.get(ref)?.armed ?? false,
         at: (committed.get(ref) as { at?: string } | undefined)?.at ?? '',
       }]))
+      fields.clear()
+      places.clear()
       leaving.push(() => { for (const listener of [...listeners]) safely('a subscriber', () => listener(refs, which, where)) })
     }
     const now = leaving.splice(0)

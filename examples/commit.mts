@@ -247,9 +247,9 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
   say('two files are staged at once')
   send({ type: 'commit.STAGE_FILE', path: 'a.ts' })
   send({ type: 'commit.STAGE_FILE', path: 'b.ts' })
-  holds('both are being staged, which is read beside the data', pending().stage, { 'a.ts': true, 'b.ts': true })
+  holds('both are being staged, which is read beside the data', { ...pending().stage }, { 'a.ts': true, 'b.ts': true })
   await turns(30)
-  holds('neither is being staged any longer', pending().stage, {})
+  holds('neither is being staged any longer', { ...pending().stage }, {})
   holds('and the status was read again, because the repository changed', now().gitStatus, { staged: ['a.ts', 'b.ts'], unstaged: ['c.ts'], ahead: 2 })
 
   say('a file is selected, and another before the first one\'s diff is read')
@@ -270,7 +270,7 @@ if (globalThis.process?.argv?.[1]?.endsWith('commit.mts')) {
   say('a file that is not there is staged: the refusal is shown, and names the file')
   send({ type: 'commit.STAGE_FILE', path: 'z.ts' });                               await turns(20)
   holds('the error names it', now().gitError, 'Could not stage z.ts: z.ts has no unstaged changes')
-  holds('and nothing is left being staged', pending().stage, {})
+  holds('and nothing is left being staged', { ...pending().stage }, {})
   send({ type: 'commit.DISMISS_ERROR' })
 
   say('a push, and a second while it is being made')

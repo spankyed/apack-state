@@ -75,9 +75,9 @@ export function mirrors(sys: System): Mirrors {
     // Shallow on purpose: a field's value is the state's own object, which is never written to, so there is nothing
     // inside it to track.
     const data = shallowReactive<Record<string, unknown>>({ ...now.data })
-    const pending = now.pending === undefined ? undefined : reactive<Pending>({})
+    const pending = now.pending === undefined ? undefined : reactive<Pending>(Object.create(null))
     if (pending) follow(pending, now.pending!)
-    const armed = now.armed === undefined ? undefined : reactive<Armed>({})
+    const armed = now.armed === undefined ? undefined : reactive<Armed>(Object.create(null))
     if (armed) follow(armed, now.armed!)
     const whole = shallowReactive({
       at: now.at,
@@ -101,7 +101,7 @@ export function mirrors(sys: System): Mirrors {
       if (changes[ref]?.pending && into.pending && latest.pending) follow(into.pending, latest.pending)
       if (changes[ref]?.armed && into.armed && latest.armed) follow(into.armed, latest.armed)
       // A field the state replaced is written, and one it no longer has, having left the state that held it, goes.
-      for (const field of fields[ref] ?? []) {
+      for (const field of Object.hasOwn(fields, ref) ? fields[ref]! : []) {
         if (Object.hasOwn(latest.data, field)) into.data[field] = latest.data[field]; else delete into.data[field]
       }
     }
