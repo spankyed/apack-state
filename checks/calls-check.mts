@@ -13,6 +13,7 @@ import { forNet, type PortOutcome, type StepLog } from '../src/index.ts'
 import { nextTurn } from '../src/turn.ts'
 
 const turns = (count: number): Promise<void> => new Promise((resolve) => { let left = count; const tick = (): void => { if (left-- <= 0) resolve(); else nextTurn(tick) }; tick() })
+const dict = (entries: Record<string, true> = {}): Record<string, true> => Object.assign(Object.create(null), entries)
 
 type WorkerAsks = {
   /** Runs a job. The one called `flaky` is refused the first time it is run. */
@@ -126,9 +127,9 @@ const checks: Array<[string, () => Promise<void>]> = [
     const { send, now, pending, did } = wired()
     send({ type: 'ADD', id: 'a' })
     send({ type: 'ADD', id: 'b' })
-    deepStrictEqual(pending(), { run: { a: true, b: true }, save: false })
+    deepStrictEqual(pending(), { run: dict({ a: true, b: true }), save: false })
     await rest()
-    deepStrictEqual(pending(), { run: {}, save: false })
+    deepStrictEqual(pending(), { run: dict(), save: false })
     deepStrictEqual({ done: [...now().done].sort(), did }, { done: ['a done', 'b done'], did: ['run a', 'run b'] })
   }],
   ['a reader of whether one is pending runs for that one, and not for another or for the data', async () => {
@@ -185,7 +186,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'ADD', id: 'a' })
     await turns(1)
     send({ type: 'DROP', id: 'a' })
-    deepStrictEqual(pending().run, {})
+    deepStrictEqual(pending().run, dict())
     await rest()
     deepStrictEqual(did, ['run a', 'gave up a'])
     deepStrictEqual({ done: now().done, problem: now().problem }, { done: [], problem: null })
@@ -195,7 +196,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'ADD', id: 'flaky' })
     await rest()
     deepStrictEqual(did.filter((line) => line.startsWith('run')), ['run flaky', 'run flaky'])
-    deepStrictEqual({ done: now().done, pending: pending().run, problem: now().problem }, { done: ['flaky done'], pending: {}, problem: null })
+    deepStrictEqual({ done: now().done, pending: pending().run, problem: now().problem }, { done: ['flaky done'], pending: dict(), problem: null })
   }],
   ['what one says before it finishes is delivered to progress, as a list', async () => {
     const { send, now } = wired()
@@ -225,7 +226,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     await turns(1)
     steps.length = 0
     send({ type: 'TURN', on: false })
-    deepStrictEqual(pending(), { run: {}, save: false })
+    deepStrictEqual(pending(), { run: dict(), save: false })
     // Whoever reads what is pending is told that it changed.
     deepStrictEqual(steps.map((step) => step.pending), [true])
     send({ type: 'TURN', on: true })
@@ -238,7 +239,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     send({ type: 'BREAK', id: 'a' })
     await rest()
     strictEqual(defects.length, 1)
-    deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: {}, save: false } })
+    deepStrictEqual({ did, done: now().done, pending: pending() }, { did: [], done: [], pending: { run: dict(), save: false } })
   }],
   ['typed calls (single, each, many): frozen scope.input, optional args, unkeyed concurrent pending count, cancel-all, mirror reactivity, and StepLog privacy', async () => {
     type SvcAsks = {
@@ -403,8 +404,8 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('panel', panel)
     const held = mirror(sys, h)
 
-    // Initial pending values: boolean for single, {} for each, 0 for many.
-    deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: {}, commit: false, hunk: {}, upload: 0, uploadMapped: 0 })
+    // Initial pending values: boolean for single, null-proto dict for each, 0 for many.
+    deepStrictEqual(sys.read(h).pending, { ping: false, pingMany: 0, bareEach: dict(), commit: false, hunk: dict(), upload: 0, uploadMapped: 0 })
 
     // Reactive mirror tracks `pending.upload` (number) independently of `pending.commit` (boolean).
     const seen = { upload: 0, commit: 0 }
@@ -419,13 +420,13 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.send(h, { type: 'BARE_EACH', key: 'k.txt' })
     strictEqual(sys.read(h).pending.ping, true)
     strictEqual(sys.read(h).pending.pingMany, 2)
-    deepStrictEqual(sys.read(h).pending.bareEach, { 'k.txt': true })
+    deepStrictEqual(sys.read(h).pending.bareEach, dict({ 'k.txt': true }))
     await turns(2)
     gated.get('upload:v1/k.txt')!()
     await rest()
     strictEqual(sys.read(h).pending.ping, false)
     strictEqual(sys.read(h).pending.pingMany, 0)
-    deepStrictEqual(sys.read(h).pending.bareEach, {})
+    deepStrictEqual(sys.read(h).pending.bareEach, dict())
     deepStrictEqual(sys.read(h).data.log.filter((l) => l.startsWith('ping')).sort(), ['ping:pong', 'pingMany:pong', 'pingMany:pong'])
     ok(sys.read(h).data.log.includes('bare:k.txt:uploaded:v1/k.txt'))
 
@@ -446,11 +447,11 @@ const checks: Array<[string, () => Promise<void>]> = [
     // 3. Typed `each` with key + input
     sys.send(h, { type: 'HUNK', path: 'a.ts', hunk: 2 })
     sys.send(h, { type: 'HUNK', path: 'a.ts', hunk: 99 }) // deduped for key 'a.ts'
-    deepStrictEqual(sys.read(h).pending.hunk, { 'a.ts': true })
+    deepStrictEqual(sys.read(h).pending.hunk, dict({ 'a.ts': true }))
     await turns(2)
     gated.get('hunk:a.ts#2')!()
     await rest()
-    deepStrictEqual(sys.read(h).pending.hunk, {})
+    deepStrictEqual(sys.read(h).pending.hunk, dict())
     ok(sys.read(h).data.log.includes('hunk-p:a.ts#2:staging-2'))
     ok(sys.read(h).data.log.includes('hunk-d:a.ts#2:staged:a.ts#2'))
 
@@ -652,7 +653,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'm cannot call run without a string key', ref: 'm' },
       { message: 'm cannot call run without a string key', ref: 'm' },
     ])
-    deepStrictEqual(guarded.read(mh).pending, { run: {} })
+    deepStrictEqual(guarded.read(mh).pending, { run: dict() })
     deepStrictEqual(did, [])
     guarded.stop()
     sys.stop()
@@ -744,7 +745,7 @@ const called = async (it: ReturnType<typeof atCrew>): Promise<void> => {
   it.frame()
   asked[2]!.ends('the first c')
   await turns(1)
-  deepStrictEqual(it.pending(), { run: { c: true } })
+  deepStrictEqual(it.pending(), { run: dict({ c: true }) })
   asked[3]!.ends('c')
   await turns(1)
   // In one read from the backend: d ends, and e says it runs instead of d. What e said is handed over first, and
@@ -755,7 +756,7 @@ const called = async (it: ReturnType<typeof atCrew>): Promise<void> => {
   asked[5]!.says('instead of d')
   await turns(1)
   it.frame()
-  deepStrictEqual(it.pending(), { run: { e: true } })
+  deepStrictEqual(it.pending(), { run: dict({ e: true }) })
   // The state is left, and behind that in one read comes what e said, and how it ended.
   let once = true
   const stop = it.sys.subscribe(() => {
@@ -797,7 +798,7 @@ const staleChecks: Array<[string, () => Promise<void>]> = [
     deepStrictEqual(it.steps(), CALLED_STEPS)
     deepStrictEqual(it.numbers(), CALLED_STEPS.map((_, at) => at + 1))
     deepStrictEqual(it.now(), { note: 'leaving', done: ['a: a', 'c: c', 'f: f'], heard: ['a: half', 'instead of d', 'f: half'] })
-    deepStrictEqual(it.pending(), { run: {} })
+    deepStrictEqual(it.pending(), { run: dict() })
     // What is pending changed in each step that called, cancelled or took how one ended, and in the one that left
     // the state while e was pending: in no other.
     deepStrictEqual(it.changed(), CALLED_STEPS.map((step, at) => /call |cancel |done /.test(step) || at === CALLED_STEPS.indexOf('event TURN')))
@@ -809,7 +810,7 @@ const staleChecks: Array<[string, () => Promise<void>]> = [
     const it = atCrew({ limit: CALLED_STEPS.length })
     await called(it)
     deepStrictEqual(it.steps(), CALLED_STEPS)
-    deepStrictEqual({ done: it.now().done, pending: it.pending(), defects: it.defects }, { done: ['a: a', 'c: c', 'f: f'], pending: { run: {} }, defects: [] })
+    deepStrictEqual({ done: it.now().done, pending: it.pending(), defects: it.defects }, { done: ['a: a', 'c: c', 'f: f'], pending: { run: dict() }, defects: [] })
     // And it was the limit: the next thing is not taken.
     it.send({ type: 'NOTE', note: 'one too many' })
     strictEqual(it.now().note, 'leaving')
@@ -832,7 +833,7 @@ const staging = (schedule: Schedule): (() => void) => {
   schedule.does('the user', ['stages a', () => it.send({ type: 'commit.STAGE_FILE', path: 'a.ts' })], ['stages b', () => it.send({ type: 'commit.STAGE_FILE', path: 'b.ts' })])
   return () => {
     deepStrictEqual([...it.held().staged].sort(), ['a.ts', 'b.ts'])
-    deepStrictEqual({ pending: it.pending(), error: it.now().gitError }, { pending: { stage: {}, unstage: {}, revert: 0, push: false }, error: null })
+    deepStrictEqual({ pending: it.pending(), error: it.now().gitError }, { pending: { stage: dict(), unstage: dict(), revert: 0, push: false }, error: null })
     // What is shown is what the repository holds: the last read was made after the last write.
     deepStrictEqual({ ...it.now().gitStatus, staged: [...it.now().gitStatus!.staged].sort() }, { staged: ['a.ts', 'b.ts'], unstaged: ['c.ts'], ahead: 2 })
   }

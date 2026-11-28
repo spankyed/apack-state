@@ -444,6 +444,153 @@ const either: Array<[string, () => Promise<void>]> = [
     }
     sys.stop()
   }],
+  ['Vue mirror tracks and clears each pending calls and armed timers keyed __proto__ and toString reactively, and handles Object.prototype refs and call/arm names', async () => {
+    type ProtoNet = {
+      systems: { svc: { events: never; asks: { WORK: { args: { k: string }; answer: string } } } }
+      surfaces: {}
+      views: {}
+    }
+    const protoNet = forNet<ProtoNet>()
+    const svc = protoNet<{}, never, ProtoNet['systems']['svc']['asks']>()({
+      answers: { WORK: () => new Promise(() => {}) },
+    })
+    const form = protoNet<{
+      calls: { work: 'each' }
+      arms: { t: 'each' }
+    }, { type: 'START'; key: string } | { type: 'STOP'; key: string }>()({
+      calls: ({ each }) => ({
+        work: each('svc', 'WORK', { args: (key) => ({ k: key }), done: () => undefined }),
+      }),
+      arms: ({ each }) => ({
+        t: each({ after: 10_000 }),
+      }),
+      on: {
+        START: ({ key }, { call, arm }) => { call('work', key); arm('t', key) },
+        STOP: ({ key }, { cancel, disarm }) => { cancel('work', key); disarm('t', key) },
+      },
+    })
+    const defects: string[] = []
+    const sys = system<ProtoNet>({ side: 'backend', clock: { now: () => 0, after: () => () => {} }, onDefect: (d) => defects.push(d.message) })
+    sys.start('svc', svc)
+    const handle = sys.start('form', form)
+    const { provide, useState } = vueBinding<{ form: typeof form }>()
+    let listRenders = 0
+    let directToStringRenders = 0
+    const View = defineComponent({
+      setup() {
+        const { state } = useState('form')
+        return () => {
+          listRenders++
+          const p = state.value.pending.work
+          const a = state.value.armed.t
+          return h('div', `p:${Object.keys(p).sort().join(',')}:${String('__proto__' in p)}:${String(p['toString'])}|a:${Object.keys(a).sort().join(',')}:${String('__proto__' in a)}:${String(a['toString'])}`)
+        }
+      },
+    })
+    const DirectToString = defineComponent({
+      setup() {
+        const { state } = useState('form')
+        return () => {
+          directToStringRenders++
+          return h('span', `${String(state.value.pending.work['toString'])}:${String(state.value.armed.t['toString'])}`)
+        }
+      },
+    })
+    const host = node('root')
+    const app = createApp(defineComponent(() => () => h('section', [h(View), h(DirectToString)])))
+    provide(app, sys)
+    app.mount(host)
+    strictEqual(shown(host), 'p::false:undefined|a::false:undefinedundefined:undefined')
+    strictEqual(listRenders, 1)
+    strictEqual(directToStringRenders, 1)
+
+    // Verify each key in its own isolated tick (not piggybacking on 'a').
+    sys.send(handle, { type: 'START', key: 'toString' })
+    await nextTick()
+    strictEqual(shown(host), 'p:toString:false:true|a:toString:false:truetrue:true')
+    strictEqual(listRenders, 2)
+    strictEqual(directToStringRenders, 2)
+
+    sys.send(handle, { type: 'START', key: '__proto__' })
+    await nextTick()
+    strictEqual(shown(host), 'p:__proto__,toString:true:true|a:__proto__,toString:true:truetrue:true')
+    strictEqual(listRenders, 3)
+    strictEqual(directToStringRenders, 2)
+
+    sys.send(handle, { type: 'STOP', key: '__proto__' })
+    await nextTick()
+    strictEqual(shown(host), 'p:toString:false:true|a:toString:false:truetrue:true')
+    strictEqual(listRenders, 4)
+
+    sys.send(handle, { type: 'STOP', key: 'toString' })
+    await nextTick()
+    strictEqual(shown(host), 'p::false:undefined|a::false:undefinedundefined:undefined')
+    strictEqual(listRenders, 5)
+    strictEqual(directToStringRenders, 3)
+    app.unmount()
+
+    // Non-data transitions on states with ref 'toString' / '__proto__' must not throw in mirror onStep.
+    const mover = protoNet<{ states: { a: {}; b: {} } }, { type: 'GO' }>()({
+      initial: 'a',
+      on: { GO: () => ({ at: 'b' }) },
+      states: { a: {}, b: {} },
+    })
+    const toStrRef = sys.start('toString', mover)
+    const protoRef = sys.start('__proto__', mover)
+    const refBind = vueBinding<{ toString: typeof mover; ['__proto__']: typeof mover }>()
+    const RefView = defineComponent({
+      setup() {
+        const s1 = refBind.useState('toString')
+        const s2 = refBind.useState('__proto__')
+        return () => h('div', `${s1.state.value.at}:${s2.state.value.at}`)
+      },
+    })
+    const refHost = node('refs')
+    const refApp = createApp(RefView)
+    refBind.provide(refApp, sys)
+    refApp.mount(refHost)
+    strictEqual(shown(refHost), 'a:a')
+    sys.send(toStrRef, { type: 'GO' })
+    sys.send(protoRef, { type: 'GO' })
+    await nextTick()
+    strictEqual(shown(refHost), 'b:b')
+    refApp.unmount()
+
+    // Declared call/arm names '__proto__' and 'toString' must not pollute Object.prototype or Object.prototype.toString.
+    const protoNamed = protoNet<{
+      arms: { ['__proto__']: 'each'; toString: 'each'; valueOf: 'single' }
+    }, { type: 'ARM' }>()({
+      arms: ({ each, single }) => ({
+        ['__proto__']: each({ after: 10_000 }),
+        toString: each({ after: 10_000 }),
+        valueOf: single({ after: 10_000 }),
+      }),
+      on: {
+        ARM: (_, { arm }) => { arm('__proto__', 'k1'); arm('toString', 'k2'); arm('valueOf') },
+      },
+    })
+    const namedHandle = sys.start('named', protoNamed)
+    const namedBind = vueBinding<{ named: typeof protoNamed }>()
+    const NamedView = defineComponent({
+      setup() {
+        const { state } = namedBind.useState('named')
+        return () => h('div', `${String(state.value.armed['__proto__'].k1)}:${String(state.value.armed.toString.k2)}:${String(state.value.armed.valueOf)}`)
+      },
+    })
+    const namedHost = node('named')
+    const namedApp = createApp(NamedView)
+    namedBind.provide(namedApp, sys)
+    namedApp.mount(namedHost)
+    strictEqual(shown(namedHost), 'undefined:undefined:false')
+    sys.send(namedHandle, { type: 'ARM' })
+    await nextTick()
+    strictEqual(shown(namedHost), 'true:true:true')
+    strictEqual('k1' in Object.prototype, false)
+    strictEqual('k2' in Object.prototype.toString, false)
+    deepStrictEqual(defects, [])
+    namedApp.unmount()
+    sys.stop()
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>

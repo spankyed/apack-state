@@ -12,6 +12,8 @@ import { explore, onSchedule } from '../src/testing.ts'
 import { forNet, state, type Clock, type Defect, type StepLog } from '../src/index.ts'
 import { memory } from './store.mts'
 
+const dict = (entries: Record<string, true> = {}): Record<string, true> => Object.assign(Object.create(null), entries)
+
 /** Manual monotonic clock with full inspection of scheduled timers, cancels, and late/throwing hooks. */
 const manualClock = (initial = 1_000) => {
   let time = initial
@@ -124,7 +126,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const h = sys.start('form', form)
 
     const initial = sys.read(h)
-    deepStrictEqual(initial.armed, { debounce: false, t: {} })
+    deepStrictEqual(initial.armed, { debounce: false, t: dict() })
     strictEqual(Object.isFrozen(initial.armed), true)
     strictEqual(Object.isFrozen(initial.armed.t), true)
     strictEqual(sys.idle(), true)
@@ -134,14 +136,14 @@ const checks: Array<[string, () => Promise<void>]> = [
     sys.send(h, { type: 'MARK', key: 'dir/file.ts' })
     // sys.idle() MUST remain true while timers are armed!
     strictEqual(sys.idle(), true)
-    deepStrictEqual(sys.read(h).armed, { debounce: true, t: { a: true, 'dir/file.ts': true } })
+    deepStrictEqual(sys.read(h).armed, { debounce: true, t: dict({ a: true, 'dir/file.ts': true }) })
     strictEqual(Object.isFrozen(sys.read(h).armed), true)
     strictEqual(Object.isFrozen(sys.read(h).armed.t), true)
 
     // Advance 100ms: `t` fires for both keys, `debounce` still armed.
     manual.advance(100)
     await rest()
-    deepStrictEqual(sys.read(h).armed, { debounce: true, t: {} })
+    deepStrictEqual(sys.read(h).armed, { debounce: true, t: dict() })
     deepStrictEqual(sys.read(h).data.fired, ['each:a', 'each:dir/file.ts'])
     strictEqual(sys.read(h).at, 'editing')
     strictEqual(sys.idle(), true)
@@ -150,7 +152,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     manual.advance(100)
     await rest()
     strictEqual(sys.read(h).at, 'submitted')
-    deepStrictEqual(sys.read(h).armed, { debounce: false, t: {} })
+    deepStrictEqual(sys.read(h).armed, { debounce: false, t: dict() })
     deepStrictEqual(sys.read(h).data, { fired: ['each:a', 'each:dir/file.ts', 'debounce'], saved: ['saved:doc'], internalHits: 1 })
     deepStrictEqual(svcEvents, ['debounced'])
     deepStrictEqual(svcCalls, ['doc'])
@@ -504,7 +506,7 @@ const checks: Array<[string, () => Promise<void>]> = [
       { message: 'm cannot arm fixedKeyed without a string key', ref: 'm' },
       { message: 'm cannot arm keyed without a string key', ref: 'm' },
     ])
-    deepStrictEqual(sys.read(h).armed, { zero: false, dyn: false, keyed: {}, fixedKeyed: {} })
+    deepStrictEqual(sys.read(h).armed, { zero: false, dyn: false, keyed: dict(), fixedKeyed: dict() })
 
     // Missing clock reports exact defect without arming.
     const noClockDefects: Defect[] = []
@@ -635,17 +637,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     strictEqual(subCalls, 0)
 
     sys.send(h, { type: 'ARM_ALL' })
-    deepStrictEqual(sys.read(h).armed, { a: { k1: true, k2: true }, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: dict({ k1: true, k2: true }), b: dict({ k1: true }), c: true })
 
     // Single-key disarm removes only k1 of `a`.
     sys.send(h, { type: 'DISARM_ONE', key: 'k1' })
-    deepStrictEqual(sys.read(h).armed, { a: { k2: true }, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: dict({ k2: true }), b: dict({ k1: true }), c: true })
 
     // Bulk disarm removes all remaining keys of `a` while leaving `b` and `c` untouched.
     const cancelsBefore = manual.cancelCalls()
     sys.send(h, { type: 'DISARM_BULK' })
     strictEqual(manual.cancelCalls(), cancelsBefore + 1)
-    deepStrictEqual(sys.read(h).armed, { a: {}, b: { k1: true }, c: true })
+    deepStrictEqual(sys.read(h).armed, { a: dict(), b: dict({ k1: true }), c: true })
 
     // Second bulk disarm when `a` is already empty does not notify subscribers.
     const subBefore = subCalls
@@ -1037,18 +1039,18 @@ const checks: Array<[string, () => Promise<void>]> = [
 
     sys.send(h, { type: 'ARM_IN_CHILD' })
     strictEqual(sys.read(h).armed.keepalive, true)
-    deepStrictEqual(sys.read(h).armed.tagged, { 'child-k': true })
+    deepStrictEqual(sys.read(h).armed.tagged, dict({ 'child-k': true }))
 
     // Moving session.a -> session.b keeps `session` alive, so `keepalive` and `tagged` stay armed and fire!
     sys.send(h, { type: 'TO_B' })
     strictEqual(sys.read(h).at, 'session.b')
     strictEqual(sys.read(h).armed.keepalive, true)
-    deepStrictEqual(sys.read(h).armed.tagged, { 'child-k': true })
+    deepStrictEqual(sys.read(h).armed.tagged, dict({ 'child-k': true }))
     manual.advance(100)
     strictEqual(sys.read(h).data.expired, 1)
     deepStrictEqual(sys.read(h).data.tags, ['child-k'])
     strictEqual(sys.read(h).armed.keepalive, false)
-    deepStrictEqual(sys.read(h).armed.tagged, {})
+    deepStrictEqual(sys.read(h).armed.tagged, dict())
 
     // Arming from an `answers` handler (`Scope`) also works, and leaving `session` disarms it.
     const ans = await sys.ask(h, 'PING', {})

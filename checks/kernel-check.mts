@@ -1313,9 +1313,21 @@ const moves: Array<[string, () => void]> = [
         t: each({ after: 10_000 }),
       }),
     })
-    const psys = system<ProtoNet>({ side: 'backend', clock: { now: () => 0, after: () => () => {} } })
+    const protoLogs: StepLog[] = []
+    const psys = system<ProtoNet>({ side: 'backend', clock: { now: () => 0, after: () => () => {} }, log: (step) => protoLogs.push(step) })
     psys.start('svc', svc)
     const ph = psys.start('proto', protoState)
+    const beforeProto = psys.read(ph)
+    // Null-prototype `each` maps in snapshots never inherit truthy Object.prototype keys when idle.
+    strictEqual(Object.getPrototypeOf(beforeProto.pending.work), null)
+    strictEqual(Object.getPrototypeOf(beforeProto.armed.t), null)
+    strictEqual(beforeProto.pending.work['toString'], undefined)
+    strictEqual(beforeProto.pending.work['constructor'], undefined)
+    strictEqual(beforeProto.pending.work['__proto__'], undefined)
+    strictEqual(beforeProto.armed.t['toString'], undefined)
+    strictEqual(beforeProto.armed.t['constructor'], undefined)
+    strictEqual(beforeProto.armed.t['__proto__'], undefined)
+
     psys.send(ph, { type: 'SET' })
     psys.send(ph, { type: 'START', key: 'a' })
     psys.send(ph, { type: 'START', key: '__proto__' })
@@ -1323,11 +1335,21 @@ const moves: Array<[string, () => void]> = [
     strictEqual(Object.getPrototypeOf(ps.data.map), Object.prototype)
     ok(Object.isFrozen(ps.data.map) && Object.isFrozen(ps.data.map.added) && Object.isFrozen(ps.data.map['__proto__']))
     throws(() => { (ps.data.map.added as { secret: number }).secret = 2 }, TypeError)
-    strictEqual(Object.getPrototypeOf(ps.pending.work), Object.prototype)
-    strictEqual(Object.getPrototypeOf(ps.armed.t), Object.prototype)
+    strictEqual(Object.getPrototypeOf(ps.pending.work), null)
+    strictEqual(Object.getPrototypeOf(ps.armed.t), null)
     ok(ps.pending.work.a === true && Object.hasOwn(ps.pending.work, '__proto__') && ps.pending.work['__proto__'] === true)
     ok(ps.armed.t.a === true && Object.hasOwn(ps.armed.t, '__proto__') && ps.armed.t['__proto__'] === true)
     ok(Object.isFrozen(ps.pending.work) && Object.isFrozen(ps.armed.t))
+
+    // StepLog for a state started under ref 'toString' with a non-data transition records fields: [] (not Object.prototype.toString).
+    const mover = protoNet<{ states: { a: {}; b: {} } }, { type: 'NEXT' }>()({
+      initial: 'a',
+      on: { NEXT: () => ({ at: 'b' }) },
+      states: { a: {}, b: {} },
+    })
+    const th = psys.start('toString', mover)
+    psys.send(th, { type: 'NEXT' })
+    deepStrictEqual(protoLogs.at(-1)!.changed.toString, { fields: [], moved: true, pending: false, armed: false, at: 'b' })
     psys.stop()
     sys.stop()
   }],

@@ -22,11 +22,8 @@ interface Node {
 
 const NODE = Symbol('draft')
 const WHOLE = Symbol('whole')
-/**
- * Writes an own enumerable data property without invoking `Object.prototype.__proto__`'s setter.
- * @internal
- */
-export const put = (target: Record<string, unknown>, key: string, value: unknown): void => {
+/** Writes an own enumerable data property without invoking `Object.prototype.__proto__`'s setter. */
+const put = (target: Record<string, unknown>, key: string, value: unknown): void => {
   if (key === '__proto__') Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
   else target[key] = value
 }
