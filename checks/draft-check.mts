@@ -481,10 +481,16 @@ const checks: Array<[string, () => void]> = [
   }],
   ['freeze mode ignores inherited prototype keys (including __proto__) and still freezes own __proto__ on null-prototype objects', () => {
     const protoProbe = { leaked: true }
+    const protoObj = { a: 1, sibling: { unfrozen: true } }
     Object.defineProperty(Object.prototype, '__draftHasOwnProbe', {
       configurable: true,
       get() { return protoProbe },
       set() {},
+    })
+    Object.defineProperty(Object.prototype, '__draftProtoObj', {
+      configurable: true,
+      writable: true,
+      value: protoObj,
     })
     try {
       const base = freeze({
@@ -498,6 +504,14 @@ const checks: Array<[string, () => void]> = [
       ok(Object.isFrozen(value) && Object.isFrozen(value.map))
       strictEqual(Object.isFrozen(protoProbe), false)
 
+      // Editing an inherited unfrozen plain object on Object.prototype must not inherit fromBase and skip its siblings.
+      const inherited = produce(base, (draft) => {
+        ;(draft.map['__draftProtoObj'] as { a: number }).a = 2
+      }, { freeze: true })
+      const editedProto = inherited.value.map['__draftProtoObj'] as { a: number; sibling: { unfrozen: boolean } }
+      ok(Object.isFrozen(editedProto) && Object.isFrozen(editedProto.sibling))
+      strictEqual(editedProto.a, 2)
+
       const protoRes = produce(base, (draft) => {
         draft.map['__proto__'] = 123
         ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = 123
@@ -508,6 +522,7 @@ const checks: Array<[string, () => void]> = [
       ok(Object.isFrozen(protoRes.value.nullProto) && Object.isFrozen(protoRes.value.nullProto['__proto__']))
     } finally {
       delete (Object.prototype as Record<string, unknown>)['__draftHasOwnProbe']
+      delete (Object.prototype as Record<string, unknown>)['__draftProtoObj']
     }
   }],
   ['freeze mode keeps objects frozen after mid-edit settle, alias removal, and child-draft eviction', () => {

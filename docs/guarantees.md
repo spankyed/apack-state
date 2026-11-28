@@ -161,3 +161,8 @@ Every callback supplied to `system(...)` has a defined failure contract:
     and the kernel cannot inspect deadlocks inside arbitrary external non-kernel promises or locks.
 - **Durability outside `transact`.** State snapshots live in memory; durability comes from the database rows written inside
   `transact` and the transport contract (`@apackdev/link`).
+- **Frozen plain state data.** Every plain object and array stored in state data is frozen deeply when it enters state —
+  including before synchronous `listen` and `run` handlers execute on entry, and immediately on draft or object-literal
+  updates. Non-plain values (class instances, `Map`, `Date`) are left untouched. Freezing stops at objects that are
+  already frozen, so external plain objects handed into state must either be unfrozen or already deeply frozen (never
+  shallowly frozen with writable plain children).

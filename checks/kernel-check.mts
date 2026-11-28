@@ -1228,10 +1228,15 @@ const moves: Array<[string, () => void]> = [
       },
     })
     const aliasedSaw: boolean[] = []
-    const aliased = state<{ data: { a: { x: { n: number } }; b: unknown } }, { type: 'GO' } | { type: 'SHALLOW'; box: unknown } | { type: 'CHECK' }>()({
+    const aliased = state<{
+      data: { a: { x: { n: number } }; b: unknown }
+      states: { idle: {}; done: {} }
+    }, { type: 'GO' } | { type: 'SHALLOW'; box: unknown }>()({
       data: { a: { x: { n: 1 } }, b: null },
+      initial: 'idle',
       on: {
         GO: () => ({
+          at: 'done',
           data: (d) => {
             d.a.x.n = 2
             d.b = d.a
@@ -1240,8 +1245,14 @@ const moves: Array<[string, () => void]> = [
           },
         }),
         SHALLOW: ({ box }) => ({ data: (d) => { d.b = box; (d.b as { extra: number }).extra = 2 } }),
-        CHECK: (_, { data }) => {
-          aliasedSaw.push(Object.isFrozen(data), Object.isFrozen(data.a), Object.isFrozen(data.a.x))
+      },
+      states: {
+        idle: {},
+        done: {
+          // Runs synchronously inside the GO step before prepareCommit/valueOf, directly observing produce(..., { freeze: true }).
+          run: ({ data }) => {
+            aliasedSaw.push(Object.isFrozen(data), Object.isFrozen(data.a), Object.isFrozen(data.a.x))
+          },
         },
       },
     })
@@ -1256,8 +1267,6 @@ const moves: Array<[string, () => void]> = [
     ok(checksSaw.length === 8 && checksSaw.every(Boolean), String(checksSaw))
     const ah = sys.start('aliased', aliased)
     sys.send(ah, { type: 'GO' })
-    // Observe committed state directly inside a handler before sys.read() (which calls valueOf/freeze).
-    sys.send(ah, { type: 'CHECK' })
     ok(aliasedSaw.length === 3 && aliasedSaw.every(Boolean), String(aliasedSaw))
     const snap = sys.read(ah)
     ok(Object.isFrozen(snap.data) && Object.isFrozen(snap.data.a) && Object.isFrozen(snap.data.a.x))

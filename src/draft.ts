@@ -64,7 +64,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   /**
    * Copies descended untouched from frozen `base`, mapped to the keys written onto them (`set` or `settle`). Keyed by
    * the copy object itself so provenance survives mid-edit `settle` and child-draft eviction; copies of freshly
-   * assigned values (even shallowly frozen ones) are omitted so `freezeTree` deep-freezes all of their keys.
+   * assigned values (even shallowly frozen ones) are omitted so `freezeInner` deep-freezes all of their keys.
    */
   const copies = options.freeze ? new Map<object, Set<string>>() : undefined
   let open = true
@@ -173,7 +173,8 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
         const held = node.inside.get(key)
         if (held && held.node.base === value) return held.proxy
         handed = true
-        const proxy = draftOf(value, node, [...node.path, key], node.fromBase && !copies?.get(latest(node))?.has(key))
+        const current = latest(node)
+        const proxy = draftOf(value, node, [...node.path, key], node.fromBase && Object.hasOwn(current, key) && !copies?.get(current)?.has(key))
         node.inside.set(key, { node: (proxy as { [NODE]: Node })[NODE], proxy })
         return proxy
       },
