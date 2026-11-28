@@ -585,7 +585,7 @@
     "why": "Skipping the shallow copy when a state declares no data fields only avoids an allocation; copying produces an identical data object"
   },
   {
-    "key": "src/kernel.ts | BooleanLiteral | try { made = produce(before, data, { fixed: true, topLevel: true, freeze: frozen }) } catch (error) { | false",
+    "key": "src/kernel.ts | BooleanLiteral | try { made = produce(before, data, { fixed: true, topLevel: true, freeze: true }) } catch (error) { | false",
     "original": "true",
     "why": "topLevel only skips deep path construction and JSON.stringify; the kernel only reads path[0], so touched fields are identical either way"
   },

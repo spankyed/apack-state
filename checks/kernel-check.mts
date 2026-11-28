@@ -1227,7 +1227,8 @@ const moves: Array<[string, () => void]> = [
         },
       },
     })
-    const aliased = state<{ data: { a: { x: { n: number } }; b: unknown } }, { type: 'GO' }>()({
+    const aliasedSaw: boolean[] = []
+    const aliased = state<{ data: { a: { x: { n: number } }; b: unknown } }, { type: 'GO' } | { type: 'CHECK' }>()({
       data: { a: { x: { n: 1 } }, b: null },
       on: {
         GO: () => ({
@@ -1238,6 +1239,9 @@ const moves: Array<[string, () => void]> = [
             void d.a.x.n
           },
         }),
+        CHECK: (_, { data }) => {
+          aliasedSaw.push(Object.isFrozen(data), Object.isFrozen(data.a), Object.isFrozen(data.a.x))
+        },
       },
     })
     const sys = system({ side: 'backend' })
@@ -1251,6 +1255,9 @@ const moves: Array<[string, () => void]> = [
     ok(checksSaw.length === 8 && checksSaw.every(Boolean), String(checksSaw))
     const ah = sys.start('aliased', aliased)
     sys.send(ah, { type: 'GO' })
+    // Observe committed state directly inside a handler before sys.read() (which calls valueOf/frozen).
+    sys.send(ah, { type: 'CHECK' })
+    ok(aliasedSaw.length === 3 && aliasedSaw.every(Boolean), String(aliasedSaw))
     const snap = sys.read(ah)
     ok(Object.isFrozen(snap.data) && Object.isFrozen(snap.data.a) && Object.isFrozen(snap.data.a.x))
     throws(() => { (snap.data.a.x as { n: number }).n = 999 }, TypeError)

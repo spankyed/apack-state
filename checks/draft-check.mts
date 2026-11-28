@@ -341,41 +341,50 @@ const checks: Array<[string, () => void]> = [
     deepStrictEqual(value, { titles: { a: 'A', b: 'B', c: 'C' }, messages: { a: ['x', 'y', 'z'] }, count: 2 })
     deepStrictEqual(paths(touched), ['count', 'messages', 'titles'])
   }],
-  ['freeze mode freezes copied containers and newly assigned objects without re-walking untouched siblings or primitives', () => {
-    const r0 = freeze({ id: '0', tags: ['a'] })
-    const r1 = freeze({ id: '1', tags: ['b'] })
-    const untouched = freeze({ k: 1 })
-    const base = freeze({ rows: [r0, r1], other: untouched as { k: number } | null, count: 0 })
-    const seen: unknown[] = []
-    const spyFreeze = (v: unknown): void => { seen.push(v); freeze(v) }
+  ['freeze mode freezes copied containers and newly assigned plain values without re-walking untouched siblings or non-plain objects', () => {
+    const shallowFreeze = <T extends object>(value: T): T => Object.freeze(value)
+    // Untouched siblings are deliberately left unfrozen inside shallowly frozen base containers: any O(N) walk would freeze them.
+    const untouchedRow = { id: '0', tags: ['a'] }
+    const untouchedSibling = { k: 1 }
+    const base = shallowFreeze({
+      rows: shallowFreeze([untouchedRow]),
+      other: untouchedSibling as { k: number } | null,
+      when: null as Date | null,
+      count: 0,
+    })
 
     const added = { id: '2', tags: [] as string[] }
+    const when = new Date(0)
     const { value } = produce(base, (draft) => {
       draft.rows.push(added)
       // Mutating a newly assigned object later inside the same edit must still work.
       added.tags.push('urgent')
-      draft.other = null
+      draft.when = when
       draft.count = 1
-    }, { freeze: spyFreeze })
+    }, { freeze: true })
 
     ok(Object.isFrozen(value) && Object.isFrozen(value.rows))
     ok(Object.isFrozen(added) && Object.isFrozen(added.tags))
-    deepStrictEqual(value.rows[2], { id: '2', tags: ['urgent'] })
-    deepStrictEqual(seen, [added])
+    strictEqual(Object.isFrozen(untouchedRow), false)
+    strictEqual(Object.isFrozen(untouchedSibling), false)
+    strictEqual(Object.isFrozen(when), false)
+    deepStrictEqual(value.rows[1], { id: '2', tags: ['urgent'] })
 
-    // A no-op edit touches nothing and freezes nothing.
-    seen.length = 0
-    const same = produce(base, (draft) => { draft.rows[0] = draft.rows[0]! }, { freeze: spyFreeze })
+    // A no-op edit leaves base untouched and freezes nothing.
+    const same = produce(base, (draft) => { draft.rows[0] = draft.rows[0]! }, { freeze: true })
     strictEqual(same.value, base)
-    deepStrictEqual(seen, [])
+    strictEqual(Object.isFrozen(untouchedRow), false)
+
+    // An unfrozen base passed with freeze: true is still deep-frozen completely.
+    const unfrozenBase = { a: { n: 1 }, b: { m: 2 } }
+    const frozenAll = produce(unfrozenBase, (draft) => { draft.a.n = 2 }, { freeze: true })
+    ok(Object.isFrozen(frozenAll.value) && Object.isFrozen(frozenAll.value.a) && Object.isFrozen(frozenAll.value.b))
   }],
   ['freeze mode does not freeze discarded, overwritten, truncated, or rolled-back objects', () => {
     const base = freeze({
       byId: { a: { n: 1 } } as Record<string, { n: number }>,
       rows: [{ n: 1 }],
     })
-    const seen: unknown[] = []
-    const spyFreeze = (v: unknown): void => { seen.push(v); freeze(v) }
     const deleted = { n: 2 }
     const overwritten = { n: 3 }
     const kept = { n: 4 }
@@ -388,61 +397,110 @@ const checks: Array<[string, () => void]> = [
       draft.byId.a = kept
       draft.rows.push(truncated)
       draft.rows.length = 1
-    }, { freeze: spyFreeze })
+    }, { freeze: true })
 
     ok(Object.isFrozen(value) && Object.isFrozen(value.byId) && Object.isFrozen(value.rows))
     ok(Object.isFrozen(kept))
     strictEqual(Object.isFrozen(deleted), false)
     strictEqual(Object.isFrozen(overwritten), false)
     strictEqual(Object.isFrozen(truncated), false)
-    deepStrictEqual(seen, [kept])
 
     const aborted = { n: 6 }
-    throws(() => produce(base, (draft) => { draft.byId.fail = aborted; throw new Error('abort') }, { freeze: spyFreeze }), /abort/)
+    throws(() => produce(base, (draft) => { draft.byId.fail = aborted; throw new Error('abort') }, { freeze: true }), /abort/)
     strictEqual(Object.isFrozen(aborted), false)
   }],
-  ['freeze mode freezes untouched nested fields of a freshly assigned object edited through a child draft', () => {
+  ['freeze mode freezes untouched nested fields of freshly assigned and shallowly-frozen objects edited through a child draft', () => {
     const base = freeze({
       x: { a: { n: 1 }, b: { m: 2 } },
       y: { items: [] as Array<{ k: number }>, meta: { tag: 'old' } },
+      box: null as unknown,
+      nestedBox: null as unknown,
     })
+    const shallowNested = { count: 0 }
+    const shallow = Object.freeze({ nested: shallowNested, extra: 1 })
+    const deepShallowNested = { count: 0 }
+    const deepShallow = Object.freeze({ nested: deepShallowNested, extra: 1 })
     const { value } = produce(base, (draft) => {
       draft.x = { a: { n: 10 }, b: { m: 20 } }
       draft.x.a.n = 99
       draft.y = { items: [{ k: 1 }], meta: { tag: 'new' } }
       draft.y.items.push({ k: 2 })
-    }, { freeze })
+      draft.box = shallow
+      ;(draft.box as { extra: number }).extra = 2
+      draft.nestedBox = { inner: deepShallow }
+      ;(draft.nestedBox as { inner: { extra: number } }).inner.extra = 2
+    }, { freeze: true })
 
     ok(Object.isFrozen(value))
     ok(Object.isFrozen(value.x) && Object.isFrozen(value.x.a) && Object.isFrozen(value.x.b))
     ok(Object.isFrozen(value.y) && Object.isFrozen(value.y.items) && Object.isFrozen(value.y.items[0]) && Object.isFrozen(value.y.items[1]) && Object.isFrozen(value.y.meta))
+    ok(Object.isFrozen(value.box) && Object.isFrozen(shallowNested))
+    ok(Object.isFrozen(value.nestedBox) && Object.isFrozen((value.nestedBox as { inner: unknown }).inner) && Object.isFrozen(deepShallowNested))
     deepStrictEqual(value.x, { a: { n: 99 }, b: { m: 20 } })
     deepStrictEqual(value.y, { items: [{ k: 1 }, { k: 2 }], meta: { tag: 'new' } })
   }],
-  ['freeze mode handles reassigned child drafts, reversed edited arrays, detached truncated drafts, and cycles', () => {
-    const base = freeze({
-      a: { n: 1, self: null as unknown },
-      b: { n: 0, peer: null as unknown },
-      rows: [{ n: 1 }, { n: 2 }, { n: 3, child: null as { m: number } | null }],
+  ['freeze mode handles reassigned child drafts, wrapped aliases, reversed edited arrays, detached truncated drafts, and cycles in O(Δ)', () => {
+    const shallowFreeze = <T extends object>(value: T): T => Object.freeze(value)
+    const untouched = { sentinel: true }
+    const base = shallowFreeze({
+      a: shallowFreeze({ n: 1, untouched, self: null as unknown }),
+      b: shallowFreeze({ n: 0, peer: null as unknown, wrapped: null as unknown }),
+      rows: shallowFreeze<Array<{ n: number; child?: { m: number } | null }>>([freeze({ n: 1 }), freeze({ n: 2 }), freeze({ n: 3, child: null as { m: number } | null })]),
     })
     const truncatedChild = { m: 99 }
     const { value } = produce(base, (draft) => {
       draft.a.n = 2
       draft.a.self = draft.a
       draft.b.peer = draft.a
+      draft.b.wrapped = { wrap: draft.a, list: [draft.a] }
       draft.rows[0]!.n = 10
       draft.rows.reverse()
       draft.rows[2]!.n = 20
       draft.rows[2]!.child = truncatedChild
       draft.rows.length = 2
-    }, { freeze })
+    }, { freeze: true })
 
-    ok(Object.isFrozen(value) && Object.isFrozen(value.a) && Object.isFrozen(value.b) && Object.isFrozen(value.rows))
+    ok(Object.isFrozen(value) && Object.isFrozen(value.a) && Object.isFrozen(value.b) && Object.isFrozen(value.b.wrapped) && Object.isFrozen(value.rows))
+    ok(Object.isFrozen((value.b.wrapped as { list: unknown[] }).list))
     ok(Object.isFrozen(value.rows[0]) && Object.isFrozen(value.rows[1]))
     strictEqual(value.a.self, value.a)
     strictEqual(value.b.peer, value.a)
+    strictEqual((value.b.wrapped as { wrap: unknown }).wrap, value.a)
+    // Untouched sibling on `a` must not be walked through self-cycles, direct aliases, or fresh wrappers.
+    strictEqual(Object.isFrozen(untouched), false)
     strictEqual(Object.isFrozen(truncatedChild), false)
     deepStrictEqual(value.rows, [{ n: 3, child: null }, { n: 2 }])
+  }],
+  ['freeze mode ignores inherited prototype keys (including __proto__) and still freezes own __proto__ on null-prototype objects', () => {
+    const protoProbe = { leaked: true }
+    Object.defineProperty(Object.prototype, '__draftHasOwnProbe', {
+      configurable: true,
+      get() { return protoProbe },
+      set() {},
+    })
+    try {
+      const base = freeze({
+        map: {} as Record<string, unknown>,
+        arr: [1, 2] as unknown[],
+        nullProto: Object.create(null) as Record<string, unknown>,
+      })
+      const { value } = produce(base, (draft) => {
+        draft.map['__draftHasOwnProbe'] = 123
+      }, { freeze: true })
+      ok(Object.isFrozen(value) && Object.isFrozen(value.map))
+      strictEqual(Object.isFrozen(protoProbe), false)
+
+      const protoRes = produce(base, (draft) => {
+        draft.map['__proto__'] = 123
+        ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = 123
+        draft.nullProto['__proto__'] = { own: 1 }
+      }, { freeze: true })
+      strictEqual(Object.isFrozen(Object.prototype), false)
+      strictEqual(Object.isFrozen(Array.prototype), false)
+      ok(Object.isFrozen(protoRes.value.nullProto) && Object.isFrozen(protoRes.value.nullProto['__proto__']))
+    } finally {
+      delete (Object.prototype as Record<string, unknown>)['__draftHasOwnProbe']
+    }
   }],
   ['freeze mode keeps objects frozen after mid-edit settle, alias removal, and child-draft eviction', () => {
     // 1. Nested draft settled via sibling alias, alias dropped, then settled child re-read.
@@ -451,7 +509,7 @@ const checks: Array<[string, () => void]> = [
       d.b = d.a
       d.b = null
       void d.a.x.n
-    }, { fixed: true, topLevel: true, freeze })
+    }, { fixed: true, topLevel: true, freeze: true })
     ok(Object.isFrozen(r1.value) && Object.isFrozen(r1.value.a) && Object.isFrozen(r1.value.a.x))
 
     // 2. Fresh nested object edited again after eviction.
@@ -460,7 +518,7 @@ const checks: Array<[string, () => void]> = [
       d.b = d.a
       d.b = null
       d.a.x.n = 99
-    }, { fixed: true, topLevel: true, freeze })
+    }, { fixed: true, topLevel: true, freeze: true })
     ok(Object.isFrozen(r2.value.a.x) && Object.isFrozen(r2.value.a.x.m))
     deepStrictEqual(r2.value.a.x, { n: 99, m: { k: 2 } })
 
@@ -470,7 +528,7 @@ const checks: Array<[string, () => void]> = [
       d.rows.push(d.rows[0]!)
       d.rows.pop()
       void d.rows[0]!.x.n
-    }, { fixed: true, topLevel: true, freeze })
+    }, { fixed: true, topLevel: true, freeze: true })
     ok(Object.isFrozen(r3.value.rows) && Object.isFrozen(r3.value.rows[0]) && Object.isFrozen(r3.value.rows[0]!.x))
 
     // 4. Root alias settled via d.b = d, dropped, then child re-read.
@@ -479,7 +537,7 @@ const checks: Array<[string, () => void]> = [
       d.b = d
       d.b = null
       void d.a
-    }, { fixed: true, topLevel: true, freeze })
+    }, { fixed: true, topLevel: true, freeze: true })
     ok(Object.isFrozen(r4.value) && Object.isFrozen(r4.value.a))
 
     // 5. Wrapped alias and self-assignment after eviction.
@@ -488,8 +546,19 @@ const checks: Array<[string, () => void]> = [
       d.b = { wrap: d.a }
       d.b = null
       d.a.x = d.a.x
-    }, { fixed: true, topLevel: true, freeze })
+    }, { fixed: true, topLevel: true, freeze: true })
     ok(Object.isFrozen(r5.value.a) && Object.isFrozen(r5.value.a.x))
+
+    // 6. Retained stale child draft reference mutating after eviction.
+    const r6 = produce(freeze({ a: { x: { n: 1, z: null as unknown } }, b: null as unknown }), (d) => {
+      const ref = d.a.x
+      ref.n = 2
+      d.b = d.a
+      d.b = null
+      void d.a.x
+      ref.z = { k: 99 }
+    }, { fixed: true, topLevel: true, freeze: true })
+    ok(Object.isFrozen(r6.value.a) && Object.isFrozen(r6.value.a.x) && Object.isFrozen(r6.value.a.x.z))
   }],
 ]
 

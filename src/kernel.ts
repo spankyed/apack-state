@@ -1266,7 +1266,7 @@ export function system<N extends Net = Net>(host: {
       if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); return NOT_MADE }
       // Which fields there are is the states' to say, so the edit may change them and neither add nor remove one.
       // The write that tries throws there and then, and an edit that throws has changed nothing.
-      try { made = produce(before, data, { fixed: true, topLevel: true, freeze: frozen }) } catch (error) {
+      try { made = produce(before, data, { fixed: true, topLevel: true, freeze: true }) } catch (error) {
         // A change that came with an answer may refuse, with one of the refusals its ask declares.
         if (mayRefuse && error instanceof Refusal) throw error
         defect(`${top.ref}: ${said(error)}${whereOf(error)}`, top.ref, error)
