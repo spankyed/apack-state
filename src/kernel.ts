@@ -20,7 +20,7 @@
 // it depends on. Which of them are live follows from the data, and is looked at again only when one of those changes.
 // Those are standing: while the data says so, they go on. An imperative call is not, and is fired by saying so.
 
-import { freeze, produce } from './draft.ts'
+import { freeze, produce, put } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
@@ -461,7 +461,7 @@ export function system<N extends Net = Net>(host: {
           else {
             const name = id.slice(0, cut)
             if (top.calls.get(name) === 'many') pending[name] = (pending[name] as number) + 1
-            else (pending[name] as Plain)[id.slice(cut + 1)] = true
+            else put(pending[name] as Plain, id.slice(cut + 1), true)
           }
         }
       }
@@ -474,7 +474,7 @@ export function system<N extends Net = Net>(host: {
         for (const id of active.armed.keys()) {
           const cut = id.indexOf('/')
           if (cut === -1) armed[id] = true
-          else (armed[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true
+          else put(armed[id.slice(0, cut)] as Plain, id.slice(cut + 1), true)
         }
       }
       value.armed = freeze(armed)
