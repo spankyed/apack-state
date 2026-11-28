@@ -126,6 +126,7 @@ change in wording shows here. A template's mistakes, which `vue-tsc` reports in 
 | What was written | What TypeScript says | Why |
 |---|---|---|
 | `START: (_, { sleep }) => { void sleep },` | TS2339: Property 'sleep' does not exist on type 'EventScope&lt;Timer, "", TimerEvent, Nothing>'. | sleeping is for `run` and for an ask's handler |
+| `START: (_, { outside }) => { void outside },` | TS2339: Property 'outside' does not exist on type 'EventScope&lt;Timer, "", TimerEvent, Nothing>'. | waiting for outside work is for `run` and for an ask's handler |
 
 ## What a handler is handed and what is read from a state: what cannot be written, and what can be handed on.
 

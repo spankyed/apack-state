@@ -37,6 +37,17 @@ export class Cancelled extends Error {
   constructor(what: string) { super(`${what} was cancelled before it finished`); this.name = 'Cancelled' }
 }
 
+/** What `outside` gives: a promise that knows whether anything has waited for it, so a failure nothing took can be said. */
+class Waited<T> extends Promise<T> {
+  heard = false
+  // A promise's own `then`, kept and noted: `await` reaches a subclass through it.
+  // oxlint-disable-next-line unicorn/no-thenable
+  override then<A = T, B = never>(kept?: ((value: T) => A | PromiseLike<A>) | null, failed?: ((reason: unknown) => B | PromiseLike<B>) | null): Promise<A | B> {
+    this.heard = true
+    return super.then(kept, failed)
+  }
+}
+
 /**
  * What the engine says of a write to something frozen: assigning a field, adding or removing one, and what a list's
  * `push`, `pop`, `sort` and the like come to. `kernel-check.mts` makes each kind of write and fails when one of them
@@ -300,7 +311,9 @@ export function system<N extends Net = Net>(host: {
   transact?: Transact
   /**
    * Runs something later, after whatever is ahead of it in its lane. The default is the next turn of the event loop.
-   * A check gives a schedule here, which decides the order between lanes and can run every one of them.
+   * A check gives a schedule here, which decides the order between lanes and can run every one of them. It is a later
+   * turn and never a microtask: what `outside` gives is given by it, so that nothing is queued behind a wait's ending
+   * but its work going on.
    */
   later?(lane: Lane, run: () => void): void
   /** Runs something once per frame. A window gives `requestAnimationFrame`; the default is the next turn of the event loop. */
@@ -345,6 +358,7 @@ export function system<N extends Net = Net>(host: {
   const putOff = host.later ?? ((_: Lane, run: () => void): void => { nextTurn(run) })
   const later = (lane: Lane, run: () => void): void => { pending++; putOff(lane, () => { pending--; run() }) }
   const frames: Lane = { label: `${called}'s frame` }
+  const waits: Lane = { label: `${called}'s outside work` }
   const frame = host.frame ?? ((run: () => void): void => later(frames, run))
   /** Code that is not the kernel's, called where its throwing must not stop the step it is in. */
   const safely = (what: string, call: () => void, ref?: string): void => {
@@ -711,6 +725,33 @@ export function system<N extends Net = Net>(host: {
       const waiting = sleep(ms, workSignal)
       // A sleep that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the process.
       waiting.catch(() => {})
+      return waiting
+    },
+    outside: <T,>(work: PromiseLike<T>): Promise<Awaited<T>> => {
+      const where = `${mine.top.ref}${mine.path ? ` in ${mine.path}` : ''}`
+      const waiting = new Waited<Awaited<T>>((resolve, reject) => {
+        const left = ['abort', (): void => { reject(new Cancelled('waiting for outside work')) }] as const
+        // What the work ends with is given on a later turn and not as it ends. Nothing is then queued between the wait
+        // ending and its work going on, so an owner that goes first, by anything queued behind the work's ending, is
+        // `Cancelled` here and its work does not go on.
+        const ended = <V,>(settle: (with_: V) => void, failed: boolean) => (with_: V): void => later(waits, () => {
+          if (workSignal.aborted) {
+            // It is always taken, so that work failing after its owner has gone is not a failure of the process.
+            if (failed) trace(`${where} was no longer waiting for outside work when it failed: ${said(with_)}`)
+            return
+          }
+          workSignal.removeEventListener(...left)
+          settle(with_)
+          // A failure nothing has waited for yet may still be: it is said when its work ends with nothing having.
+          if (failed) workSignal.addEventListener('abort', () => { if (!waiting.heard) trace(`${where} did not wait for outside work it started, which failed: ${said(with_)}`) })
+        })
+        Promise.resolve(work).then(ended(resolve, false), ended(reject, true))
+        if (workSignal.aborted) left[1]()
+        else workSignal.addEventListener(...left)
+      })
+      // One that was started and never awaited ends with `Cancelled` like any other, and that is not a failure of the
+      // process. It is taken by a promise's own `then`, which does not count as having waited for it.
+      Promise.prototype.then.call(waiting, undefined, () => {})
       return waiting
     },
   })

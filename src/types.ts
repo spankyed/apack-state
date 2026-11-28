@@ -352,14 +352,23 @@ export interface Scope<R, H extends string, E extends AnyEvent, N extends Net> {
    * or when the work that started it finishes.
    */
   sleep(ms: number): Promise<void>
+  /**
+   * Waits for work the kernel did not start, and gives what it ends with. Cancels with `Cancelled` when this state
+   * exits, when whoever asked has gone, or when the work that called it finishes, so nothing after it runs for a
+   * state that was left. What the work ends with is given on a later turn, so a state left by anything queued behind
+   * the work's ending is `Cancelled` too. The work itself is not stopped: hand it `signal` for that. What it fails
+   * with once its owner has gone, or with nothing having waited for it by the time the work that called it finishes,
+   * is traced and goes nowhere.
+   */
+  outside<T>(work: PromiseLike<T>): Promise<Awaited<T>>
 }
 
 /**
- * What an event's handler is given: everything but `ask` and `sleep`. A handler is synchronous and cannot await, and
- * an ask or sleep it only started would end, if its state were left, with nothing around it to take that. Asking and
- * sleeping are for `run` and for an ask's handler, which the kernel is around.
+ * What an event's handler is given: everything but `ask`, `sleep` and `outside`. A handler is synchronous and cannot await,
+ * and an ask, a sleep or a wait it only started would end, if its state were left, with nothing around it to take that.
+ * Asking, sleeping and waiting are for `run` and for an ask's handler, which the kernel is around.
  */
-export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep'>
+export type EventScope<R, H extends string, E extends AnyEvent, N extends Net> = Omit<Scope<R, H, E, N>, 'ask' | 'sleep' | 'outside'>
 
 export interface AskScope<R, H extends string, E extends AnyEvent, N extends Net, A extends AskShape> extends Scope<R, H, E, N> {
   /**

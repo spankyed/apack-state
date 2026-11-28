@@ -1382,6 +1382,11 @@ projects. Each would loosen the fit to this app.
   and `scope.now` once per step, and offers `scope.sleep(ms)` in `run` and `answers` with cancellation on exit or
   completion. Wall-clock deadlines (`until(wallTime)`) are [deferred](deferred/wall-deadlines.md) until kept states
   arrive.
+- **Outside work.** `scope.outside(work)` in `run` and `answers` waits for a promise the kernel did not make and ends
+  with `Cancelled` when its owner goes, which is the one wait the kernel did not own: apack guarded it by hand with
+  `signal.aborted` after each `await`. Nested scopes with `all`, `race` and `timeout`, and work written as a generator,
+  are [deferred](deferred/nested-scopes-and-generators.md): apack has no call site for the first, and the second
+  would be a second way to write work.
 - **The kernel's own rough edge.** Reading a state that has ended throws.
 
 ## Costs

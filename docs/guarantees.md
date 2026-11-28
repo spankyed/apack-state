@@ -11,7 +11,7 @@ The kernel tracks four distinct lifetimes. They nest, but they are **not** inter
 |---|---|---|---|
 | **System** | `system(...)` | `stop()` / `[Symbol.dispose]()` or a lost transaction | Stops all running states, cancels all work and asks, detaches ports |
 | **State** | Root `start()` or parent `starts` / transition `at` | Parent removes it, state moves away, top-level `stop(handle)`, or system stops | Cancels owned `listen`, `run()`, `starts`, `follows`, `loads`, `calls`, `arms`, and runs `onExit` releases (LIFO) |
-| **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()` or `sleep()` it started; closes its scope so later `raise`/`tell`/`progress` calls are ignored |
+| **Work** (`run` or `answers` handler) | Handler is invoked | Handler returns or throws, state leaves, asker leaves, or system stops | Cancels any kernel `ask()`, `sleep()` or `outside()` it started; closes its scope so later `raise`/`tell`/`progress` calls are ignored |
 | **Transactional step** | One outside arrival (`send`, `ask`, view update, work result) | `transact` returns and `flush()` runs | Data updates, database rows written via `transact`, and managed outgoing sends (`tell`, `broadcast`, `ask`, `answer`, `peer`) commit or roll back together |
 
 **A multi-step async `run()` is not one transaction.** Each synchronous phase (entering the state, handling an event,
@@ -55,6 +55,27 @@ network) that already ran.
 - **Kernel-owned `ask()` / `sleep()`.** Any `ask()` or `sleep()` started from `run()` or an ask handler is bound to the
   work lifetime: when `run()` returns or throws (for example, when one branch of `Promise.race()` wins), unfinished losing
   `ask()` / `sleep()` calls reject with `Cancelled`.
+- **`outside(work)`.** A promise the kernel did not make, waited for through the scope, is bound to the work lifetime
+  as `ask()` and `sleep()` are: it rejects with `Cancelled` when the state is left, the asker goes, or the work
+  finishes, and gives what the promise ends with otherwise. The promise itself is not stopped, and what it ends with
+  after its owner has gone is taken and dropped: a late failure is traced, as work that fails after its state was
+  left is, and is not an unhandled rejection. A failure that arrives while the owner is there is thrown where it is
+  awaited; one that nothing has waited for by the time its work ends is traced then, and is not an unhandled
+  rejection either.
+- **Outside work that has ended is given on a later turn.** A promise's ending is heard in a microtask, with whatever
+  else was queued in that turn still to run, and any of it may leave the state. So `outside()` does not end its wait
+  there: it ends it on the system's next turn, by itself, when the only thing queued behind it is its work going on.
+  A state left in between is `Cancelled` where it waited, and its work does not go on. The cost is one turn for each
+  wait. It holds where the host's `later` is a later turn, as the default and a schedule are: one that runs what it is
+  given in a microtask puts the ending back among whatever else is queued.
+- **An `ask()` that has been answered is not taken back.** An answer is given as the step that carries it commits,
+  and that step may run in a microtask, when what it waited on was a promise. A state left after its ask was answered
+  and before its work went on (a leaving sent from a promise callback in that same turn) lets the work run to its next
+  wait, where it is `Cancelled`. Until then what it says through its scope does nothing and what it returns is
+  dropped, and what it does outside the kernel happens. An answer is not put off a turn as outside work is: an ask
+  taken back with its step ends as taken back and not as `Cancelled`, which a later turn would lose, and every ask
+  would be one more thing for a schedule to order. A `sleep()` ends on the clock's own turn, with nothing queued
+  behind it.
 - **Detached external promises.** JavaScript cannot forcibly cancel arbitrary non-kernel promises. If a losing branch of
   `Promise.race()` settles *after* `run()` has already returned, the work scope is closed: `raise`, `tell`, `progress`, and
   `onExit` calls from that closed scope are ignored, and cooperative code should check `scope.signal.aborted`.
