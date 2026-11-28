@@ -514,13 +514,12 @@ const checks: Array<[string, () => void]> = [
 
       const protoRes = produce(base, (draft) => {
         draft.map['__proto__'] = 123
-        ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = 123
         draft.nullProto['__proto__'] = { own: 1 }
       }, { freeze: true })
+      throws(() => produce(base, (draft) => { (draft.arr as unknown as Record<string, unknown>)['__proto__'] = 123 }, { freeze: true }), /array draft/)
       strictEqual(Object.isFrozen(Object.prototype), false)
       strictEqual(Object.isFrozen(Array.prototype), false)
       strictEqual(Object.getPrototypeOf(protoRes.value.map), Object.prototype)
-      strictEqual(Object.getPrototypeOf(protoRes.value.arr), Array.prototype)
       ok(Object.hasOwn(protoRes.value.map, '__proto__') && protoRes.value.map['__proto__'] === 123)
       ok(Object.isFrozen(protoRes.value.nullProto) && Object.isFrozen(protoRes.value.nullProto['__proto__']))
     } finally {
@@ -528,7 +527,7 @@ const checks: Array<[string, () => void]> = [
       delete (Object.prototype as Record<string, unknown>)['__draftProtoObj']
     }
   }],
-  ['assigning an object to __proto__ stores an own data property without mutating prototype or bypassing freeze across edits and plainOf', () => {
+  ['assigning an object to __proto__ stores an own data property on objects, refuses array drafts, and never freezes built-in prototypes', () => {
     const base = freeze({
       map: {} as Record<string, unknown>,
       arr: [1, 2] as unknown[],
@@ -536,19 +535,22 @@ const checks: Array<[string, () => void]> = [
       a: { n: 1 },
     })
 
-    // Step 1: object write to __proto__ on plain object and array, plus same-edit delete and overwrite.
+    // Step 1: object write to __proto__ on plain object, plus same-edit delete and overwrite.
     const step1 = produce(base, (draft) => {
       draft.map.added = { secret: 1 }
       draft.map['__proto__'] = { a: 0 }
       delete draft.map['__proto__']
       draft.map['__proto__'] = { a: 1 }
       draft.map.a = 2
-      ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = { y: 1 }
       // Wrapper with own __proto__ (e.g. JSON.parse) plus nested draft exercises plainOf().
       const parsed = JSON.parse('{"__proto__":{"p":1}}') as Record<string, unknown>
       parsed.ref = draft.a
       draft.box = parsed
     }, { freeze: true })
+
+    // Array drafts refuse __proto__ writes (both on existing and freshly assigned arrays).
+    throws(() => produce(base, (draft) => { (draft.arr as unknown as Record<string, unknown>)['__proto__'] = { y: 1 } }, { freeze: true }), /array draft/)
+    throws(() => produce(base, (draft) => { draft.arr = [1, 2]; (draft.arr as unknown as Record<string, unknown>)['__proto__'] = { y: 1 } }, { freeze: true }), /array draft/)
 
     // Without freeze mode, own __proto__ is a normal writable/enumerable/configurable data property.
     const unfrozen = produce({ map: {} as Record<string, unknown> }, (draft) => {
@@ -559,11 +561,9 @@ const checks: Array<[string, () => void]> = [
     })
 
     strictEqual(Object.getPrototypeOf(step1.value.map), Object.prototype)
-    strictEqual(Object.getPrototypeOf(step1.value.arr), Array.prototype)
     strictEqual(Object.getPrototypeOf(step1.value.box), Object.prototype)
     ok(Object.keys(step1.value.map).includes('__proto__'))
     ok(Object.isFrozen(step1.value.map) && Object.isFrozen(step1.value.map.added) && Object.isFrozen(step1.value.map['__proto__']))
-    ok(Object.isFrozen(step1.value.arr) && Object.isFrozen((step1.value.arr as unknown as Record<string, unknown>)['__proto__']))
     ok(Object.isFrozen(step1.value.box) && Object.isFrozen((step1.value.box as Record<string, unknown>)['__proto__']))
 
     // Step 2: subsequent edit mutates nested field inside own __proto__ (exercises own() + settle() even when frozen __proto__.a collides with own key `a`).
@@ -603,13 +603,18 @@ const checks: Array<[string, () => void]> = [
     strictEqual('polluted' in Object.prototype, false)
     strictEqual('polluted' in Array.prototype, false)
 
+    // Guard non-plain freeze behavior on a local Date before assigning built-in prototypes under freeze: true.
+    const localDate = new Date(0)
+    produce(base, (draft) => { draft.box = localDate }, { freeze: true })
+    strictEqual(Object.isFrozen(localDate), false)
+
     // Copying inherited __proto__ (Object.prototype / Array.prototype) into a draft must never freeze built-in prototypes.
     produce(base, (draft) => {
       draft.map['__proto__'] = draft.map['__proto__']
       const src: Record<string, unknown> = {}
       const k = '__proto__'
       draft.map.copied = src[k]
-      ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = (draft.arr as unknown as Record<string, unknown>)['__proto__']
+      draft.box = (draft.arr as unknown as Record<string, unknown>)['__proto__']
     }, { freeze: true })
     strictEqual(Object.isFrozen(Object.prototype), false)
     strictEqual(Object.isFrozen(Array.prototype), false)

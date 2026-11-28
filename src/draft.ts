@@ -22,8 +22,11 @@ interface Node {
 
 const NODE = Symbol('draft')
 const WHOLE = Symbol('whole')
-/** Writes an own enumerable data property without invoking `Object.prototype.__proto__`'s setter. */
-const put = (target: Record<string, unknown>, key: string, value: unknown): void => {
+/**
+ * Writes an own enumerable data property without invoking `Object.prototype.__proto__`'s setter.
+ * @internal
+ */
+export const put = (target: Record<string, unknown>, key: string, value: unknown): void => {
   if (key === '__proto__') Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
   else target[key] = value
 }
@@ -190,6 +193,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
       set(_, key, value) {
         if (!open) closed()
         if (typeof key === 'symbol') return false
+        if (isArray && key === '__proto__') throw new Error("Cannot assign '__proto__' on an array draft")
         if (options.fixed && !node.around && !Object.hasOwn(node.base, key)) throw new Error(`There is no field ${key} to change`)
         const next = plainOf(value)
         if (Object.is(latest(node)[key], next) && Object.hasOwn(latest(node), key)) return true

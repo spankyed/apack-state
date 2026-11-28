@@ -1278,7 +1278,21 @@ const moves: Array<[string, () => void]> = [
     throws(() => { shallowInner.k = 2 }, TypeError)
 
     // Assigning an object to `__proto__` in a draft keeps prototype intact and freezes the container and its fields.
-    const protoState = state<{ data: { map: Record<string, unknown> } }, { type: 'SET' }>()({
+    // Also verify `each` calls and `each` timers keyed `'__proto__'` appear in frozen `pending` and `armed` snapshots.
+    type ProtoNet = {
+      systems: { svc: { events: never; asks: { WORK: { args: { k: string }; answer: string } } } }
+      surfaces: {}
+      views: {}
+    }
+    const protoNet = forNet<ProtoNet>()
+    const svc = protoNet<{}, never, ProtoNet['systems']['svc']['asks']>()({
+      answers: { WORK: () => new Promise(() => {}) },
+    })
+    const protoState = protoNet<{
+      data: { map: Record<string, unknown> }
+      calls: { work: 'each' }
+      arms: { t: 'each' }
+    }, { type: 'SET' } | { type: 'START'; key: string }>()({
       data: { map: {} },
       on: {
         SET: () => ({
@@ -1287,14 +1301,34 @@ const moves: Array<[string, () => void]> = [
             d.map['__proto__'] = { x: 1 }
           },
         }),
+        START: ({ key }, { call, arm }) => {
+          call('work', key)
+          arm('t', key)
+        },
       },
+      calls: ({ each }) => ({
+        work: each('svc', 'WORK', { args: (key) => ({ k: key }), done: () => undefined }),
+      }),
+      arms: ({ each }) => ({
+        t: each({ after: 10_000 }),
+      }),
     })
-    const ph = sys.start('proto', protoState)
-    sys.send(ph, { type: 'SET' })
-    const ps = sys.read(ph)
+    const psys = system<ProtoNet>({ side: 'backend', clock: { now: () => 0, after: () => () => {} } })
+    psys.start('svc', svc)
+    const ph = psys.start('proto', protoState)
+    psys.send(ph, { type: 'SET' })
+    psys.send(ph, { type: 'START', key: 'a' })
+    psys.send(ph, { type: 'START', key: '__proto__' })
+    const ps = psys.read(ph)
     strictEqual(Object.getPrototypeOf(ps.data.map), Object.prototype)
     ok(Object.isFrozen(ps.data.map) && Object.isFrozen(ps.data.map.added) && Object.isFrozen(ps.data.map['__proto__']))
     throws(() => { (ps.data.map.added as { secret: number }).secret = 2 }, TypeError)
+    strictEqual(Object.getPrototypeOf(ps.pending.work), Object.prototype)
+    strictEqual(Object.getPrototypeOf(ps.armed.t), Object.prototype)
+    ok(ps.pending.work.a === true && Object.hasOwn(ps.pending.work, '__proto__') && ps.pending.work['__proto__'] === true)
+    ok(ps.armed.t.a === true && Object.hasOwn(ps.armed.t, '__proto__') && ps.armed.t['__proto__'] === true)
+    ok(Object.isFrozen(ps.pending.work) && Object.isFrozen(ps.armed.t))
+    psys.stop()
     sys.stop()
   }],
 ]
