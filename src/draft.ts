@@ -22,7 +22,13 @@ interface Node {
 
 const NODE = Symbol('draft')
 const WHOLE = Symbol('whole')
+/** Writes an own enumerable data property without invoking `Object.prototype.__proto__`'s setter. */
+const put = (target: Record<string, unknown>, key: string, value: unknown): void => {
+  if (key === '__proto__') Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
+  else target[key] = value
+}
 const isPlain = (value: object): boolean => {
+  if (value === Object.prototype || value === Array.prototype) return false
   if (Array.isArray(value)) return true
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
@@ -77,10 +83,13 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
   /** Makes a node, and every node around it, write to a copy of its own from here on. */
   const own = (node: Node): Record<string, unknown> => {
     if (!node.copy) {
-      node.copy = Array.isArray(node.base)
+      const copy: object = Array.isArray(node.base)
         ? [...node.base]
-        : Object.assign(Object.create(Object.getPrototypeOf(node.base) as object | null) as Record<string, unknown>, node.base)
-      if (copies && node.fromBase) copies.set(node.copy, new Set())
+        : Object.getPrototypeOf(node.base) === null
+          ? Object.assign(Object.create(null) as Record<string, unknown>, node.base)
+          : { ...node.base }
+      node.copy = copy
+      if (copies && node.fromBase) copies.set(copy, new Set())
       if (node.around) own(node.around)
     }
     return node.copy as Record<string, unknown>
@@ -101,7 +110,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     const made = node.copy as Record<string, unknown>
     for (const [key, held] of node.inside) {
       if (held.node.copy && made[key] === held.node.base) {
-        made[key] = settle(held.node)
+        put(made, key, settle(held.node))
         copies?.get(made)?.add(key)
       }
     }
@@ -137,7 +146,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
     for (const [k, v] of Object.entries(value)) {
       const plain = plainOf(v, track)
       if (plain !== v) changed = true
-      copy[k] = plain
+      put(copy, k, plain)
     }
     if (!changed) track.set(value, value)
     return changed ? copy : value
@@ -185,7 +194,7 @@ export function produce<T extends object>(base: T, edit: (draft: T) => void, opt
         const next = plainOf(value)
         if (Object.is(latest(node)[key], next) && Object.hasOwn(latest(node), key)) return true
         const target = own(node)
-        target[key] = next
+        put(target, key, next)
         copies?.get(target)?.add(key)
         node.inside.delete(key)
         note(node, key)

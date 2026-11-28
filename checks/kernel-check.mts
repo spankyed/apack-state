@@ -1276,6 +1276,25 @@ const moves: Array<[string, () => void]> = [
     sys.send(ah, { type: 'SHALLOW', box: Object.freeze({ inner: shallowInner, extra: 1 }) })
     ok(Object.isFrozen(shallowInner))
     throws(() => { shallowInner.k = 2 }, TypeError)
+
+    // Assigning an object to `__proto__` in a draft keeps prototype intact and freezes the container and its fields.
+    const protoState = state<{ data: { map: Record<string, unknown> } }, { type: 'SET' }>()({
+      data: { map: {} },
+      on: {
+        SET: () => ({
+          data: (d) => {
+            d.map.added = { secret: 1 }
+            d.map['__proto__'] = { x: 1 }
+          },
+        }),
+      },
+    })
+    const ph = sys.start('proto', protoState)
+    sys.send(ph, { type: 'SET' })
+    const ps = sys.read(ph)
+    strictEqual(Object.getPrototypeOf(ps.data.map), Object.prototype)
+    ok(Object.isFrozen(ps.data.map) && Object.isFrozen(ps.data.map.added) && Object.isFrozen(ps.data.map['__proto__']))
+    throws(() => { (ps.data.map.added as { secret: number }).secret = 2 }, TypeError)
     sys.stop()
   }],
 ]

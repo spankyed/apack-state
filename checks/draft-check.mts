@@ -519,11 +519,100 @@ const checks: Array<[string, () => void]> = [
       }, { freeze: true })
       strictEqual(Object.isFrozen(Object.prototype), false)
       strictEqual(Object.isFrozen(Array.prototype), false)
+      strictEqual(Object.getPrototypeOf(protoRes.value.map), Object.prototype)
+      strictEqual(Object.getPrototypeOf(protoRes.value.arr), Array.prototype)
+      ok(Object.hasOwn(protoRes.value.map, '__proto__') && protoRes.value.map['__proto__'] === 123)
       ok(Object.isFrozen(protoRes.value.nullProto) && Object.isFrozen(protoRes.value.nullProto['__proto__']))
     } finally {
       delete (Object.prototype as Record<string, unknown>)['__draftHasOwnProbe']
       delete (Object.prototype as Record<string, unknown>)['__draftProtoObj']
     }
+  }],
+  ['assigning an object to __proto__ stores an own data property without mutating prototype or bypassing freeze across edits and plainOf', () => {
+    const base = freeze({
+      map: {} as Record<string, unknown>,
+      arr: [1, 2] as unknown[],
+      box: null as unknown,
+      a: { n: 1 },
+    })
+
+    // Step 1: object write to __proto__ on plain object and array, plus same-edit delete and overwrite.
+    const step1 = produce(base, (draft) => {
+      draft.map.added = { secret: 1 }
+      draft.map['__proto__'] = { a: 0 }
+      delete draft.map['__proto__']
+      draft.map['__proto__'] = { a: 1 }
+      draft.map.a = 2
+      ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = { y: 1 }
+      // Wrapper with own __proto__ (e.g. JSON.parse) plus nested draft exercises plainOf().
+      const parsed = JSON.parse('{"__proto__":{"p":1}}') as Record<string, unknown>
+      parsed.ref = draft.a
+      draft.box = parsed
+    }, { freeze: true })
+
+    // Without freeze mode, own __proto__ is a normal writable/enumerable/configurable data property.
+    const unfrozen = produce({ map: {} as Record<string, unknown> }, (draft) => {
+      draft.map['__proto__'] = { a: 1 }
+    })
+    deepStrictEqual(Object.getOwnPropertyDescriptor(unfrozen.value.map, '__proto__'), {
+      value: { a: 1 }, writable: true, enumerable: true, configurable: true,
+    })
+
+    strictEqual(Object.getPrototypeOf(step1.value.map), Object.prototype)
+    strictEqual(Object.getPrototypeOf(step1.value.arr), Array.prototype)
+    strictEqual(Object.getPrototypeOf(step1.value.box), Object.prototype)
+    ok(Object.keys(step1.value.map).includes('__proto__'))
+    ok(Object.isFrozen(step1.value.map) && Object.isFrozen(step1.value.map.added) && Object.isFrozen(step1.value.map['__proto__']))
+    ok(Object.isFrozen(step1.value.arr) && Object.isFrozen((step1.value.arr as unknown as Record<string, unknown>)['__proto__']))
+    ok(Object.isFrozen(step1.value.box) && Object.isFrozen((step1.value.box as Record<string, unknown>)['__proto__']))
+
+    // Step 2: subsequent edit mutates nested field inside own __proto__ (exercises own() + settle() even when frozen __proto__.a collides with own key `a`).
+    const step2 = produce(step1.value, (draft) => {
+      ;(draft.map['__proto__'] as { a: number }).a = 9
+    }, { freeze: true })
+    strictEqual(Object.getPrototypeOf(step2.value.map), Object.prototype)
+    ok(Object.hasOwn(step2.value.map, '__proto__'))
+    strictEqual((step2.value.map['__proto__'] as { a: number }).a, 9)
+    strictEqual(step2.value.map.a, 2)
+    ok(Object.isFrozen(step2.value.map) && Object.isFrozen(step2.value.map['__proto__']))
+
+    // Step 3: own __proto__ can be deleted cleanly (configurable: true).
+    const step3 = produce(step2.value, (draft) => {
+      delete draft.map['__proto__']
+    }, { freeze: true })
+    strictEqual(Object.hasOwn(step3.value.map, '__proto__'), false)
+    strictEqual(Object.getPrototypeOf(step3.value.map), Object.prototype)
+
+    // Same-edit write + nested mutate of own __proto__, and assign + delete leaves dropped object unfrozen.
+    const dropped = { k: 1 }
+    const sameEdit = produce(base, (draft) => {
+      draft.map['__proto__'] = { x: 1, nested: { k: 1 } }
+      ;(draft.map['__proto__'] as { x: number; nested: { k: number } }).x = 2
+      ;(draft.map['__proto__'] as { x: number; nested: { k: number } }).nested.k = 9
+      draft.map.tmp = dropped
+      delete draft.map.tmp
+    }, { freeze: true })
+    strictEqual(Object.getPrototypeOf(sameEdit.value.map), Object.prototype)
+    deepStrictEqual(sameEdit.value.map['__proto__'], { x: 2, nested: { k: 9 } })
+    ok(Object.isFrozen(sameEdit.value.map['__proto__']) && Object.isFrozen((sameEdit.value.map['__proto__'] as { nested: unknown }).nested))
+    strictEqual(Object.isFrozen(dropped), false)
+
+    // Inherited Object.prototype and Array.prototype are non-plain: mutating them throws (never drafts or freezes them).
+    throws(() => produce(base, (draft) => { (draft.map['__proto__'] as Record<string, unknown>).polluted = 1 }), /not plain data/)
+    throws(() => produce(base, (draft) => { ((draft.arr as unknown as Record<string, unknown>)['__proto__'] as Record<string, unknown>).polluted = 1 }), /not plain data/)
+    strictEqual('polluted' in Object.prototype, false)
+    strictEqual('polluted' in Array.prototype, false)
+
+    // Copying inherited __proto__ (Object.prototype / Array.prototype) into a draft must never freeze built-in prototypes.
+    produce(base, (draft) => {
+      draft.map['__proto__'] = draft.map['__proto__']
+      const src: Record<string, unknown> = {}
+      const k = '__proto__'
+      draft.map.copied = src[k]
+      ;(draft.arr as unknown as Record<string, unknown>)['__proto__'] = (draft.arr as unknown as Record<string, unknown>)['__proto__']
+    }, { freeze: true })
+    strictEqual(Object.isFrozen(Object.prototype), false)
+    strictEqual(Object.isFrozen(Array.prototype), false)
   }],
   ['freeze mode keeps objects frozen after mid-edit settle, alias removal, and child-draft eviction', () => {
     // 1. Nested draft settled via sibling alias, alias dropped, then settled child re-read.
