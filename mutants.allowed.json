@@ -1,30 +1,5 @@
 [
   {
-    "key": "src/draft.ts | BooleanLiteral | if (typeof value !== 'object' || value === null) return false | true",
-    "original": "false",
-    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
-  },
-  {
-    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
-    "original": "typeof value !== 'object' || value === null",
-    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
-  },
-  {
-    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
-    "original": "typeof value !== 'object'",
-    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
-  },
-  {
-    "key": "src/draft.ts | ConditionalExpression | if (typeof value !== 'object' || value === null) return false | false",
-    "original": "value === null",
-    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
-  },
-  {
-    "key": "src/draft.ts | LogicalOperator | if (typeof value !== 'object' || value === null) return false | typeof value !== 'object' && value === null",
-    "original": "typeof value !== 'object' || value === null",
-    "why": "isPlain is only ever called with an object that is not null: both callers return before it otherwise, so this guard is never true and what it returns is never seen"
-  },
-  {
     "key": "src/draft.ts | ArrayDeclaration | return new Proxy(isArray ? [] : {}, { | [\"Stryker was here\"]",
     "original": "[]",
     "why": "The proxy's target is never read: every trap answers from the node, and an array target is only there so that Array.isArray and the length's descriptor hold. An element on it is seen by nothing"
@@ -435,31 +410,6 @@
     "why": "With no limit, counting steps compares a number with undefined, which is never greater, so the first half of the test decides nothing the second does not"
   },
   {
-    "key": "src/kernel.ts | LogicalOperator | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | (typeof value !== 'object' || value === null) && Object.isFrozen(value)",
-    "original": "typeof value !== 'object' || value === null || Object.isFrozen(value)",
-    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
-    "original": "typeof value !== 'object' || value === null",
-    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
-    "original": "typeof value !== 'object'",
-    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
-  },
-  {
-    "key": "src/kernel.ts | ConditionalExpression | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | false",
-    "original": "value === null",
-    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
-  },
-  {
-    "key": "src/kernel.ts | LogicalOperator | if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value | typeof value !== 'object' && value === null",
-    "original": "typeof value !== 'object' || value === null",
-    "why": "Object.isFrozen is true of every value that is not an object, null included, so the tests before it decide nothing it does not; and without them a frozen object is walked again, which only costs time unless its insides were left unfrozen by whoever froze it"
-  },
-  {
     "key": "src/kernel.ts | LogicalOperator | const frames = error instanceof Error && error.stack ? error.stack.split('\\n').slice(1) : [] | error instanceof Error || error.stack",
     "original": "error instanceof Error && error.stack",
     "why": "Only a thrown object that is not an Error but has a stack, or an Error with none, is read differently; what a handler throws is an Error, which has one, or a value with no stack at all, which both read as having no frames"
@@ -585,7 +535,7 @@
     "why": "Skipping the shallow copy when a state declares no data fields only avoids an allocation; copying produces an identical data object"
   },
   {
-    "key": "src/kernel.ts | BooleanLiteral | try { made = produce(before, data, { fixed: true, topLevel: true }) } catch (error) { | false",
+    "key": "src/kernel.ts | BooleanLiteral | try { made = produce(before, data, { fixed: true, topLevel: true, freeze: true }) } catch (error) { | false",
     "original": "true",
     "why": "topLevel only skips deep path construction and JSON.stringify; the kernel only reads path[0], so touched fields are identical either way"
   },

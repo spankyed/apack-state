@@ -20,7 +20,7 @@
 // it depends on. Which of them are live follows from the data, and is looked at again only when one of those changes.
 // Those are standing: while the data says so, they go on. An imperative call is not, and is fired by saying so.
 
-import { produce } from './draft.ts'
+import { freeze, produce } from './draft.ts'
 import { nextTurn } from './turn.ts'
 import { ANSWERED, given, type AllStarts, type Answered, type AnyEvent, type AnyOutcome, type Asks, type Each, type Handle, type HandleOf, type Net, type OutcomeOf, type ProgressOf, type Read, type RootGiven, type Shape, type Started, type State, type Value, type ViewHost, type ViewUpdate } from './types.ts'
 import type { Clock, Following, Lane, PeerPort, Port, PortOutcome } from './port.ts'
@@ -446,25 +446,10 @@ export function system<N extends Net = Net>(host: {
   /** This system's non-window peers, by name. */
   const peers = new Map<string, PeerPort>()
 
-  /**
-   * What a state holds is a value: once it is the state's, nothing changes it but a handler, which makes another.
-   * So it is frozen, all the way down, and a write to it throws on the line that tried. A component is handed these
-   * very objects, and so is whatever a handler passes on. Freezing stops at what is frozen already, which is all of
-   * what a step did not change, and leaves alone what is not plain data: a class instance, a component, a map.
-   */
-  const frozen = <T,>(value: T): T => {
-    if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
-    const prototype = Object.getPrototypeOf(value)
-    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value
-    Object.freeze(value)
-    for (const inner of Array.isArray(value) ? value : Object.values(value)) frozen(inner)
-    return value
-  }
-
   const innermost = (top: Running): Active => { let active = top.root; while (active.inside) active = active.inside; return active }
   const valueOf = (top: Running): Plain => {
     const at = innermost(top).path
-    const data = frozen(top.data)
+    const data = freeze(top.data)
     const value: Plain = at ? { at, data } : { data }
     if (top.calls.size) {
       // Which of the imperative asks it declares are currently in flight, in the active states.
@@ -480,7 +465,7 @@ export function system<N extends Net = Net>(host: {
           }
         }
       }
-      value.pending = frozen(pending)
+      value.pending = freeze(pending)
     }
     if (top.arms.size) {
       // Which of the imperative timers it declares are currently armed, in the active states.
@@ -492,7 +477,7 @@ export function system<N extends Net = Net>(host: {
           else (armed[id.slice(0, cut)] as Plain)[id.slice(cut + 1)] = true
         }
       }
-      value.armed = frozen(armed)
+      value.armed = freeze(armed)
     }
     return Object.freeze(value)
   }
@@ -678,7 +663,7 @@ export function system<N extends Net = Net>(host: {
         const kind = mine.top.calls.get(name)
         const key = kind === 'each' ? rest[0] as string : undefined
         const hasInput = kind === 'each' ? rest.length > 1 : rest.length > 0
-        const input = hasInput ? frozen(kind === 'each' ? rest[1] : rest[0]) : undefined
+        const input = hasInput ? freeze(kind === 'each' ? rest[1] : rest[0]) : undefined
         enqueue({ kind: 'call', of: mine, name, key, hasInput, input })
       },
       cancel: (name: string, k?: string) => { if (alive()) enqueue({ kind: 'cancel', of: mine, name, key: k }) },
@@ -745,7 +730,7 @@ export function system<N extends Net = Net>(host: {
     if (entries.length) {
       const nextData: Plain = { ...top.data }
       for (const [field, initial] of entries) nextData[field] = Object.hasOwn(entering, field) ? entering[field] : initial
-      top.data = nextData
+      top.data = freeze(nextData)
     }
     if (path) trace(`${top.ref} entered ${path}`)
     if (def.listen) {
@@ -852,7 +837,7 @@ export function system<N extends Net = Net>(host: {
     for (const release of active.releases.splice(0).reverse()) safely(`a release of ${active.top.ref}`, release, active.top.ref)
     const { ...rest } = active.top.data
     for (const field of Object.keys(active.def.data ?? {})) delete rest[field]
-    active.top.data = rest
+    active.top.data = Object.freeze(rest)
     if (active.around) active.around.inside = undefined
   }
 
@@ -1231,10 +1216,9 @@ export function system<N extends Net = Net>(host: {
     survey(def)
     restarted.add(ref)
     mark(ref)
-    const top: Running = { ref, data: {}, root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
+    const top: Running = { ref, data: Object.freeze({}), root: undefined as unknown as Active, starter, calls, arms, resolve, resolved: new Map(), reported: new Set() }
     running.set(ref, top)
     descend(enter(top, def, '', undefined, entering), [], {})
-    top.data = frozen(top.data)
   }
 
   const end = (ref: string): void => {
@@ -1252,11 +1236,8 @@ export function system<N extends Net = Net>(host: {
     trace(`LARGE: ${top.ref} holds ${held.length} items in ${field}. A collection this size belongs in a view`)
   }
 
-  /** Makes a change, and freezes what the state holds afterwards, however the change went. */
+  /** Makes a change, leaving what the state holds frozen all the way down. */
   const apply = (active: Active, next: unknown, mayRefuse = false): boolean => {
-    try { return change(active, next, mayRefuse) } finally { active.top.data = frozen(active.top.data) }
-  }
-  const change = (active: Active, next: unknown, mayRefuse: boolean): boolean => {
     if (next === undefined || next === null || active.controller.signal.aborted) return MADE
     const { at, data = {} } = next as { at?: string; data?: Plain | ((draft: Plain) => void) }
     const top = active.top
@@ -1270,7 +1251,7 @@ export function system<N extends Net = Net>(host: {
       if (cannot) { defect(`${top.ref} ${cannot}`, top.ref); return NOT_MADE }
       // Which fields there are is the states' to say, so the edit may change them and neither add nor remove one.
       // The write that tries throws there and then, and an edit that throws has changed nothing.
-      try { made = produce(before, data, { fixed: true, topLevel: true }) } catch (error) {
+      try { made = produce(before, data, { fixed: true, topLevel: true, freeze: true }) } catch (error) {
         // A change that came with an answer may refuse, with one of the refusals its ask declares.
         if (mayRefuse && error instanceof Refusal) throw error
         defect(`${top.ref}: ${said(error)}${whereOf(error)}`, top.ref, error)
@@ -1300,7 +1281,7 @@ export function system<N extends Net = Net>(host: {
       }
     }
     if (nextData) {
-      top.data = nextData
+      top.data = freeze(nextData)
       for (const field of fields.get(top.ref) ?? []) large(top, field)
     }
     if (at !== undefined) { const was = top.data; go(top, at, data); moved(top, was) }
