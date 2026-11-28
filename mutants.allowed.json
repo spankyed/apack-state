@@ -40,11 +40,6 @@
     "why": "A reactive write of the value already there triggers nothing in Vue, so writing it when it is unchanged is seen by no reader"
   },
   {
-    "key": "src/mirror.ts | ConditionalExpression | for (const key of Object.keys(now)) if (!keys[key]) keys[key] = true | true",
-    "original": "!keys[key]",
-    "why": "A reactive write of the value already there triggers nothing in Vue, so writing it when it is unchanged is seen by no reader"
-  },
-  {
     "key": "src/mirror.ts | ConditionalExpression | if (changes[ref]?.moved) into.whole.at = latest.at | true",
     "original": "changes[ref]?.moved",
     "why": "Writing where the state is when it did not move writes the value already there, which triggers nothing in Vue"

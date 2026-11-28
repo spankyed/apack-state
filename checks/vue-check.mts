@@ -444,6 +444,68 @@ const either: Array<[string, () => Promise<void>]> = [
     }
     sys.stop()
   }],
+  ['Vue mirror tracks and clears each pending calls and armed timers keyed __proto__ and toString reactively', async () => {
+    type ProtoNet = {
+      systems: { svc: { events: never; asks: { WORK: { args: { k: string }; answer: string } } } }
+      surfaces: {}
+      views: {}
+    }
+    const protoNet = forNet<ProtoNet>()
+    const svc = protoNet<{}, never, ProtoNet['systems']['svc']['asks']>()({
+      answers: { WORK: () => new Promise(() => {}) },
+    })
+    const form = protoNet<{
+      calls: { work: 'each' }
+      arms: { t: 'each' }
+    }, { type: 'START'; key: string } | { type: 'STOP'; key: string }>()({
+      calls: ({ each }) => ({
+        work: each('svc', 'WORK', { args: (key) => ({ k: key }), done: () => undefined }),
+      }),
+      arms: ({ each }) => ({
+        t: each({ after: 10_000 }),
+      }),
+      on: {
+        START: ({ key }, { call, arm }) => { call('work', key); arm('t', key) },
+        STOP: ({ key }, { cancel, disarm }) => { cancel('work', key); disarm('t', key) },
+      },
+    })
+    const sys = system<ProtoNet>({ side: 'backend', clock: { now: () => 0, after: () => () => {} } })
+    sys.start('svc', svc)
+    const handle = sys.start('form', form)
+    const { provide, useState } = vueBinding<{ form: typeof form }>()
+    let renders = 0
+    const View = defineComponent({
+      setup() {
+        const { state } = useState('form')
+        return () => {
+          renders++
+          const p = state.value.pending.work
+          const a = state.value.armed.t
+          return h('div', `p:${Object.keys(p).sort().join(',')}:${String(p['__proto__'])}:${String(p['toString'])}|a:${Object.keys(a).sort().join(',')}:${String(a['__proto__'])}:${String(a['toString'])}`)
+        }
+      },
+    })
+    const host = node('root')
+    const app = createApp(View)
+    provide(app, sys)
+    app.mount(host)
+    strictEqual(shown(host), 'p::undefined:undefined|a::undefined:undefined')
+
+    sys.send(handle, { type: 'START', key: 'a' })
+    sys.send(handle, { type: 'START', key: 'toString' })
+    sys.send(handle, { type: 'START', key: '__proto__' })
+    await nextTick()
+    strictEqual(shown(host), 'p:__proto__,a,toString:true:true|a:__proto__,a,toString:true:true')
+
+    sys.send(handle, { type: 'STOP', key: '__proto__' })
+    sys.send(handle, { type: 'STOP', key: 'toString' })
+    await nextTick()
+    strictEqual(shown(host), 'p:a:undefined:undefined|a:a:undefined:undefined')
+    ok(renders >= 3)
+
+    app.unmount()
+    sys.stop()
+  }],
 ]
 
 const written_as = (form: typeof written, list: typeof checks): typeof checks =>

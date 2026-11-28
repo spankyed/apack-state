@@ -63,9 +63,9 @@ export function mirrors(sys: System): Mirrors {
   const follow = (into: Pending, from: Pending): void => {
     for (const [name, now] of Object.entries(from)) {
       if (typeof now !== 'object') { if (into[name] !== now) into[name] = now; continue }
-      const keys = (into[name] ??= {}) as Record<string, boolean>
-      for (const key of Object.keys(keys)) if (!(key in now)) delete keys[key]
-      for (const key of Object.keys(now)) if (!keys[key]) keys[key] = true
+      const keys = (into[name] ??= Object.create(null)) as Record<string, boolean>
+      for (const key of Object.keys(keys)) if (!Object.hasOwn(now, key)) delete keys[key]
+      for (const key of Object.keys(now)) keys[key] = true
     }
   }
 
